@@ -33,3 +33,5 @@ All three use the **same** background poller and `processLiveInboundEmail` path:
 ## Stack
 
 React 19 + Vite + Tailwind · Express API · Firebase Auth / Firestore · OpenAI / Gemini · Resend · Stripe · Meta WhatsApp / Instagram
+
+<!-- Deployment trigger only: no application behavior changed. -->
