@@ -42,7 +42,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import './LandingPage.css';
 import './LandingPageRepair.css';
-import { AIAgentMarketingPage, CampaignBuilderMarketingPage, CrmMarketingPage, FaqMarketingPage, HowItWorksMarketingPage, UnifiedInboxMarketingPage } from './MarketingPages';
+import { AIAgentMarketingPage, CampaignBuilderMarketingPage, CapabilityPage as NewCapabilityPage, CrmMarketingPage, FaqMarketingPage, HomeMarketingPage, HowItWorksMarketingPage, UnifiedInboxMarketingPage } from './MarketingPages';
 
 const DEMO_URL = 'https://www.amaavigo.com/consult-now';
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
@@ -65,11 +65,6 @@ const NAV_GROUPS: NavGroup[] = [
     {label:'Lead generation teams',href:'/solutions#lead-generation',description:'Capture, qualify and follow up consistently'},
     {label:'Sales organisations',href:'/solutions#sales-teams',description:'Keep conversations, pipeline and campaigns connected'},
     {label:'Customer operations',href:'/solutions#customer-operations',description:'Coordinate service conversations and next steps'},
-  ]},
-  {label:'Resources',href:'/resources',links:[
-    {label:'How it works',href:'/how-it-works',description:'See the complete lead-to-revenue workflow'},
-    {label:'Integrations',href:'/integrations',description:'Connect the tools your team already uses'},
-    {label:'FAQs',href:'/faqs',description:'Answers about channels, AI and campaigns'},
   ]},
 ];
 
@@ -689,16 +684,21 @@ export const LandingPage: React.FC = () => {
   }, [title]);
 
   let page: React.ReactNode;
-  if (pathname === '/pricing') page = <PricingPage />;
-  else if (pathname === '/solutions') page = <SolutionsPage />;
-  else if (pathname === '/integrations') page = <IntegrationsPage />;
-  else if (pathname === '/resources') page = <ResourcesPage />;
+  if (pathname === '/') page = <HomeMarketingPage />;
+  else if (pathname === '/pricing') page = <PricingPage />;
+  else if (pathname === '/solutions') page = <NewCapabilityPage kind="solutions" path={pathname} />;
+  else if (pathname === '/integrations') page = <CapabilityPage kind="integrations" path={pathname} />;
+  else if (pathname === '/resources') page = <CapabilityPage kind="resources" path={pathname} />;
   else if (pathname === '/how-it-works') page = <HowItWorksMarketingPage />;
   else if (pathname === '/faqs') page = <FaqMarketingPage />;
   else if (pathname === '/ai-agents' || pathname === '/ai-agent') page = <AIAgentMarketingPage />;
   else if (pathname === '/unified-inbox') page = <UnifiedInboxMarketingPage />;
   else if (pathname === '/campaigns' || pathname === '/whatsapp') page = <CampaignBuilderMarketingPage initialTab={pathname === '/whatsapp' ? 'whatsapp' : 'email'} />;
   else if (pathname === '/crm') page = <CrmMarketingPage />;
+  else if (pathname === '/lead-capture') page = <CapabilityPage kind="capture" path={pathname} />;
+  else if (pathname === '/demo-scheduling') page = <CapabilityPage kind="schedule" path={pathname} />;
+  else if (pathname === '/analytics') page = <CapabilityPage kind="analytics" path={pathname} />;
+  else if (pathname === '/platform') page = <CapabilityPage kind="platform" path={pathname} />;
   else if (pathname === '/about') page = <AboutPage />;
   else if (pathname === '/contact' || pathname === '/book-demo') page = <ContactPage />;
   else if (PAGE_META[pathname]) page = <CapabilityPage path={pathname} />;
