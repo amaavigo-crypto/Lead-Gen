@@ -1031,6 +1031,12 @@ export async function processWebsiteLeadSubmission(
         safeSetDoc(repo.conversationDoc(conversation.conversationId), conversation, { merge: true }),
         safeSetDoc(repo.messageDoc(initialMessage.messageId), initialMessage, { merge: true }),
       ]);
+      try {
+        const { enqueueLeadScoringEvaluation } = await import('./leadScoringService.js');
+        await enqueueLeadScoringEvaluation(ctx, lead.leadId, conversation.conversationId, 'NEW_LEAD');
+      } catch (scoringError: any) {
+        console.warn('[Website Lead] AI lead scoring notice:', scoringError?.message || scoringError);
+      }
       console.log(`[Website Lead] Saved submission ${leadId} and its inbound conversation for tenant ${ctx.tenantId}.`);
     } catch (dbErr) {
       console.error(`[Website Lead] Error writing lead entities for ${ctx.tenantId}:`, dbErr);

@@ -358,7 +358,27 @@ export interface Lead {
   source: LeadSource;
   leadType: LeadType;
   status: LeadStatus;
-  leadScore: number; // 0-100
+  leadScore: number; // 0-100; AI Lead Scoring is the authoritative value when aiScoring exists.
+  aiScoring?: {
+    totalScore: number;
+    category: 'HOT' | 'WARM' | 'COLD' | 'UNSCORED';
+    parameterScores: Array<{
+      parameterId: string;
+      name: string;
+      score: number | null;
+      maxPoints: number;
+      status: 'SCORED' | 'UNKNOWN';
+      reasoning: string;
+      evidence: string[];
+    }>;
+    overallReasoning: string;
+    confidence: number;
+    coveragePercent: number;
+    status: 'SCORED' | 'PROVISIONAL' | 'UNSCORED';
+    evaluatedAt: string;
+    configVersion: number;
+    trigger: 'NEW_LEAD' | 'CONVERSATION' | 'PROFILE_UPDATE' | 'CONFIGURATION_CHANGE' | 'MANUAL';
+  };
   intent: IntentLevel;
   buyingStage: BuyingStage;
   serviceInterest?: string;
