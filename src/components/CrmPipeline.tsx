@@ -59,6 +59,7 @@ import {
   AppUser,
 } from '../types';
 import { findDuplicateContact } from '../services/dataService';
+import LeadScoringView from './LeadScoringView';
 
 export interface CrmPipelineProps {
   leads: Lead[];
@@ -76,6 +77,8 @@ export interface CrmPipelineProps {
   /** Workspace team members that leads can be assigned to (used for non-Umrah360 workspaces). */
   teamMembers?: { id: string; name: string; role?: string }[];
   users?: AppUser[];
+  tenantId: string;
+  canManageScoring: boolean;
 }
 
 // Umrah360's default telecallers. Other workspaces use their own team members (see `teamMembers` prop).
@@ -122,6 +125,8 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
   onAddLeadRequestHandled,
   teamMembers,
   users,
+  tenantId,
+  canManageScoring,
 }) => {
   const { brand } = useBrand();
   const isUmrah = brand.playbook === 'umrah360';
@@ -159,6 +164,11 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
 
   // Selected lead for 360° Drawer
   const [activeDrawerLeadId, setActiveDrawerLeadId] = useState<string | null>(initialSelectedLeadId || null);
+  const [crmSection, setCrmSection] = useState<'leads' | 'scoring'>('leads');
+  const [scoreHistory, setScoreHistory] = useState<any[]>([]);
+  const [scoreHistoryLoading, setScoreHistoryLoading] = useState(false);
+  const [scoreRecalculating, setScoreRecalculating] = useState(false);
+  const [scoreNotice, setScoreNotice] = useState<string | null>(null);
 
   // Keep externally requested drawer selection synchronized, including explicit dismissal.
   useEffect(() => {
@@ -721,10 +731,11 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
 
       // Score filter
       if (scoreFilter !== 'ALL') {
-        const score = lead.leadScore || 0;
-        if (scoreFilter === 'HOT' && score < 80) return false;
-        if (scoreFilter === 'WARM' && (score < 50 || score >= 80)) return false;
-        if (scoreFilter === 'COLD' && score >= 50) return false;
+        const score = Number(lead.aiScoring?.totalScore ?? lead.leadScore ?? 0);
+        const category = lead.aiScoring?.category;
+        if (scoreFilter === 'HOT' && (category ? category !== 'HOT' : score < 80)) return false;
+        if (scoreFilter === 'WARM' && (category ? category !== 'WARM' : (score < 50 || score >= 80))) return false;
+        if (scoreFilter === 'COLD' && (category ? category !== 'COLD' : score >= 50)) return false;
       }
 
       // Fast Index Search across ALL leads
@@ -820,7 +831,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
       total: currentLeads.length,
       fresh: currentLeads.filter((lead) => lead.status === 'NEW').length,
       followUps: currentLeads.filter((lead) => Boolean(lead.nextFollowUpAt) || lead.status === 'FOLLOW_UP').length,
-      hot: currentLeads.filter((lead) => (lead.leadScore || 0) >= 80).length,
+      hot: currentLeads.filter((lead) => lead.aiScoring?.category ? lead.aiScoring.category === 'HOT' : (lead.leadScore || 0) >= 80).length,
       demos: currentLeads.filter((lead) => lead.status === 'DEMO_BOOKED').length,
     };
   }, [leads]);
@@ -917,6 +928,45 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
   const drawerContact = drawerLead ? contactsMap.get(drawerLead.contactId) : null;
   const drawerActivities = drawerLead ? activities.filter((a) => a.leadId === drawerLead.leadId) : [];
 
+  useEffect(() => {
+    if (!drawerLead?.leadId) {
+      setScoreHistory([]);
+      setScoreNotice(null);
+      return;
+    }
+    setScoreHistoryLoading(true);
+    fetch('/api/crm/lead-scoring/history/' + encodeURIComponent(drawerLead.leadId), { cache: 'no-store' })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Could not load score history.');
+        setScoreHistory(Array.isArray(data.history) ? data.history : []);
+      })
+      .catch(() => setScoreHistory([]))
+      .finally(() => setScoreHistoryLoading(false));
+  }, [drawerLead?.leadId, drawerLead?.aiScoring?.evaluatedAt]);
+
+  const handleRecalculateLeadScore = async (leadId: string) => {
+    setScoreRecalculating(true);
+    setScoreNotice(null);
+    try {
+      const response = await fetch('/api/crm/lead-scoring/evaluate/' + encodeURIComponent(leadId), { method: 'POST' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not recalculate this lead.');
+      setScoreNotice('Lead score recalculated successfully.');
+      const historyResponse = await fetch('/api/crm/lead-scoring/history/' + encodeURIComponent(leadId), { cache: 'no-store' });
+      const historyData = await historyResponse.json().catch(() => ({}));
+      if (historyResponse.ok) setScoreHistory(Array.isArray(historyData.history) ? historyData.history : []);
+    } catch (error: any) {
+      setScoreNotice(error?.message || 'Could not recalculate this lead.');
+    } finally {
+      setScoreRecalculating(false);
+    }
+  };
+
+  if (crmSection === 'scoring') {
+    return <LeadScoringView tenantId={tenantId} canManage={canManageScoring} leads={leads} onBack={() => setCrmSection('leads')} />;
+  }
+
   return (
     <div className="crm-workspace w-full min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
       {/* Sticky Header & Filter Container */}
@@ -936,6 +986,10 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                   <span className="crm-lead-count">{processedLeads.length.toLocaleString()} matching leads</span>
                 </div>
                 <p>Manage leads, track pipeline progress, and coordinate every customer follow-up in one place.</p>
+                <div className="mt-3 flex flex-wrap items-center gap-1 rounded-xl bg-slate-100 p-1">
+                  <button onClick={() => setCrmSection('leads')} className={'rounded-lg px-3 py-1.5 text-xs font-semibold transition ' + (crmSection === 'leads' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800')}>Leads</button>
+                  <button onClick={() => setCrmSection('scoring')} className={'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ' + (crmSection === 'scoring' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800')}><Sparkles className="h-3.5 w-3.5" />Lead Scoring</button>
+                </div>
               </div>
             </div>
 
@@ -992,7 +1046,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
             <div className="crm-summary-card crm-summary-card--hot">
               <span className="crm-summary-icon"><Flame className="w-4 h-4" /></span>
               <div className="crm-summary-copy"><span>Hot leads</span><strong>{crmSummary.hot.toLocaleString()}</strong></div>
-              <span className="crm-summary-foot">AI score 80 or higher</span>
+              <span className="crm-summary-foot">Based on workspace score rules</span>
             </div>
             <div className="crm-summary-card crm-summary-card--demo">
               <span className="crm-summary-icon"><Calendar className="w-4 h-4" /></span>
@@ -1505,8 +1559,8 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                             {lead.source !== 'WHATSAPP' && lead.source !== 'WEBSITE' && lead.source !== 'INSTAGRAM' && lead.source !== 'EMAIL' && lead.source !== 'OUTBOUND' && <Target className="w-3 h-3" />}
                             <span>{lead.source || 'MANUAL'}</span>
                           </span>
-                          <span className={`crm-score-pill ${(lead.leadScore || 0) >= 80 ? 'is-hot' : (lead.leadScore || 0) >= 50 ? 'is-warm' : 'is-cold'}`}>
-                            <Flame className="w-3 h-3" /> {lead.leadScore || 50}
+                          <span className={`crm-score-pill ${(lead.aiScoring?.category || ((lead.leadScore || 0) >= 80 ? 'HOT' : (lead.leadScore || 0) >= 50 ? 'WARM' : 'COLD')) === 'HOT' ? 'is-hot' : (lead.aiScoring?.category || ((lead.leadScore || 0) >= 80 ? 'HOT' : (lead.leadScore || 0) >= 50 ? 'WARM' : 'COLD')) === 'WARM' ? 'is-warm' : 'is-cold'}`} title={lead.aiScoring?.overallReasoning || 'Legacy lead qualification score'}>
+                            <Flame className="w-3 h-3" /> {lead.aiScoring?.status === 'UNSCORED' ? 'Unscored' : Number(lead.aiScoring?.totalScore ?? lead.leadScore ?? 0)}{lead.aiScoring?.status === 'PROVISIONAL' ? ' · Provisional' : ''}
                           </span>
                         </td>
 
@@ -2372,7 +2426,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                   <div>
                     <span className="text-[11px] text-slate-400 block font-medium">AI Intent & Score:</span>
                     <span className="font-bold text-slate-800">
-                      {drawerLead.leadScore}/100 ({drawerLead.intent} Intent)
+                      {Number(drawerLead.aiScoring?.totalScore ?? drawerLead.leadScore)}/100 ({drawerLead.aiScoring?.category || drawerLead.intent + ' Intent'})
                     </span>
                   </div>
                   <div>
@@ -2381,6 +2435,30 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                       {drawerLead.createdAt ? new Date(drawerLead.createdAt).toLocaleString('en-IN') : 'N/A'}
                     </span>
                   </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div><h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-900">AI Lead Score</h4><p className="mt-1 text-[11px] text-slate-500">Updated from available lead details and conversation evidence.</p></div>
+                  <button onClick={() => handleRecalculateLeadScore(drawerLead.leadId)} disabled={scoreRecalculating} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 disabled:opacity-50"><RefreshCw className={'h-3 w-3 ' + (scoreRecalculating ? 'animate-spin' : '')} />{scoreRecalculating ? 'Scoring…' : 'Recalculate'}</button>
+                </div>
+                {scoreNotice && <p className="text-xs text-blue-800">{scoreNotice}</p>}
+                {drawerLead.aiScoring ? <>
+                  <div className="flex items-end justify-between gap-3"><div><span className="text-3xl font-bold tabular-nums text-slate-900">{drawerLead.aiScoring.status === 'UNSCORED' ? '—' : drawerLead.aiScoring.totalScore}</span><span className="ml-1 text-xs text-slate-500">/ 100</span></div><span className={'rounded-full px-2.5 py-1 text-[11px] font-bold ' + (drawerLead.aiScoring.category === 'HOT' ? 'bg-emerald-100 text-emerald-700' : drawerLead.aiScoring.category === 'WARM' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700')}>{drawerLead.aiScoring.category}</span></div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-blue-500" style={{ width: Math.max(0, Math.min(100, drawerLead.aiScoring.totalScore)) + '%' }} /></div>
+                  <p className="text-[11px] text-slate-600">{drawerLead.aiScoring.status === 'PROVISIONAL' ? 'Provisional score · ' + drawerLead.aiScoring.coveragePercent + '% criteria assessed' : drawerLead.aiScoring.status === 'UNSCORED' ? 'Not enough evidence to calculate a score yet.' : 'All enabled scoring criteria assessed.'} {drawerLead.aiScoring.evaluatedAt ? 'Last evaluated ' + new Date(drawerLead.aiScoring.evaluatedAt).toLocaleString('en-IN') : ''}</p>
+                  {drawerLead.aiScoring.overallReasoning && <p className="text-xs leading-relaxed text-slate-700">{drawerLead.aiScoring.overallReasoning}</p>}
+                  <div className="space-y-2 border-t border-blue-100 pt-3">
+                    {drawerLead.aiScoring.parameterScores.map((item) => <div key={item.parameterId} className="rounded-lg bg-white/80 p-2.5">
+                      <div className="flex items-center justify-between gap-2 text-xs"><b className="text-slate-800">{item.name}</b><span className="font-semibold tabular-nums text-slate-700">{item.status === 'UNKNOWN' ? 'Unknown' : item.score + '/' + item.maxPoints}</span></div>
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-600">{item.reasoning}</p>
+                      {item.evidence.length > 0 && <p className="mt-1 text-[10px] italic text-slate-500">Evidence: {item.evidence.join(' · ')}</p>}
+                    </div>)}
+                  </div>
+                </> : <p className="rounded-lg bg-white p-3 text-xs text-slate-500">No configured AI score is available yet. An admin can enable workspace scoring in the Lead Scoring section.</p>}
+                <div className="border-t border-blue-100 pt-3"><div className="flex items-center justify-between"><b className="text-xs text-slate-800">Score history</b>{scoreHistoryLoading && <span className="text-[10px] text-slate-500">Loading…</span>}</div>
+                  {scoreHistory.length > 0 ? <div className="mt-2 space-y-2">{scoreHistory.slice(0,5).map((entry) => <div key={entry.evaluationId} className="flex items-center justify-between gap-3 text-[11px]"><span className="text-slate-500">{entry.evaluatedAt ? new Date(entry.evaluatedAt).toLocaleString('en-IN') : 'Evaluation'} · {entry.trigger || 'AI'}</span><b className="tabular-nums text-slate-800">{entry.totalScore}/100</b></div>)}</div> : !scoreHistoryLoading && <p className="mt-1 text-[11px] text-slate-500">No prior evaluations found.</p>}
                 </div>
               </div>
 
