@@ -195,7 +195,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
           esc(log.target?.type || ''), esc(log.target?.name || ''),
         ].join(',')),
       ];
-      const blob = new Blob([rows.join('\\n')], { type: 'text/csv;charset=utf-8' });
+      const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
