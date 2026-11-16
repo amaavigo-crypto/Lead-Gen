@@ -42,6 +42,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import './LandingPage.css';
 import './LandingPageRepair.css';
+import { AIAgentMarketingPage, CampaignBuilderMarketingPage, CrmMarketingPage, FaqMarketingPage, HowItWorksMarketingPage, UnifiedInboxMarketingPage } from './MarketingPages';
 
 const DEMO_URL = 'https://www.amaavigo.com/consult-now';
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
@@ -66,9 +67,9 @@ const NAV_GROUPS: NavGroup[] = [
     {label:'Customer operations',href:'/solutions#customer-operations',description:'Coordinate service conversations and next steps'},
   ]},
   {label:'Resources',href:'/resources',links:[
-    {label:'How it works',href:'/resources#how-it-works',description:'See the complete lead-to-revenue workflow'},
+    {label:'How it works',href:'/how-it-works',description:'See the complete lead-to-revenue workflow'},
     {label:'Integrations',href:'/integrations',description:'Connect the tools your team already uses'},
-    {label:'FAQs',href:'/resources#faqs',description:'Answers about channels, AI and campaigns'},
+    {label:'FAQs',href:'/faqs',description:'Answers about channels, AI and campaigns'},
   ]},
 ];
 
@@ -254,7 +255,7 @@ const SiteFooter: React.FC = () => (
       </div>
       <div className="av-footer-col"><strong>Platform</strong><a href="/platform">Overview</a><a href="/lead-capture">Lead capture</a><a href="/unified-inbox">Unified Inbox</a><a href="/ai-agents">AI Agent</a><a href="/crm">CRM & databases</a><a href="/demo-scheduling">Demo scheduling</a></div>
       <div className="av-footer-col"><strong>Engagement</strong><a href="/campaigns">Campaign Builder</a><a href="/whatsapp">WhatsApp templates</a><a href="/analytics">Analytics & reporting</a><a href="/integrations">Integrations</a><a href="/solutions">Solutions</a></div>
-      <div className="av-footer-col"><strong>Company</strong><a href="/pricing">Pricing</a><a href="/resources">Resources & FAQs</a><a href="/about">About Amaavigo</a><a href="/contact">Contact</a><a href="/login">Log in</a></div>
+      <div className="av-footer-col"><strong>Company</strong><a href="/pricing">Pricing</a><a href="/resources">Resources & guides</a><a href="/how-it-works">How it works</a><a href="/faqs">FAQs</a><a href="/about">About Amaavigo</a><a href="/contact">Contact</a><a href="/login">Log in</a></div>
       <div className="av-footer-col"><strong>Legal</strong><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="/dpa">Data Processing Agreement</a><a href="/aup">Acceptable Use & AI Policy</a></div>
     </div>
     <div className="av-footer-bottom"><span>© {new Date().getFullYear()} Amaavigo Digital Solutions LLP. All rights reserved.</span><span>Lead capture → conversation → conversion.</span></div>
@@ -677,7 +678,7 @@ export const LandingPage: React.FC = () => {
     '/crm': 'CRM & Lead Databases', '/demo-scheduling': 'Demo Scheduling', '/campaigns': 'Campaigns',
     '/whatsapp': 'WhatsApp Template Studio', '/analytics': 'Analytics & Reporting',
     '/integrations': 'Integrations', '/solutions': 'Solutions', '/pricing': 'Plans & Pricing',
-    '/resources': 'Resources', '/about': 'About', '/contact': 'Contact', '/book-demo': 'Book a Demo',
+    '/resources': 'Resources', '/how-it-works': 'How it works', '/faqs': 'FAQs', '/about': 'About', '/contact': 'Contact', '/book-demo': 'Book a Demo',
   };
   const title = pageName[pathname] || pageName['/'];
   useEffect(() => {
@@ -692,9 +693,15 @@ export const LandingPage: React.FC = () => {
   else if (pathname === '/solutions') page = <SolutionsPage />;
   else if (pathname === '/integrations') page = <IntegrationsPage />;
   else if (pathname === '/resources') page = <ResourcesPage />;
+  else if (pathname === '/how-it-works') page = <HowItWorksMarketingPage />;
+  else if (pathname === '/faqs') page = <FaqMarketingPage />;
+  else if (pathname === '/ai-agents' || pathname === '/ai-agent') page = <AIAgentMarketingPage />;
+  else if (pathname === '/unified-inbox') page = <UnifiedInboxMarketingPage />;
+  else if (pathname === '/campaigns' || pathname === '/whatsapp') page = <CampaignBuilderMarketingPage initialTab={pathname === '/whatsapp' ? 'whatsapp' : 'email'} />;
+  else if (pathname === '/crm') page = <CrmMarketingPage />;
   else if (pathname === '/about') page = <AboutPage />;
   else if (pathname === '/contact' || pathname === '/book-demo') page = <ContactPage />;
-  else if (PAGE_META[pathname] || pathname === '/ai-agent') page = <CapabilityPage path={pathname === '/ai-agent' ? '/ai-agents' : pathname} />;
+  else if (PAGE_META[pathname]) page = <CapabilityPage path={pathname} />;
   else page = <HomePage />;
 
   return <div className="av-site"><SiteHeader pathname={pathname} />{page}<SiteFooter /></div>;
