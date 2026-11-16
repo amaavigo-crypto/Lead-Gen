@@ -236,10 +236,28 @@ export const InboundMailboxPanel: React.FC<{ tenantId: string; canEdit: boolean 
     setError(null);
     setNotice(null);
     try {
-      const v = await api<InboundView>(path ? `${base}/${path}` : base, { method: 'POST', body: JSON.stringify(body || {}) });
-      apply(v);
-      if (okMsg) setNotice(okMsg);
-      return v;
+      const response = await api<InboundView & {
+        pollResult?: { ran: boolean; processed: number; skipped: number; error?: string };
+      }>(path ? `${base}/${path}` : base, { method: 'POST', body: JSON.stringify(body || {}) });
+      const { pollResult, ...mailboxView } = response;
+      apply(mailboxView);
+
+      if (path === 'poll') {
+        if (!pollResult) {
+          setError('The server did not return a mailbox polling result. Please retry the check.');
+        } else if (pollResult.error) {
+          setError(pollResult.error);
+        } else if (!pollResult.ran) {
+          setError('The mailbox check did not run. Another check may be in progress, or the mailbox may be paused. Please try again shortly.');
+        } else {
+          setNotice(
+            `Mailbox check completed: ${pollResult.processed} processed, ${pollResult.skipped} skipped.`
+          );
+        }
+      } else if (okMsg) {
+        setNotice(okMsg);
+      }
+      return response;
     } catch (e: any) {
       setError(e.message);
     } finally {

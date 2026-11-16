@@ -1450,6 +1450,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       }
       if (req.method === 'POST') {
         let view;
+        let pollResult: { ran: boolean; processed: number; skipped: number; error?: string } | undefined;
         if (!action) {
           view = await svc.connectInbound(tId, {
             host: body?.host,
@@ -1464,13 +1465,19 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
           view = await svc.setInboundOptions(tId, { enabled: body?.enabled, processNewInquiries: body?.processNewInquiries, ignoreRules: body?.ignoreRules });
         } else if (action === 'poll') {
           const poller = await import('./tenantImapPoller.js');
-          await poller.pollTenantMailbox(tId, { force: true });
+          const outcome = await poller.pollTenantMailbox(tId, { force: true });
+          pollResult = {
+            ran: outcome.ran,
+            processed: outcome.processed,
+            skipped: outcome.skipped,
+            ...(outcome.error ? { error: outcome.error } : {}),
+          };
           view = await svc.getInboundView(tId);
         } else {
           view = await svc.disconnectInbound(tId);
         }
         res.statusCode = 200;
-        res.end(JSON.stringify(view));
+        res.end(JSON.stringify(action === 'poll' ? { ...view, pollResult } : view));
         return true;
       }
     } catch (err: any) {

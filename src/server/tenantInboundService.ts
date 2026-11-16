@@ -97,6 +97,19 @@ export class InboundError extends Error {
   }
 }
 
+export type InboundCredentialErrorCode =
+  | 'MASTER_KEY_MISSING'
+  | 'SECRET_PAYLOAD_INVALID'
+  | 'SECRET_DECRYPTION_FAILED'
+  | 'PASSWORD_MISSING';
+
+export class InboundCredentialError extends InboundError {
+  constructor(public readonly code: InboundCredentialErrorCode, message: string) {
+    super(503, message);
+    this.name = 'InboundCredentialError';
+  }
+}
+
 export const INBOUND_SETTINGS_DOC = 'inbound';
 export const INBOUND_SECRET_NAME = 'imap_password';
 const MAILBOX_REGISTRY = 'imap_mailboxes';
@@ -319,10 +332,33 @@ async function readPassword(tenantId: string): Promise<string | null> {
   if (!isFirebaseConfigured || !db) return null;
   const snap = await getDoc(tenantRepo(sysCtx(tenantId)).secretDoc(INBOUND_SECRET_NAME));
   if (!snap.exists()) return null;
+
   try {
-    return decryptSecret(snap.data() as any);
-  } catch {
-    return null;
+    const password = decryptSecret(snap.data() as any);
+    if (!password) {
+      throw new Error('Decrypted mailbox password is empty');
+    }
+    return password;
+  } catch (err: any) {
+    const cause = String(err?.message || '');
+    let code: InboundCredentialErrorCode = 'SECRET_DECRYPTION_FAILED';
+    let message =
+      'The saved mailbox password could not be decrypted. Verify that Production SECRETS_MASTER_KEY matches the original key used to save this mailbox. If it does, the stored credential may be corrupted; reconnect the mailbox to save a fresh password.';
+
+    if (/SECRETS_MASTER_KEY or TENANT_MASTER_KEY must be configured/i.test(cause)) {
+      code = 'MASTER_KEY_MISSING';
+      message = 'The server encryption key is missing. Configure the original SECRETS_MASTER_KEY in the Production environment before reconnecting the mailbox.';
+    } else if (/Invalid encrypted secret payload structure/i.test(cause)) {
+      code = 'SECRET_PAYLOAD_INVALID';
+      message = 'The saved mailbox credential record is incomplete or invalid. Reconnect the mailbox and enter its password again.';
+    } else if (/Decrypted mailbox password is empty/i.test(cause)) {
+      code = 'SECRET_PAYLOAD_INVALID';
+      message = 'The saved mailbox credential is empty. Reconnect the mailbox and enter its password again.';
+    }
+
+    // Never log the key, encrypted payload, or mailbox password.
+    console.warn(`[Tenant IMAP] ${tenantId}: saved mailbox credential could not be read (${code}).`);
+    throw new InboundCredentialError(code, message);
   }
 }
 
@@ -339,7 +375,12 @@ export async function getInboundCredentials(tenantId: string): Promise<InboundCr
     return { host: s.host, port: s.port, secure: true, user: s.user, accessToken };
   }
   const pass = await readPassword(tenantId);
-  if (!pass) return null;
+  if (!pass) {
+    throw new InboundCredentialError(
+      'PASSWORD_MISSING',
+      'The saved mailbox password is missing. Reconnect the mailbox and enter its password again.'
+    );
+  }
   return { host: s.host, port: s.port, secure: s.secure ?? s.port === 993, user: s.user, pass };
 }
 

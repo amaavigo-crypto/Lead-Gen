@@ -7,6 +7,7 @@ import { isMessageAlreadyProcessed, recordProcessedInboundEmail, normalizeIdenti
 import { getInboundIgnoreReason, getInboundHeaderIgnoreReason } from '../shared/inboundEmailRules.js';
 import { findExistingConversationForInboundEmail, processLiveInboundEmail, runWithInboundCtx } from './inboundPipeline.js';
 import {
+  InboundCredentialError,
   createTenantImapClient,
   friendlyImapError,
   getInboundCredentials,
@@ -192,38 +193,50 @@ async function fetchNewMessages(
 async function runCycle(tenantId: string): Promise<TenantPollResult> {
   const result: TenantPollResult = { tenantId, ran: true, processed: 0, skipped: 0 };
   const ctx = sysCtx(tenantId);
+  const startedAt = new Date().toISOString();
 
   const settings = await getInboundSettings(tenantId, { fresh: true });
   let creds: InboundCredentials | null;
   try {
     creds = await getInboundCredentials(tenantId);
   } catch (err: any) {
-    // Microsoft token refresh failed. Revoked/expired sign-in: wait for the admin to reconnect.
-    // Anything else (network, Microsoft outage): normal backoff.
     const reauth = err instanceof MicrosoftReauthRequired;
+    const credentialFailure = err instanceof InboundCredentialError;
     const failures = (settings.consecutiveFailures || 0) + 1;
+    const message = String(err?.message || 'Could not retrieve mailbox credentials').slice(0, 400);
+    const retryDelay = reauth ? 24 * 3600_000 : credentialFailure ? MAX_BACKOFF_MS : backoffMs(failures);
+
     await updateInboundState(tenantId, {
       status: reauth ? 'auth_failed' : 'error',
-      lastError: String(err?.message || 'Could not sign in to Microsoft').slice(0, 400),
+      lastError: message,
       lastErrorAt: new Date().toISOString(),
+      lastPolledAt: startedAt,
       consecutiveFailures: failures,
-      nextPollAt: new Date(Date.now() + (reauth ? 24 * 3600_000 : backoffMs(failures))).toISOString(),
+      nextPollAt: new Date(Date.now() + retryDelay).toISOString(),
     });
-    result.error = err?.message || 'token refresh failed';
+    if (credentialFailure) {
+      console.warn(`[Tenant IMAP] ${tenantId}: mailbox credentials unavailable (${err.code}).`);
+    } else {
+      console.warn(`[Tenant IMAP] ${tenantId}: credential lookup failed: ${message}`);
+    }
+    result.error = message;
     return result;
   }
   if (!creds) {
+    const failures = (settings.consecutiveFailures || 0) + 1;
+    const message = 'Mailbox settings are incomplete. Reconnect the mailbox and check its server, username, and sign-in.';
     await updateInboundState(tenantId, {
       status: 'error',
-      lastError: 'The saved mailbox password could not be read. Please reconnect the mailbox.',
+      lastError: message,
       lastErrorAt: new Date().toISOString(),
+      lastPolledAt: startedAt,
+      consecutiveFailures: failures,
       nextPollAt: new Date(Date.now() + MAX_BACKOFF_MS).toISOString(),
     });
-    result.error = 'credentials unavailable';
+    result.error = message;
     return result;
   }
 
-  const startedAt = new Date().toISOString();
   let fetched;
   try {
     const ip = await resolveSafeHost(creds.host);
