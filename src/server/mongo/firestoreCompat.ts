@@ -356,12 +356,15 @@ interface OrderClause {
   dir: 'asc' | 'desc';
 }
 
+interface AnyContainsClause { fields: string[]; value: string; }
+
 export class Query<T = DocumentData> {
   readonly collectionPath: string;
   protected readonly wheres: WhereClause[];
   protected readonly orders: OrderClause[];
   protected readonly limitN: number | null;
   protected readonly cursor: any[] | null;
+  protected readonly anyContains: AnyContainsClause[];
 
   constructor(
     collectionPath: string,
@@ -369,21 +372,24 @@ export class Query<T = DocumentData> {
     orders: OrderClause[] = [],
     limitN: number | null = null,
     cursor: any[] | null = null,
+    anyContains: AnyContainsClause[] = [],
   ) {
     this.collectionPath = collectionPath;
     this.wheres = wheres;
     this.orders = orders;
     this.limitN = limitN;
     this.cursor = cursor;
+    this.anyContains = anyContains;
   }
 
-  private derive(patch: Partial<{ wheres: WhereClause[]; orders: OrderClause[]; limitN: number | null; cursor: any[] | null }>): Query<T> {
+  private derive(patch: Partial<{ wheres: WhereClause[]; orders: OrderClause[]; limitN: number | null; cursor: any[] | null; anyContains: AnyContainsClause[] }>): Query<T> {
     return new Query<T>(
       this.collectionPath,
       patch.wheres ?? this.wheres,
       patch.orders ?? this.orders,
       patch.limitN === undefined ? this.limitN : patch.limitN,
       patch.cursor === undefined ? this.cursor : patch.cursor,
+      patch.anyContains ?? this.anyContains,
     );
   }
 
@@ -398,6 +404,12 @@ export class Query<T = DocumentData> {
   }
   startAfter(...values: any[]): Query<T> {
     return this.derive({ cursor: values });
+  }
+  whereAnyContains(fields: string[], value: string): Query<T> {
+    const safeFields = fields.filter((field) => typeof field === 'string' && field.length > 0).slice(0, 12);
+    const safeValue = String(value || '').trim().slice(0, 120);
+    if (!safeFields.length || !safeValue) return this;
+    return this.derive({ anyContains: [...this.anyContains, { fields: safeFields, value: safeValue }] });
   }
 
   private get leaf(): string {
@@ -454,6 +466,13 @@ export class Query<T = DocumentData> {
           throw new Error(`Unsupported where operator "${w.op}"`);
       }
       and.push({ [field]: cond });
+    }
+
+    for (const search of this.anyContains) {
+      const slash = String.fromCharCode(92);
+      const special = [slash, '^', '$', '.', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|'];
+      const escaped = search.value.split('').map((character) => special.includes(character) ? slash + character : character).join('');
+      and.push({ $or: search.fields.map((field) => ({ [this.fieldRef(field)]: { $regex: escaped, $options: 'i' } })) });
     }
 
     // Firestore returns only documents that contain every orderBy field.
