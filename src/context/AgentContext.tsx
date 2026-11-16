@@ -66,6 +66,9 @@ export interface AgentMessage {
   toolsUsed?: string[];
   artifacts?: AgentArtifact[];
   attachments?: AgentAttachmentMeta[];
+  /** Which AI answered: 'gemini' means the backup model handled this reply because OpenAI was unavailable. */
+  aiProvider?: 'openai' | 'gemini';
+  aiModel?: string;
 }
 interface AgentContextValue {
   config: AgentConfig;

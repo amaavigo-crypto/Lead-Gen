@@ -4,6 +4,7 @@ import { waitUntil } from '@vercel/functions';
 import { getDoc, setDoc, createDoc } from './adminFirestore.js';
 import { tenantRepo } from './tenantRepo.js';
 import { getOpenAIApiKey } from './openaiClient.js';
+import { describeAiError, isOpenAiFallbackError } from './geminiClient.js';
 import { checkTenantQuota, recordAiCompletionUsage } from './usageService.js';
 import { writeTenantAuditEvent } from './auditLogger.js';
 import { getCompanyProfile } from './companyProfileService.js';
@@ -92,22 +93,31 @@ async function generateCampaignArtwork(
 ): Promise<{ id: string; url: string; mimeType: string; size: number }> {
   const quota = await checkTenantQuota(ctx.tenantId, 'ai');
   if (!quota.allowed) throw new Error(quota.reason || 'The workspace AI usage quota has been reached.');
+  // Image generation uses OpenAI only (no backup image model by design).
   const key = await getOpenAIApiKey();
-  if (!key) throw new Error('OpenAI is not configured for this workspace.');
-  const client = new OpenAI({ apiKey: key });
-  const generated: any = await client.images.generate({
-    model: IMAGE_MODEL,
-    prompt: [
-      prompt.slice(0, 3500),
-      'Company context: ' + companyName,
-      'Use brand colors as visual guidance: ' + primaryColor + ' and ' + accentColor + '.',
-      'Create a polished, premium campaign artwork suitable for a responsive email. Artwork only: no text, letters, numbers, logos, watermarks, coupon codes, UI, frames or mockups. Leave generous negative space for HTML text. Compose as a wide landscape image.',
-    ].join('\n'),
-    size: '1024x1024',
-    quality: 'low',
-    output_format: 'jpeg',
-    output_compression: 30,
-  } as any);
+  if (!key) throw new Error('Image generation is unavailable: OpenAI is not configured for this workspace, and there is no backup image model.');
+  const client = new OpenAI({ apiKey: key, maxRetries: 1 });
+  let generated: any;
+  try {
+    generated = await client.images.generate({
+      model: IMAGE_MODEL,
+      prompt: [
+        prompt.slice(0, 3500),
+        'Company context: ' + companyName,
+        'Use brand colors as visual guidance: ' + primaryColor + ' and ' + accentColor + '.',
+        'Create a polished, premium campaign artwork suitable for a responsive email. Artwork only: no text, letters, numbers, logos, watermarks, coupon codes, UI, frames or mockups. Leave generous negative space for HTML text. Compose as a wide landscape image.',
+      ].join('\n'),
+      size: '1024x1024',
+      quality: 'low',
+      output_format: 'jpeg',
+      output_compression: 30,
+    } as any);
+  } catch (error: any) {
+    if (isOpenAiFallbackError(error)) {
+      throw new Error('Image generation is unavailable right now because OpenAI could not respond (' + describeAiError(error) + '). Image generation uses OpenAI only, so no artwork was created. Try again later, or use an existing Company Asset image.');
+    }
+    throw error;
+  }
   // Record immediately after provider completion, even if downstream asset storage/validation fails.
   await recordAiCompletionUsage(ctx.tenantId, generated, IMAGE_MODEL, 'openai', 'campaign_image_generation');
   const base64 = generated?.data?.[0]?.b64_json;

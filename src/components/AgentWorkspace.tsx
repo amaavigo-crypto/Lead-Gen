@@ -263,6 +263,11 @@ function Messages({ messages, sending, compact, onOpenTemplate, onAction, activi
                   {message.attachments?.length ? <div className="mt-2 flex flex-wrap gap-1.5 border-t border-orange-200 pt-2">{message.attachments.map((file) => <span key={file.id} className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-orange-200 bg-white/80 px-2 py-1 text-[10px] text-slate-700"><Paperclip className="h-3 w-3 shrink-0 text-orange-600" /><span className="truncate">{file.name}</span><span className="shrink-0 text-slate-500">{(file.size / 1024).toFixed(0)} KB</span></span>)}</div> : null}
                 </>}
             {message.artifacts?.map((artifact, index) => <CampaignEmailArtifactPreview key={(artifact.draftId || artifact.approvalId || artifact.templateId || artifact.type) + '-' + index} artifact={artifact} onOpenTemplate={onOpenTemplate} onAction={onAction} />)}
+            {message.role === 'assistant' && message.aiProvider === 'gemini' && (
+              <div className="agent-backup-model-note mt-3 inline-flex items-center gap-1.5 rounded-md border border-amber-300/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200" title={'The main AI was unavailable, so this reply came from the backup model' + (message.aiModel ? ' (' + message.aiModel + ')' : '') + '.'}>
+                Backup AI (Gemini)
+              </div>
+            )}
             {message.toolsUsed && message.toolsUsed.length > 0 && (
               <div className="agent-home-tool-tags mt-3 flex flex-wrap gap-1.5 border-t border-slate-200 pt-2">
                 {message.toolsUsed.map((tool) => <span key={tool} className="rounded-md bg-orange-50 px-2 py-0.5 text-[10px] text-orange-700">{tool.replaceAll('_', ' ')}</span>)}

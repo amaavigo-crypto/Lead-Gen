@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import OpenAI from 'openai';
+import { describeAiError, GEMINI_FALLBACK_MODEL, generateGeminiText, isGeminiConfigured, isOpenAiFallbackError } from './geminiClient.js';
 import { getAllCampaigns, getCampaignByIdAsync, getCampaignEngagementStats, initCampaignStore, runWithCampaignCtx } from './campaignService.js';
 import { getTenantBrand } from './brandService.js';
 import { tenantRepo } from './tenantRepo.js';
@@ -129,9 +130,10 @@ async function generateAnalysis(campaigns: CampaignSnapshot[], tenantId: string)
   const isGemini = !process.env.OPENAI_API_KEY && Boolean(process.env.GEMINI_API_KEY);
   const client = new OpenAI({
     apiKey,
+    maxRetries: 1,
     ...(isGemini ? { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/' } : {}),
   });
-  const model = isGemini
+  let model = isGemini
     ? (process.env.CAMPAIGN_REPORT_GEMINI_MODEL || process.env.AI_TEST_GEMINI_MODEL || 'gemini-2.0-flash')
     : (process.env.CAMPAIGN_REPORT_OPENAI_MODEL || 'gpt-4o-mini');
   const system = [
@@ -155,8 +157,27 @@ async function generateAnalysis(campaigns: CampaignSnapshot[], tenantId: string)
     });
     await recordAiCompletionUsage(tenantId, completion, model, isGemini ? 'gemini' : 'openai', 'campaign_reports').catch(() => {});
   } catch (error: any) {
-    console.warn('[Campaign Reports] AI provider unavailable; using aggregate-rule fallback:', error?.message || error);
-    return { ...fallbackAnalysis(campaigns), aiGenerated: false, model: model + ' (AI unavailable)' };
+    // OpenAI could not answer: try the Gemini backup before the rules-based summary.
+    if (!isGemini && isGeminiConfigured() && isOpenAiFallbackError(error)) {
+      try {
+        const text = await generateGeminiText({
+          systemPrompt: system,
+          userPrompt: JSON.stringify({ campaigns }),
+          jsonMode: true,
+          maxTokens: 2000,
+          tenantId,
+          usageFeature: 'campaign_reports',
+        });
+        completion = { choices: [{ message: { content: text } }] };
+        model = GEMINI_FALLBACK_MODEL + ' (backup)';
+      } catch (geminiError: any) {
+        console.warn('[Campaign Reports] Gemini backup failed:', describeAiError(geminiError));
+      }
+    }
+    if (!completion) {
+      console.warn('[Campaign Reports] AI provider unavailable; using aggregate-rule fallback:', error?.message || error);
+      return { ...fallbackAnalysis(campaigns), aiGenerated: false, model: model + ' (AI unavailable)' };
+    }
   }
   const fence = String.fromCharCode(96).repeat(3);
   const raw = completion.choices[0]?.message?.content?.trim() || '';
