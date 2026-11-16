@@ -207,7 +207,9 @@ export const AgentProvider: React.FC<{ tenantId: string; userId: string; enabled
       }
 
       if (needsPoll) {
-        const deadline = Date.now() + 300000;
+        // Longer than the server's Agent time budget (240 s) and stale-task check (320 s), so the browser
+        // always receives either the reply or the server's timed-out error.
+        const deadline = Date.now() + 360000;
         let recovered: { success: boolean; assistantMessage: AgentMessage; conversation: AgentConversation } | null = null;
         let interimMessageId: string | null = null;
         while (Date.now() < deadline && !recovered) {

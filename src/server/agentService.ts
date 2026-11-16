@@ -37,11 +37,12 @@ const DEFAULT_MODULES = ['inbox', 'campaigns', 'crm', 'scheduling', 'knowledge',
 const MODEL = process.env.AGENT_MODEL_ID || 'gpt-6.1-sol';
 const IMAGE_MODEL = process.env.AGENT_IMAGE_MODEL_ID || 'gpt-image-2.5-flare';
 const REASONING_EFFORT = process.env.AGENT_REASONING_EFFORT || 'medium';
-// Time budget for one Agent request. Serverless functions are stopped at their maxDuration (60 s here), which
-// would lose the answer, so the Agent wraps up with a progress reply before that. Long-running servers get more.
-const AGENT_TIME_BUDGET_MS = Number(process.env.AGENT_TIME_BUDGET_MS) || (process.env.VERCEL ? 50_000 : 240_000);
+// Time budget for one Agent request. Vercel stops a function at its maxDuration (300 s with Fluid compute, set in
+// vercel.json), which would lose the answer, so the Agent wraps up with a progress reply well before that.
+// If maxDuration is ever lowered, set AGENT_TIME_BUDGET_MS to about 50 s less than it.
+const AGENT_TIME_BUDGET_MS = Number(process.env.AGENT_TIME_BUDGET_MS) || 240_000;
 /** An execution still "processing" after this long was stopped by the host; report it as failed. */
-const AGENT_STALE_EXECUTION_MS = Number(process.env.AGENT_STALE_EXECUTION_MS) || (process.env.VERCEL ? 90_000 : 300_000);
+const AGENT_STALE_EXECUTION_MS = Number(process.env.AGENT_STALE_EXECUTION_MS) || 320_000;
 const MAX_USER_MESSAGE = 8000;
 const MAX_CONTEXT_MESSAGES = 16;
 
