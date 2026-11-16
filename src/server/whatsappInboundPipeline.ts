@@ -628,6 +628,7 @@ INSTRUCTIONS FOR WHATSAPP RESPONSE:
 3. Ground every answer strictly in the knowledge base. NEVER invent features, prices or guarantees. If the answer is not in the knowledge base, say you will connect them with a specialist from ${brand.companyName} and ask for the details needed.
 4. Sign off politely as:
 "${waSignoff}"`;
+      const personaPrompt = await (await import('./personaService.js')).buildChannelPersonaPrompt(getWACtx(), 'WHATSAPP');
       const prompt = [isUmrah ? umrahPrompt : genericPrompt, aiFeedbackPromptSection].filter(Boolean).join('\n\n');
 
       const candidateModels = ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'];
@@ -636,7 +637,7 @@ INSTRUCTIONS FOR WHATSAPP RESPONSE:
           const completion = await openai.chat.completions.create({
             model: modelName,
             messages: [
-              { role: 'system', content: buildAiFeedbackSystemGuard() },
+              { role: 'system', content: [buildAiFeedbackSystemGuard(), personaPrompt].filter(Boolean).join('\n\n') },
               { role: 'user', content: prompt },
             ],
             temperature: 0.3,

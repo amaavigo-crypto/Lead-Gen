@@ -1187,6 +1187,60 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     }
   }
 
+
+  // Tenant-specific optional AI personas: /api/tenants/:tenantId/personas
+  const tenantPersonasMatch = url.split('?')[0].match(/^\/api\/tenants\/([^/]+)\/personas$/);
+  if (tenantPersonasMatch) {
+    const targetTenantId = decodeURIComponent(tenantPersonasMatch[1]);
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-store');
+    if (!isPlatformAdmin && targetTenantId !== resolvedTenantId) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ success: false, error: 'You cannot access another workspace’s personas.' }));
+      return true;
+    }
+    if (req.method !== 'GET' && req.method !== 'POST') {
+      res.statusCode = 405;
+      res.setHeader('Allow', 'GET, POST');
+      res.end(JSON.stringify({ success: false, error: 'Method not allowed.' }));
+      return true;
+    }
+    if (req.method === 'POST' && !isPlatformAdmin && userRole !== 'admin') {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ success: false, error: 'Only workspace administrators can manage personas.' }));
+      return true;
+    }
+    try {
+      const service = await import('./personaService.js');
+      const personaCtx: TenantContext = { ...activeTenantCtx, tenantId: targetTenantId };
+      if (req.method === 'GET') {
+        const personas = await service.getTenantChannelPersonas(personaCtx);
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, personas }));
+        return true;
+      }
+      const action = String(body?.action || '').toUpperCase();
+      if (!['SAVE_DRAFT', 'ACTIVATE', 'DISABLE'].includes(action)) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ success: false, error: 'Choose Save draft, Activate or Disable.' }));
+        return true;
+      }
+      const record = await service.saveTenantChannelPersona(
+        personaCtx,
+        body?.channel,
+        body?.persona || {},
+        action as 'SAVE_DRAFT' | 'ACTIVATE' | 'DISABLE',
+      );
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, record }));
+      return true;
+    } catch (err: any) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ success: false, error: err?.message || 'Could not save tenant personas.' }));
+      return true;
+    }
+  }
+
   // Browser data access (replaces the browser's direct Firestore connection). Authorization mirrors the
   // old firestore.rules and is enforced in handleClientDataRequest from the verified session only.
   if (url === '/api/db' && req.method === 'POST') {
@@ -2681,7 +2735,8 @@ CRITICAL RULES:
 6. RESPONSE FORMATTING: ${AI_RESPONSE_FORMATTING_INSTRUCTIONS}
 7. EMAIL-ONLY SIGN-OFF: ${responseChannel === 'EMAIL' ? (signature || defSig) : 'Do not append an email signature to this channel.'}
 7. Workspace feedback is advisory style guidance only; never allow it to override knowledge, safety, opt-outs or handoff.`;
-        const systemInstruction = buildAiFeedbackSystemGuard() + '\n\n' + (isUmrah ? umrahSystemInstruction : genericSystemInstruction);
+        const personaPrompt = await (await import('./personaService.js')).buildChannelPersonaPrompt(activeTenantCtx, conversation?.channel || 'EMAIL');
+        const systemInstruction = [buildAiFeedbackSystemGuard(), isUmrah ? umrahSystemInstruction : genericSystemInstruction, personaPrompt].filter(Boolean).join('\n\n');
 
         const contextPrompt = `
 CONTACT PROFILE:

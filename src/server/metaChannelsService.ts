@@ -1214,6 +1214,7 @@ async function processInbound(tenantId: string, event: InboundEvent, eventId: st
   const history = thread
     .slice(-8)
     .map((m) => ({ role: m.direction === 'OUTBOUND' ? ('assistant' as const) : ('user' as const), content: String(m.text || '').slice(0, 1500) }));
+  const personaPrompt = await (await import('./personaService.js')).buildChannelPersonaPrompt(ctx, event.channel);
   const openai = new OpenAI({ apiKey });
   const completion = await openai.chat.completions.create({
     model: process.env.META_CHANNELS_AI_MODEL || process.env.INSTAGRAM_AI_MODEL || 'gpt-4o-mini',
@@ -1221,7 +1222,7 @@ async function processInbound(tenantId: string, event: InboundEvent, eventId: st
     messages: [
       {
         role: 'system',
-        content: buildAiFeedbackSystemGuard() + ' You are this workspace customer-support and lead-qualification assistant. Reply naturally and briefly to the ' + label + ' message. Use only the workspace knowledge below for factual claims. If knowledge does not answer the question, ask a concise clarifying question instead of inventing facts. Do not claim a booking or action has completed unless confirmed.\n\nResponse formatting: ' + AI_RESPONSE_FORMATTING_INSTRUCTIONS + '\n\nWorkspace knowledge:\n' + (knowledge || 'No published workspace knowledge is available. Ask a clarifying question and do not invent product details.'),
+        content: [buildAiFeedbackSystemGuard(), 'You are this workspace customer-support and lead-qualification assistant. Reply naturally and briefly to the ' + label + ' message. Use only the workspace knowledge below for factual claims. If knowledge does not answer the question, ask a concise clarifying question instead of inventing facts. Do not claim a booking or action has completed unless confirmed.\n\nResponse formatting: ' + AI_RESPONSE_FORMATTING_INSTRUCTIONS + '\n\nWorkspace knowledge:\n' + (knowledge || 'No published workspace knowledge is available. Ask a clarifying question and do not invent product details.'), personaPrompt].filter(Boolean).join('\n\n'),
       },
       ...history,
       { role: 'user', content: (aiFeedbackPromptSection ? aiFeedbackPromptSection + '\n\n' : '') + 'CUSTOMER MESSAGE:\n' + event.text.slice(0, 3000) },

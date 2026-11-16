@@ -28,6 +28,7 @@ import { InboundMailboxPanel } from './InboundMailboxPanel';
 import { WebsiteWebhookPanel } from './WebsiteWebhookPanel';
 import { WebsiteFormConfirmationPanel } from './WebsiteFormConfirmationPanel';
 import { ChatbotIntegrationPanel } from './ChatbotIntegrationPanel';
+import { PersonasPanel } from './PersonasPanel';
 import { BillingView } from './BillingView';
 import { ConnectedChannelsPanel } from './ConnectedChannelsPanel';
 import { normalizeChannelMode } from '../shared/channelModes';
@@ -35,7 +36,7 @@ import { normalizeChannelMode } from '../shared/channelModes';
 const CompanyProfilePanel = React.lazy(() => import('./BrandSettingsPanel').then((module) => ({ default: module.BrandSettingsPanel })));
 const WorkspaceAuditLogs = React.lazy(() => import('./AuditLogsView').then((module) => ({ default: module.AuditLogsView })));
 
-export type WorkspaceSection = 'overview' | 'company' | 'channels' | 'ai' | 'team' | 'billing' | 'audit';
+export type WorkspaceSection = 'overview' | 'company' | 'channels' | 'personas' | 'ai' | 'team' | 'billing' | 'audit';
 
 interface SettingsViewProps {
   settings: SystemSettings;
@@ -244,6 +245,7 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
     { id: 'company' as const, label: 'Company Profile', description: 'Business identity, website, branding and assets', icon: <Building2 className="h-4 w-4" /> },
     ...(canAccessSettings ? [
       { id: 'channels' as const, label: 'Channels & Messaging', description: 'Connected channels, email and website integrations', icon: <Plug className="h-4 w-4" /> },
+      { id: 'personas' as const, label: 'Personas', description: 'Configure tenant-owned AI assistants for every channel', icon: <Bot className="h-4 w-4" /> },
       { id: 'ai' as const, label: 'AI & Automation', description: 'Channel modes, handoff and runtime settings', icon: <Bot className="h-4 w-4" /> },
     ] : []),
     ...(canEditEmail ? [
@@ -862,7 +864,7 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
 
       {tenantId && canEditEmail && <WebsiteWebhookPanel tenantId={tenantId} canEdit />}
       {tenantId && canEditEmail && <WebsiteFormConfirmationPanel tenantId={tenantId} canEdit />}
-      {tenantId && canEditEmail && <ChatbotIntegrationPanel tenantId={tenantId} canEdit />}
+      {tenantId && canEditEmail && <ChatbotIntegrationPanel tenantId={tenantId} canEdit showConnectionDetails showResponseSettings={false} showIntegrationExample />}
 
             
 
@@ -920,6 +922,10 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
 
             
             </div>
+          )}
+
+          {activeSection === 'personas' && tenantId && (
+            <PersonasPanel tenantId={tenantId} canEdit={Boolean(canEditEmail)} />
           )}
 
           {activeSection === 'company' && tenantId && (

@@ -445,14 +445,15 @@ async function processInstagramMessageEvent(tenantId: string, accountId: string,
   const history = thread
     .slice(-8)
     .map((m) => ({ role: m.direction === 'OUTBOUND' ? 'assistant' as const : 'user' as const, content: String(m.text || '').slice(0, 1500) }));
+  const personaPrompt = await (await import('./personaService.js')).buildChannelPersonaPrompt(ctx, 'INSTAGRAM');
   const openai = new OpenAI({ apiKey });
   const completion = await openai.chat.completions.create({
     model: process.env.INSTAGRAM_AI_MODEL || 'gpt-4o-mini',
     temperature: 0.3,
     messages: [
-      { role: 'system', content: buildAiFeedbackSystemGuard() + ' You are this workspace customer-support and lead-qualification assistant. Reply naturally and briefly to the Instagram DM. Use only the workspace knowledge below for factual claims. If knowledge does not answer the question, ask a concise clarifying question instead of inventing facts. Do not claim a booking or action has completed unless confirmed.\n\nResponse formatting: ' + AI_RESPONSE_FORMATTING_INSTRUCTIONS + '\n\nWorkspace knowledge:\n' + (knowledge || 'No published workspace knowledge is available. Ask a clarifying question and do not invent product details.') },
+      { role: 'system', content: [buildAiFeedbackSystemGuard(), 'You are this workspace customer-support and lead-qualification assistant. Reply naturally and briefly to the Instagram DM. Use only the workspace knowledge below for factual claims. If knowledge does not answer the question, ask a concise clarifying question instead of inventing facts. Do not claim a booking or action has completed unless confirmed.\n\nResponse formatting: ' + AI_RESPONSE_FORMATTING_INSTRUCTIONS + '\n\nWorkspace knowledge:\n' + (knowledge || 'No published workspace knowledge is available. Ask a clarifying question and do not invent product details.'), personaPrompt].filter(Boolean).join('\n\n') },
       ...history,
-      { role: 'user', content: (aiFeedbackPromptSection ? aiFeedbackPromptSection + '\n\n' : '') + 'CUSTOMER MESSAGE:\n' + messageText.slice(0, 3000) },
+      { role: 'user', content: [aiFeedbackPromptSection, 'CUSTOMER MESSAGE:\n' + messageText.slice(0, 3000)].filter(Boolean).join('\n\n') },
     ],
   });
   await recordAiCompletionUsage(ctx.tenantId, completion, process.env.INSTAGRAM_AI_MODEL || 'gpt-4o-mini', 'openai', 'instagram');

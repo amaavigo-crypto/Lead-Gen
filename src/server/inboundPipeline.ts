@@ -1043,6 +1043,7 @@ CRITICAL INSTRUCTIONS:
 5. Conclude with:
 ${brandAutomationSignature(brand)}${targetMailbox ? `\n${targetMailbox}` : ''}`;
 
+      const personaPrompt = await (await import('./personaService.js')).buildChannelPersonaPrompt(getInboundCtx(), 'EMAIL');
       const prompt = [isUmrah ? umrahPrompt : genericPrompt, aiFeedbackPromptSection].filter(Boolean).join('\n\n');
 
       const candidateModels = ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'];
@@ -1051,7 +1052,7 @@ ${brandAutomationSignature(brand)}${targetMailbox ? `\n${targetMailbox}` : ''}`;
           const completion = await openai.chat.completions.create({
             model: modelName,
             messages: [
-              { role: 'system', content: buildAiFeedbackSystemGuard() },
+              { role: 'system', content: [buildAiFeedbackSystemGuard(), personaPrompt].filter(Boolean).join('\n\n') },
               { role: 'user', content: prompt },
             ],
             temperature: 0.3,

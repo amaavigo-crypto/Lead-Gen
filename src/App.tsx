@@ -213,7 +213,7 @@ function toAppUser(u: any): AppUser {
 //   const [activeTab, setActiveTab] = useState<ActiveTab>(() =>
 //     typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('mailbox') ? 'settings' : 'inbox'
 //   );
-type WorkspaceSection = 'overview' | 'company' | 'channels' | 'ai' | 'team' | 'billing' | 'audit';
+type WorkspaceSection = 'overview' | 'company' | 'channels' | 'personas' | 'ai' | 'team' | 'billing' | 'audit';
 
 const LEGACY_WORKSPACE_SECTIONS: Partial<Record<ActiveTab, WorkspaceSection>> = {
   settings: 'overview',
@@ -246,7 +246,7 @@ function isActiveTab(value: string | null | undefined): value is ActiveTab {
 }
 
 function isWorkspaceSection(value: string | null): value is WorkspaceSection {
-  return value === 'overview' || value === 'company' || value === 'channels' ||
+  return value === 'overview' || value === 'company' || value === 'channels' || value === 'personas' ||
     value === 'ai' || value === 'team' || value === 'billing' || value === 'audit';
 }
 

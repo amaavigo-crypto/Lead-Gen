@@ -54,7 +54,7 @@ const CopyValue: React.FC<{ label: string; value: string; multiline?: boolean }>
   );
 };
 
-export const ChatbotIntegrationPanel: React.FC<{ tenantId: string; canEdit: boolean }> = ({ tenantId, canEdit }) => {
+export const ChatbotIntegrationPanel: React.FC<{ tenantId: string; canEdit: boolean; showConnectionDetails?: boolean; showResponseSettings?: boolean; showIntegrationExample?: boolean; heading?: string; description?: string }> = ({ tenantId, canEdit, showConnectionDetails = true, showResponseSettings = true, showIntegrationExample = true, heading, description }) => {
   const endpoint = '/api/tenants/' + encodeURIComponent(tenantId) + '/webhook/chatbot';
   const [view, setView] = useState<IntegrationView | null>(null);
   const [preferences, setPreferences] = useState<ChatbotPreferences>({
@@ -149,8 +149,8 @@ export const ChatbotIntegrationPanel: React.FC<{ tenantId: string; canEdit: bool
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600"><Bot className="h-5 w-5" /></div>
         <div>
-          <h3 className="text-base font-bold text-slate-900">Website chatbot integration</h3>
-          <p className="mt-1 text-sm text-slate-500">Connect your existing website chatbot to this workspace's AI and approved Knowledge Base.</p>
+          <h3 className="text-base font-bold text-slate-900">{heading || (showConnectionDetails ? 'Website chatbot integration' : 'Website chatbot response behaviour')}</h3>
+          <p className="mt-1 text-sm text-slate-500">{description || (showConnectionDetails ? "Connect your existing website chatbot to this workspace's AI and approved Knowledge Base." : 'Configure how your existing website chatbot formats and delivers AI responses.')}</p>
         </div>
       </div>
 
@@ -158,9 +158,10 @@ export const ChatbotIntegrationPanel: React.FC<{ tenantId: string; canEdit: bool
       {notice && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>}
 
       {loading ? (
-        <div className="flex items-center gap-2 py-4 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading chatbot integration…</div>
+        <div className="flex items-center gap-2 py-4 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading chatbot settings…</div>
       ) : view ? (
         <>
+{showConnectionDetails && (
           <div className="space-y-3 rounded-xl border border-slate-200 p-4">
             <div className="flex items-center gap-2 text-sm font-bold text-slate-900"><ShieldCheck className="h-4 w-4 text-emerald-600" /> Tenant-specific webhook credentials</div>
             <CopyValue label="Webhook URL" value={webhookUrl} />
@@ -208,6 +209,10 @@ export const ChatbotIntegrationPanel: React.FC<{ tenantId: string; canEdit: bool
             <p className="text-[11px] leading-relaxed text-slate-500">Use this endpoint from your chatbot server or a trusted automation backend. Do not put the API secret in public website JavaScript, page source, or a browser widget. Store it as a server-side environment variable.</p>
           </div>
 
+
+          )}
+
+{showResponseSettings && (
           <div className="space-y-3 rounded-xl border border-slate-200 p-4">
             <div className="flex items-center gap-2 text-sm font-bold text-slate-900"><MessageSquareText className="h-4 w-4 text-orange-600" /> AI response behaviour</div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -332,11 +337,18 @@ export const ChatbotIntegrationPanel: React.FC<{ tenantId: string; canEdit: bool
             </div>
           </div>
 
+
+          )}
+
+{showIntegrationExample && (
           <div className="space-y-3 rounded-xl border border-slate-200 p-4">
             <div className="flex items-center gap-2 text-sm font-bold text-slate-900"><Code2 className="h-4 w-4 text-slate-600" /> Integration example</div>
             <CopyValue label="Node.js server-side example" value={integrationSnippet} multiline />
             <p className="text-[11px] leading-relaxed text-slate-500">Send a POST request with a visitor message. Include the same conversationId and recent history on later turns. Render each item in <code>data.messages</code> as its own chat bubble.</p>
           </div>
+
+          )}
+
         </>
       ) : <div className="text-sm text-slate-500">Chatbot integration is not available right now.</div>}
     </section>
