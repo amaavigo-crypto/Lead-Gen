@@ -1,5 +1,3 @@
-import { db, isFirebaseConfigured } from '../firebase/config';
-import { collection, doc, setDoc, getDocs, query, orderBy, limit as firestoreLimit } from './clientDb';
 import { AuditLog, AuditModule, AuditSeverity, AuditActor, AuditTarget } from '../types';
 
 export async function logAuditEvent(
@@ -16,58 +14,23 @@ export async function logAuditEvent(
 ): Promise<AuditLog | null> {
   if (!tenantId) return null;
 
-  const id = `audit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const timestamp = new Date().toISOString();
-
-  const auditRecord: AuditLog = {
-    id,
-    tenantId,
-    timestamp,
-    action: entry.action,
-    module: entry.module,
-    severity: entry.severity || 'INFO',
-    description: entry.description,
-    actor: {
-      userId: entry.actor?.userId || 'usr-system',
-      name: entry.actor?.name || 'System / Admin',
-      email: entry.actor?.email || 'admin@amaavigo.com',
-      role: entry.actor?.role || 'ADMIN',
-      ipAddress: entry.actor?.ipAddress || '127.0.0.1',
-      userAgent: entry.actor?.userAgent || (typeof navigator !== 'undefined' ? navigator.userAgent : 'Server'),
-    },
-    target: entry.target,
-    metadata: entry.metadata || {},
-  };
-
-  let persisted = false;
-  try {
-    const response = await fetch('/api/audit-logs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(auditRecord),
-    });
-    if (!response.ok) throw new Error('Audit API returned HTTP ' + response.status);
-    const result = await response.json();
-    if (result && result.success === true) persisted = true;
-    else throw new Error((result && result.error) || 'Audit API did not confirm persistence');
-  } catch (err) {
-    console.error('[AuditService] API write failed:', err);
+  // The authenticated server creates the ID/timestamp/actor and classifies severity.
+  const response = await fetch('/api/audit-logs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: entry.action,
+      module: entry.module,
+      description: entry.description,
+      target: entry.target,
+      metadata: entry.metadata || {},
+    }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result?.success !== true || !result?.log) {
+    throw new Error(result?.error || `Audit API returned HTTP ${response.status}`);
   }
-
-  if (!persisted && isFirebaseConfigured && db) {
-    try {
-      const colRef = collection(db, 'tenants', tenantId, 'audit_logs');
-      await setDoc(doc(colRef, id), auditRecord);
-      persisted = true;
-    } catch (err) {
-      console.error('[AuditService] Firestore write failed:', err);
-    }
-  }
-
-  if (!persisted) {
-    throw new Error('Audit event could not be saved. Check API and Firestore permissions.');
-  }
-  return auditRecord;
+  return result.log as AuditLog;
 }
 
 export function generateSampleAuditLogs(tenantId: string): AuditLog[] {
