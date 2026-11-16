@@ -4869,7 +4869,8 @@ ${signature || defSig}`;
         return true;
       }
       try {
-        const requestedLimit = Number(qp.get('limit'));
+        const rawLimit = qp.get('limit');
+        const requestedLimit = rawLimit === null ? 25 : Number(rawLimit);
         const pageSize = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(25, Math.floor(requestedLimit))) : 25;
         const allowedModules = new Set(['CAMPAIGNS', 'CRM', 'INBOX', 'KNOWLEDGE', 'SETTINGS', 'AUTH', 'SCHEDULING', 'AI_ENGINE', 'WHATSAPP', 'EMAIL_DESIGN', 'DATABASE', 'SYSTEM']);
         const allowedSeverities = new Set(['INFO', 'WARNING', 'CRITICAL', 'SECURITY']);
