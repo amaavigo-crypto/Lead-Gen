@@ -28,7 +28,8 @@ const DISPLAY_METADATA_KEYS = new Set([
 /** Redact credential-like key/value pairs from operator-facing text. */
 export function sanitizeAuditText(value: unknown, maxLength = 1000): string {
   return String(value || '')
-    .replace(/(password|passcode|access[_-]?token|refresh[_-]?token|api[_-]?key|client[_-]?secret|authorization|cookie|webhook[_-]?secret)(\\s*[:=]\\s*)([^\\s,;]+)/gi, '$1$2[REDACTED]')
+    .replace(/(Bearer[ ]+)[A-Za-z0-9._~+/=-]+/gi, '$1[REDACTED]')
+    .replace(/(password|passcode|access[_-]?token|refresh[_-]?token|api[_-]?key|client[_-]?secret|authorization|cookie|webhook[_-]?secret)([ ]*[:=][ ]*|[ ]+)([^ ,;]+)/gi, '$1$2[REDACTED]')
     .slice(0, maxLength);
 }
 
@@ -63,9 +64,10 @@ export function sanitizeAuditMetadataForDisplay(value: unknown): Record<string, 
   const visible: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(safe)) {
     if (!DISPLAY_METADATA_KEYS.has(key)) continue;
-    if (child === null || ['string', 'number', 'boolean'].includes(typeof child)) visible[key] = child;
+    if (child === null || ['number', 'boolean'].includes(typeof child)) visible[key] = child;
+    else if (typeof child === 'string') visible[key] = sanitizeAuditText(child, 500);
     else if (Array.isArray(child)) {
-      const values = child.filter((item) => ['string', 'number', 'boolean'].includes(typeof item)).slice(0, 8);
+      const values = child.filter((item) => ['string', 'number', 'boolean'].includes(typeof item)).slice(0, 8).map((item) => typeof item === 'string' ? sanitizeAuditText(item, 120) : item);
       if (values.length) visible[key] = values;
     }
     if (Object.keys(visible).length >= 12) break;
