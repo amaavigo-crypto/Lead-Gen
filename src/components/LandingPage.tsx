@@ -41,6 +41,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import './LandingPage.css';
+import './LandingPageRepair.css';
 
 const DEMO_URL = 'https://www.amaavigo.com/consult-now';
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
