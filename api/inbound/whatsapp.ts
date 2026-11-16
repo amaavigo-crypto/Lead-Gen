@@ -8,6 +8,7 @@ export default async function handler(req: IncomingMessage & { body?: any }, res
   } catch (err: any) {
     console.error('[WhatsApp Inbound Error]:', err);
   }
+  //test
 
   if (!res.writableEnded) {
     res.statusCode = 200;
