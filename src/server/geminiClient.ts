@@ -51,7 +51,11 @@ export function getGeminiClient(): GoogleGenAI {
  * the inner message is extracted so the user sees the actual reason.
  */
 export function describeAiError(err: any): string {
-  let status = err?.status ?? err?.code ?? err?.error?.code;
+  const rawStatus = err?.status ?? err?.statusCode ?? err?.response?.status ?? err?.error?.code ?? err?.code;
+  const numericStatus = Number(rawStatus);
+  let status: string | number | undefined = Number.isFinite(numericStatus)
+    ? (numericStatus >= 100 && numericStatus <= 599 ? numericStatus : undefined)
+    : rawStatus ? String(rawStatus) : undefined;
   let message = String(err?.error?.message || err?.message || err || 'unknown error');
   const jsonStart = message.indexOf('{');
   if (jsonStart >= 0) {
@@ -75,11 +79,12 @@ export function describeAiError(err: any): string {
 function errorStatus(err: any): number {
   const raw = err?.status ?? err?.statusCode ?? err?.response?.status ?? err?.error?.code ?? err?.code;
   const n = Number(raw);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isInteger(n) && n >= 100 && n <= 599 ? n : 0;
 }
 
 function errorText(err: any): string {
-  return [err?.code, err?.type, err?.error?.code, err?.error?.type, err?.error?.status, err?.message, err?.error?.message]
+  return [err?.name, err?.code, err?.type, err?.error?.code, err?.error?.type, err?.error?.status,
+    err?.message, err?.error?.message, err?.cause?.name, err?.cause?.message]
     .filter(Boolean).map(String).join(' ').toLowerCase();
 }
 
@@ -96,12 +101,13 @@ export function isOpenAiFallbackError(err: any): boolean {
   return status === 401 || status === 402 || status === 403 || status === 404 || status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
-/** True when the next Gemini model in the list should be tried (rate / daily limit, overload, unknown model). */
+/** True when the next Gemini model should be tried: quota, transient service, network, abort, or timeout errors. */
 export function isGeminiNextModelError(err: any): boolean {
   const status = errorStatus(err);
   const text = errorText(err);
-  return status === 429 || status === 404 || status === 503 || status === 500 ||
-    /resource_exhausted|quota|rate.?limit|unavailable|overloaded|not found|not supported/.test(text);
+  return status === 408 || status === 425 || status === 429 || status === 404 ||
+    status === 500 || status === 502 || status === 503 || status === 504 ||
+    /resource_exhausted|quota|rate.?limit|unavailable|overloaded|not found|not supported|aborterror|operation was aborted|request aborted|aborted|requesttimeout|timed out|timeout|deadline exceeded|econnreset|etimedout|socket hang up|fetch failed/.test(text);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -281,29 +287,22 @@ export async function runGeminiAgentStep(options: {
   const ai = getGeminiClient();
   const { systemInstruction, contents } = openAiInputToGemini(options.input, options.geminiSignatures);
   const functionDeclarations = toGeminiFunctionDeclarations(options.tools);
-  // A regular timer (AbortSignal.timeout uses an unref'd one that may never fire if nothing else keeps the
-  // process awake).
-  const controller = options.timeoutMs && options.timeoutMs > 0 ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(new Error('Gemini call timed out')), options.timeoutMs) : null;
-  let response: any;
-  try {
-    response = await ai.models.generateContent({
-      model: options.model,
-      contents,
-      config: {
-        systemInstruction: [systemInstruction, options.extraSystemInstruction].filter(Boolean).join('\n\n'),
-        ...(functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {}),
-        // Low thinking keeps each agent step fast enough for serverless time limits; tool choice and
-        // argument quality stay good for this workload.
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-        // Thinking shares the output budget; leave plenty of room for tool arguments such as full email HTML.
-        maxOutputTokens: options.maxOutputTokens ?? 24000,
-        ...(controller ? { abortSignal: controller.signal } : {}),
-      },
-    });
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+  const response: any = await ai.models.generateContent({
+    model: options.model,
+    contents,
+    config: {
+      systemInstruction: [systemInstruction, options.extraSystemInstruction].filter(Boolean).join('\n\n'),
+      ...(functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {}),
+      // Low thinking keeps each agent step fast enough for serverless time limits; tool choice and
+      // argument quality stay good for this workload.
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      // Thinking shares the output budget; leave plenty of room for tool arguments such as full email HTML.
+      maxOutputTokens: options.maxOutputTokens ?? 24000,
+      ...(options.timeoutMs && options.timeoutMs > 0
+        ? { httpOptions: { timeout: options.timeoutMs, retryOptions: { attempts: 1 } } }
+        : {}),
+    },
+  });
 
   const candidate = response?.candidates?.[0];
   const parts: any[] = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];

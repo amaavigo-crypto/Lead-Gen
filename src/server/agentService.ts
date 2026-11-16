@@ -43,6 +43,8 @@ const REASONING_EFFORT = process.env.AGENT_REASONING_EFFORT || 'medium';
 const AGENT_TIME_BUDGET_MS = Number(process.env.AGENT_TIME_BUDGET_MS) || 240_000;
 /** An execution still "processing" after this long was stopped by the host; report it as failed. */
 const AGENT_STALE_EXECUTION_MS = Number(process.env.AGENT_STALE_EXECUTION_MS) || 320_000;
+// A single slow Gemini model must not consume the entire Agent execution budget before the backup is tried.
+const GEMINI_AGENT_STEP_TIMEOUT_MS = Math.min(90_000, Math.max(15_000, Number(process.env.GEMINI_AGENT_STEP_TIMEOUT_MS) || 60_000));
 const MAX_USER_MESSAGE = 8000;
 const MAX_CONTEXT_MESSAGES = 16;
 
@@ -632,14 +634,20 @@ async function runAgent(
     while (geminiModelIndex < geminiModels.length) {
       const model = geminiModels[geminiModelIndex];
       try {
-        const step = await runGeminiAgentStep({ model, input, tools: TOOL_DEFINITIONS, geminiSignatures, extraSystemInstruction: GEMINI_NOTE, timeoutMs: Math.max(8_000, remainingMs() - 3_000) });
+        const stepTimeoutMs = Math.max(8_000, Math.min(GEMINI_AGENT_STEP_TIMEOUT_MS, remainingMs() - 3_000));
+        const step = await runGeminiAgentStep({ model, input, tools: TOOL_DEFINITIONS, geminiSignatures, extraSystemInstruction: GEMINI_NOTE, timeoutMs: stepTimeoutMs });
         await recordAiCompletionUsage(ctx.tenantId, step.response, model, 'gemini', 'ai_agent').catch(() => {});
         usedModel = model;
         return { outputItems: step.outputItems, text: step.text };
       } catch (error: any) {
         lastGeminiError = describeAiError(error);
-        console.warn('[AI Agent] Gemini model ' + model + ' failed:', lastGeminiError);
-        if (geminiModelIndex < geminiModels.length - 1 && isGeminiNextModelError(error)) {
+        const retryWithNextModel = geminiModelIndex < geminiModels.length - 1 && isGeminiNextModelError(error);
+        console.warn('[AI Agent] Gemini model ' + model + ' failed:', {
+          error: lastGeminiError,
+          errorName: error?.name || error?.constructor?.name || 'Error',
+          retryingWithNextModel: retryWithNextModel,
+        });
+        if (retryWithNextModel) {
           geminiModelIndex++;
           continue;
         }
