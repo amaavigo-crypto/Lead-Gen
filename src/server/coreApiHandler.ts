@@ -167,6 +167,7 @@ import {
   retrieveRelevantKnowledge as serverRetrieveKnowledge,
 } from './knowledgeService.js';
 import { getKnowledgeWebsiteScanState, startKnowledgeWebsiteScan, processKnowledgeWebsiteScanStep } from './websiteKnowledgeService.js';
+import { getLeadScoringConfig, saveLeadScoringConfig, suggestLeadScoringParameters, startLeadScoringRecalculation, enqueueLeadScoringEvaluation, evaluateLeadForScoring, getLeadScoringHistory, runLeadScoringWorkerCycle } from './leadScoringService.js';
 
 /**
  * Universal API request handler that works in both:
@@ -379,6 +380,116 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       res.end(JSON.stringify({ error: 'Payment required. Choose or fix your plan to continue.', code: 'billing_required', billingStatus: ent.billing.status }));
       return true;
     }
+  }
+
+  // Tenant-scoped AI Lead Scoring. Configuration changes are admin-only; lead evaluation/history
+  // remain inside the authenticated workspace boundary.
+  if (url === '/api/crm/lead-scoring/config') {
+    if (req.method === 'GET') {
+      try {
+        const config = await getLeadScoringConfig(activeTenantCtx);
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, config }));
+      } catch (err: any) {
+        res.statusCode = 500;
+        res.end(JSON.stringify({ success: false, error: err?.message || 'Could not load lead scoring settings.' }));
+      }
+      return true;
+    }
+    if (req.method === 'PUT') {
+      if (userRole !== 'admin' && !isPlatformAdmin) {
+        res.statusCode = 403;
+        res.end(JSON.stringify({ success: false, error: 'Only workspace admins can update AI lead scoring.' }));
+        return true;
+      }
+      try {
+        const config = await saveLeadScoringConfig(activeTenantCtx, body?.config || {}, userUid);
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, config }));
+      } catch (err: any) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ success: false, error: err?.message || 'Could not save lead scoring settings.' }));
+      }
+      return true;
+    }
+  }
+
+  if (url === '/api/crm/lead-scoring/suggest' && req.method === 'POST') {
+    if (userRole !== 'admin' && !isPlatformAdmin) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ success: false, error: 'Only workspace admins can generate scoring suggestions.' }));
+      return true;
+    }
+    try {
+      const suggestions = await suggestLeadScoringParameters(activeTenantCtx, String(body?.description || ''));
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, suggestions }));
+    } catch (err: any) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ success: false, error: err?.message || 'Could not generate scoring suggestions.' }));
+    }
+    return true;
+  }
+
+  if (url === '/api/crm/lead-scoring/recalculate' && req.method === 'POST') {
+    if (userRole !== 'admin' && !isPlatformAdmin) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ success: false, error: 'Only workspace admins can recalculate workspace leads.' }));
+      return true;
+    }
+    try {
+      const backfill = await startLeadScoringRecalculation(activeTenantCtx, userUid);
+      res.statusCode = 202;
+      res.end(JSON.stringify({ success: true, backfill }));
+    } catch (err: any) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ success: false, error: err?.message || 'Could not start lead recalculation.' }));
+    }
+    return true;
+  }
+
+  const leadScoringEvaluateMatch = url.match(/^\/api\/crm\/lead-scoring\/evaluate\/([a-zA-Z0-9_-]+)$/);
+  if (leadScoringEvaluateMatch && req.method === 'POST') {
+    try {
+      const result = await evaluateLeadForScoring(activeTenantCtx, leadScoringEvaluateMatch[1], undefined, 'MANUAL');
+      res.statusCode = result.success ? 200 : result.skipped ? 409 : 500;
+      res.end(JSON.stringify({ success: result.success, result }));
+    } catch (err: any) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ success: false, error: err?.message || 'Could not evaluate this lead.' }));
+    }
+    return true;
+  }
+
+  const leadScoringQueueMatch = url.match(/^\/api\/crm\/lead-scoring\/queue\/([a-zA-Z0-9_-]+)$/);
+  if (leadScoringQueueMatch && req.method === 'POST') {
+    try {
+      const result = await enqueueLeadScoringEvaluation(
+        activeTenantCtx,
+        leadScoringQueueMatch[1],
+        body?.conversationId ? String(body.conversationId) : undefined,
+        body?.trigger === 'NEW_LEAD' ? 'NEW_LEAD' : body?.trigger === 'PROFILE_UPDATE' ? 'PROFILE_UPDATE' : 'CONVERSATION'
+      );
+      res.statusCode = result.queued ? 202 : 200;
+      res.end(JSON.stringify({ success: true, ...result }));
+    } catch (err: any) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ success: false, error: err?.message || 'Could not queue lead scoring.' }));
+    }
+    return true;
+  }
+
+  const leadScoringHistoryMatch = url.match(/^\/api\/crm\/lead-scoring\/history\/([a-zA-Z0-9_-]+)$/);
+  if (leadScoringHistoryMatch && req.method === 'GET') {
+    try {
+      const history = await getLeadScoringHistory(activeTenantCtx, leadScoringHistoryMatch[1]);
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, history }));
+    } catch (err: any) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ success: false, error: err?.message || 'Could not load lead score history.' }));
+    }
+    return true;
   }
 
   // AI Agent routes are authenticated, entitlement-gated and tenant-scoped.
@@ -4345,10 +4456,18 @@ ${signature || defSig}`;
           const data: any = t.data();
           if (data?.status === 'suspended') continue;
           const ctx: TenantContext = { tenantId: t.id, uid: 'system-cron', email: '', role: 'admin' };
-          results.push({ tenantId: t.id, ...(await runAutoFollowUpWorkerCycle(ctx, { force: true })) });
+          const followUps = await runAutoFollowUpWorkerCycle(ctx, { force: true });
+          let leadScoring: any;
+          try { leadScoring = await runLeadScoringWorkerCycle(ctx, 2); }
+          catch (scoringError: any) { leadScoring = { status: 'failed', error: scoringError?.message || 'Lead scoring worker failed.' }; }
+          results.push({ tenantId: t.id, followUps, leadScoring });
         }
       } else {
-        results.push({ tenantId: callerCtx!.tenantId, ...(await runAutoFollowUpWorkerCycle(callerCtx!, { force: true })) });
+        const followUps = await runAutoFollowUpWorkerCycle(callerCtx!, { force: true });
+        let leadScoring: any;
+        try { leadScoring = await runLeadScoringWorkerCycle(callerCtx!, 2); }
+        catch (scoringError: any) { leadScoring = { status: 'failed', error: scoringError?.message || 'Lead scoring worker failed.' }; }
+        results.push({ tenantId: callerCtx!.tenantId, followUps, leadScoring });
       }
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/json');

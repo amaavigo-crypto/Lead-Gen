@@ -2797,6 +2797,8 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
             {activeTab === 'crm' && (
               <CrmPipeline
                 leads={leads}
+                tenantId={currentTenantId}
+                canManageScoring={currentUser?.role === 'ADMIN'}
                 users={users}
                 contacts={contacts}
                 activities={activities}
@@ -2849,9 +2851,22 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
                   else if ((leadToSave.callLogs || []).length > (previousLead?.callLogs || []).length) { auditAction = 'CRM_CALL_LOG_RECORDED'; auditDescription = 'A telecalling outcome was recorded for the lead.'; }
                   else if (previousLead && previousLead.status !== leadToSave.status) { auditAction = 'CRM_LEAD_STATUS_UPDATED'; auditDescription = 'Lead status changed to ' + leadToSave.status + '.'; }
                   const auditLeadUpdate = () => recordAuditAction({ action: auditAction, module: 'CRM', description: auditDescription, target: { type: 'Lead', id: leadToSave.leadId } });
+                  const scoringFields = ['budget', 'timeline', 'serviceInterest', 'requirements', 'notes', 'queryMessage', 'teamSize', 'country', 'city', 'website', 'productInterest'];
+                  const scoringProfileChanged = Boolean(previousLead && scoringFields.some((field) => JSON.stringify((previousLead as any)[field]) !== JSON.stringify((leadToSave as any)[field])));
+                  const queueProfileScore = () => {
+                    if (scoringProfileChanged) {
+                      fetch('/api/crm/lead-scoring/queue/' + encodeURIComponent(leadToSave.leadId), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ trigger: 'PROFILE_UPDATE' }),
+                      }).catch((err) => console.warn('[CRM] Lead profile scoring queue notice:', err));
+                    }
+                  };
                   if (isFirebaseConfigured && db) {
-                    void setDoc(tDoc('leads', leadToSave.leadId), sanitizeDoc(leadToSave), { merge: true }).then(auditLeadUpdate).catch((err) => console.error('[Firestore] Failed updating lead:', err));
-                  } else { auditLeadUpdate(); }
+                    void setDoc(tDoc('leads', leadToSave.leadId), sanitizeDoc(leadToSave), { merge: true })
+                      .then(() => { auditLeadUpdate(); queueProfileScore(); })
+                      .catch((err) => console.error('[Firestore] Failed updating lead:', err));
+                  } else { auditLeadUpdate(); queueProfileScore(); }
                 }}
                 onAddLead={(newLead, newContact) => {
                   setLeads((prev) => [newLead, ...prev]);
@@ -2859,7 +2874,12 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
                   const auditNewLead = () => recordAuditAction({ action: 'CRM_LEAD_CREATED', module: 'CRM', description: 'A new lead and linked contact were created.', target: { type: 'Lead', id: newLead.leadId } });
                   if (isFirebaseConfigured && db) {
                     void Promise.all([setDoc(tDoc('leads', newLead.leadId), sanitizeDoc(newLead), { merge: true }), setDoc(tDoc('contacts', newContact.contactId), sanitizeDoc(newContact), { merge: true })])
-                      .then(auditNewLead).catch((err) => console.error('[Firestore] Failed adding lead/contact:', err));
+                      .then(() => {
+                        auditNewLead();
+                        fetch('/api/crm/lead-scoring/queue/' + encodeURIComponent(newLead.leadId), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trigger: 'NEW_LEAD' }) })
+                          .catch((err) => console.warn('[CRM] Initial AI lead scoring notice:', err));
+                      })
+                      .catch((err) => console.error('[Firestore] Failed adding lead/contact:', err));
                   } else { auditNewLead(); }
                 }}
               />

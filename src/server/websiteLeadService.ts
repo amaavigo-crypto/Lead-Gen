@@ -1181,6 +1181,12 @@ export async function processWebsiteLeadSubmission(
       }
 
       await Promise.all(writes);
+      try {
+        const { enqueueLeadScoringEvaluation } = await import('./leadScoringService.js');
+        await enqueueLeadScoringEvaluation(ctx, leadId, conversation.conversationId, 'NEW_LEAD');
+      } catch (scoringError: any) {
+        console.warn('[Website Lead] AI lead scoring notice:', scoringError?.message || scoringError);
+      }
       console.log(`[Website Lead] Successfully stored Lead "${companyName}" (${leadId}) directly into Firestore DB for tenant ${ctx.tenantId}!`);
     } catch (dbErr) {
       console.error(`[Website Lead] Error writing to Firestore DB for ${ctx.tenantId}:`, dbErr);

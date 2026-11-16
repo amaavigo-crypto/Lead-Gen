@@ -1267,6 +1267,12 @@ export async function processLiveInboundWhatsApp(
         } catch (followUpError) {
           console.warn('[WhatsApp Pipeline] AI follow-up cancellation notice:', followUpError);
         }
+        try {
+          const { enqueueLeadScoringEvaluation } = await import('./leadScoringService.js');
+          await enqueueLeadScoringEvaluation(getWACtx(), crmEntities.lead.leadId, crmEntities.conversation.conversationId, 'CONVERSATION');
+        } catch (scoringError: any) {
+          console.warn('[WhatsApp Pipeline] AI lead scoring notice:', scoringError?.message || scoringError);
+        }
       }
     } catch (fsErr) {
       console.error('[WhatsApp Pipeline] Firestore persistence warning:', fsErr);

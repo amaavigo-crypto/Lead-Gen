@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import OpenAI from 'openai';
-import { doc, getDoc, setDoc, deleteDoc, createDoc, updateDoc, getDocs, query, where, db } from './adminFirestore.js';
+import { doc, getDoc, setDoc, deleteDoc, createDoc, updateDoc, getDocs, query, where, limit, db } from './adminFirestore.js';
 import { tenantRepo } from './tenantRepo.js';
 import { encryptSecret, decryptSecret } from './cryptoUtils.js';
 import type { TenantContext } from '../types/tenant.js';
@@ -1104,8 +1104,39 @@ async function processInbound(tenantId: string, event: InboundEvent, eventId: st
 
   const prevSnap = await getDoc(repo.conversationDoc(conversationId));
   const previous = prevSnap.exists() ? (prevSnap.data() as any) : null;
+  let linkedLead: any = null;
+  if (previous?.leadId) {
+    const linkedLeadSnap = await getDoc(repo.leadDoc(String(previous.leadId)));
+    if (linkedLeadSnap.exists()) linkedLead = linkedLeadSnap.data();
+  }
+  if (!linkedLead) {
+    const leadMatches = await getDocs(query(repo.leads(), where('contactId', '==', contactId), limit(1)));
+    if (!leadMatches.empty) linkedLead = leadMatches.docs[0].data();
+  }
+  const leadId = String(linkedLead?.leadId || previous?.leadId || `${prefix}lead_${hash24(event.accountId + ':' + event.senderId)}`);
+  const leadRecord = linkedLead || {
+    leadId,
+    contactId,
+    source: event.channel,
+    leadType: 'INBOUND',
+    status: 'NEW',
+    leadScore: 50,
+    intent: 'MEDIUM',
+    buyingStage: 'AWARENESS',
+    serviceInterest: '',
+    requirements: [],
+    aiSummary: `New inbound ${label} conversation.`,
+    createdAt: now,
+  };
+  await setDoc(repo.leadDoc(leadId), {
+    ...leadRecord,
+    leadId,
+    contactId,
+    updatedAt: now,
+    lastActivityAt: event.timestamp,
+  }, { merge: true });
   const conversation = {
-    conversationId, contactId, channel: event.channel, direction: 'INBOUND', externalConversationId: event.senderId,
+    conversationId, contactId, leadId, channel: event.channel, direction: 'INBOUND', externalConversationId: event.senderId,
     status: previous?.status || 'ACTIVE', aiEnabled: previous?.aiEnabled !== false,
     humanHandoff: previous?.humanHandoff === true, managementMode: previous?.managementMode || 'AI',
     conversationSummary: previous?.conversationSummary || `${label} conversation`,
@@ -1124,6 +1155,12 @@ async function processInbound(tenantId: string, event: InboundEvent, eventId: st
     await handleLeadReplyEvent(ctx, { conversationId });
   } catch (followUpError) {
     console.warn('[Meta Channels] AI follow-up cancellation notice:', followUpError);
+  }
+  try {
+    const { enqueueLeadScoringEvaluation } = await import('./leadScoringService.js');
+    await enqueueLeadScoringEvaluation(ctx, leadId, conversationId, 'CONVERSATION');
+  } catch (scoringError: any) {
+    console.warn('[Meta Channels] AI lead scoring notice:', scoringError?.message || scoringError);
   }
 
   const mode = await getTenantChannelMode(ctx, event.channel, 'AUTO');

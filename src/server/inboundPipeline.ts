@@ -2037,6 +2037,14 @@ async function persistInboundCrmEntities(ctx: TenantContext, crmEntities: Inboun
     if (crmEntities.aiReplyMessage) writes.push(safeSetDoc(repo.messageDoc(crmEntities.aiReplyMessage.messageId), crmEntities.aiReplyMessage, { merge: true }));
     if (crmEntities.activity) writes.push(safeSetDoc(repo.leadActivityDoc(crmEntities.activity.activityId), crmEntities.activity));
     await Promise.all(writes);
+    if (crmEntities.incomingMessage?.direction === 'INBOUND' && crmEntities.conversation?.conversationId) {
+      try {
+        const { enqueueLeadScoringEvaluation } = await import('./leadScoringService.js');
+        if (crmEntities.lead?.leadId) await enqueueLeadScoringEvaluation(ctx, crmEntities.lead.leadId, crmEntities.conversation.conversationId, 'CONVERSATION');
+      } catch (scoringError: any) {
+        console.warn('[Inbound Pipeline] AI lead scoring notice:', scoringError?.message || scoringError);
+      }
+    }
   } catch (err) {
     console.warn('[Inbound Pipeline] Notice syncing CRM entities to Firestore:', err);
   }

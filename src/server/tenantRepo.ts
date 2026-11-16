@@ -128,6 +128,14 @@ export function tenantRepo(ctx: TenantContext) {
     settingsCol: () => collection(db, `${tenantDocPath}/settings`),
     settingsDoc: (docName: string) => doc(db, `${tenantDocPath}/settings`, docName),
 
+    // Tenant-scoped AI lead scoring backfill jobs and immutable evaluation history.
+    leadScoringJobs: () => collection(db, `${tenantDocPath}/lead_scoring_jobs`),
+    leadScoringJobDoc: (id: string) => doc(db, `${tenantDocPath}/lead_scoring_jobs`, id),
+    leadScoringQueue: () => collection(db, `${tenantDocPath}/lead_scoring_queue`),
+    leadScoringQueueDoc: (leadId: string) => doc(db, `${tenantDocPath}/lead_scoring_queue`, assertValidTenantId(leadId)),
+    leadScoringHistory: (leadId: string) => collection(db, `${tenantDocPath}/leads/${assertValidTenantId(leadId)}/score_history`),
+    leadScoringHistoryDoc: (leadId: string, evaluationId: string) => doc(db, `${tenantDocPath}/leads/${assertValidTenantId(leadId)}/score_history`, evaluationId),
+
     integrationsCol: () => collection(db, `${tenantDocPath}/integrations`),
     integrationDoc: (name: string) => doc(db, `${tenantDocPath}/integrations`, name),
 
