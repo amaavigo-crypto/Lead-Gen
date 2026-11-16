@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ShieldCheck,
   Search,
@@ -19,7 +19,6 @@ import {
   X,
   Database,
   Layers,
-  Code,
   Send,
   Users,
   Settings as SettingsIcon,
@@ -29,8 +28,6 @@ import {
   Terminal,
 } from 'lucide-react';
 import { AuditLog, AuditModule, AuditSeverity } from '../types';
-import { db, isFirebaseConfigured } from '../firebase/config';
-import { collection, onSnapshot, query, orderBy, limit, doc, setDoc } from '../services/clientDb';
 import { logAuditEvent } from '../services/auditService';
 
 interface AuditLogsViewProps {
@@ -41,12 +38,21 @@ interface AuditLogsViewProps {
 
 export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
   tenantId = 'umrah360',
-  currentUserEmail = 'automation@amaavigo.com',
   canCreateTestLog = false,
 }) => {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState<number>(0);
+  const [allAuditCount, setAllAuditCount] = useState<number>(0);
+  const [criticalOrSecurityCount, setCriticalOrSecurityCount] = useState<number>(0);
+  const [warningCount, setWarningCount] = useState<number>(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [pageCursors, setPageCursors] = useState<Array<string | null>>([null]);
+  const [pageIndex, setPageIndex] = useState<number>(0);
+  const requestSequence = useRef(0);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -61,211 +67,146 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
   const [isTestLogModalOpen, setIsTestLogModalOpen] = useState<boolean>(false);
   const [testAction, setTestAction] = useState<string>('MANUAL_AUDIT_CHECK');
   const [testModule, setTestModule] = useState<AuditModule>('SETTINGS');
-  const [testSeverity, setTestSeverity] = useState<AuditSeverity>('INFO');
   const [testDescription, setTestDescription] = useState<string>('Manual audit inspection performed by workspace administrator.');
   const [isSubmittingTest, setIsSubmittingTest] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Fetch / Sync Audit Logs from Firestore & API
-  const loadAuditLogs = async () => {
-    setRefreshing(true);
-    let loaded: AuditLog[] = [];
-
-    if (isFirebaseConfigured && db && tenantId) {
-      try {
-        const colRef = collection(db, 'tenants', tenantId, 'audit_logs');
-        const q = query(colRef, orderBy('timestamp', 'desc'), limit(200));
-        const snap = await new Promise<any>((resolve) => {
-          const unsub = onSnapshot(q, (s) => {
-            unsub();
-            resolve(s);
-          }, () => resolve(null));
-        });
-
-        if (snap && !snap.empty) {
-          snap.forEach((d: any) => {
-            loaded.push(d.data() as AuditLog);
-          });
-        }
-      } catch (err) {
-        console.warn('[AuditLogs] Firestore read note:', err);
-      }
-    }
-
-    if (loaded.length === 0) {
-      try {
-        const res = await fetch(`/api/audit-logs?tenantId=${encodeURIComponent(tenantId)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data.logs) && data.logs.length > 0) {
-            loaded = data.logs;
-          }
-        }
-      } catch (e) {}
-    }
-
-    setLogs(loaded);
-    setLoading(false);
-    setRefreshing(false);
+  const buildAuditLogsUrl = (cursor: string | null = null, includeMetrics = false) => {
+    const params = new URLSearchParams({ tenantId, limit: '25' });
+    if (searchQuery.trim()) params.set('search', searchQuery.trim().slice(0, 120));
+    if (selectedModule !== 'ALL') params.set('module', selectedModule);
+    if (selectedSeverity !== 'ALL') params.set('severity', selectedSeverity);
+    if (dateRange !== 'ALL') params.set('dateRange', dateRange);
+    if (cursor) params.set('cursor', cursor);
+    if (includeMetrics) params.set('metrics', '1');
+    return `/api/audit-logs?${params.toString()}`;
   };
 
-  // Live Firestore Listener for Real-time Audit Events
-  useEffect(() => {
-    let unsub: (() => void) | undefined;
-    let fallbackInterval: ReturnType<typeof setInterval> | undefined;
-    if (isFirebaseConfigured && db && tenantId) {
-      try {
-        const colRef = collection(db, 'tenants', tenantId, 'audit_logs');
-        const q = query(colRef, orderBy('timestamp', 'desc'), limit(200));
-        unsub = onSnapshot(q, (snap) => {
-          const list: AuditLog[] = [];
-          snap.forEach((d) => list.push(d.data() as AuditLog));
-          setLogs(list);
-          setLoading(false);
-          setRefreshing(false);
-        }, (error) => {
-          console.error('[AuditLogs] Real-time listener failed:', error);
-          loadAuditLogs();
-          if (!fallbackInterval) fallbackInterval = setInterval(loadAuditLogs, 10000);
-        });
-      } catch (err) {
-        loadAuditLogs();
+  // The authenticated server returns one cursor page; the browser never downloads the full collection.
+  const loadAuditLogs = async (cursor: string | null = null) => {
+    const sequence = ++requestSequence.current;
+    setRefreshing(true);
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const response = await fetch(buildAuditLogsUrl(cursor, cursor === null), { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.success !== true) throw new Error(data?.error || `Audit API returned HTTP ${response.status}`);
+      if (sequence !== requestSequence.current) return;
+      setLogs(Array.isArray(data.logs) ? data.logs : []);
+      setTotalCount(Number(data.totalCount || 0));
+      setNextCursor(typeof data.nextCursor === 'string' ? data.nextCursor : null);
+      if (data.metrics) {
+        setAllAuditCount(Number(data.metrics.total || 0));
+        setCriticalOrSecurityCount(Number(data.metrics.criticalOrSecurity || 0));
+        setWarningCount(Number(data.metrics.warning || 0));
       }
-    } else {
-      loadAuditLogs();
-      fallbackInterval = setInterval(loadAuditLogs, 10000);
+    } catch (error: any) {
+      if (sequence !== requestSequence.current) return;
+      setLoadError(error?.message || 'Could not load audit logs.');
+      setLogs([]);
+      setTotalCount(0);
+      setNextCursor(null);
+    } finally {
+      if (sequence === requestSequence.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
+  };
 
-    return () => {
-      if (unsub) unsub();
-      if (fallbackInterval) clearInterval(fallbackInterval);
-    };
-  }, [tenantId]);
+  useEffect(() => {
+    setPageCursors([null]);
+    setPageIndex(0);
+    const timer = setTimeout(() => { void loadAuditLogs(null); }, 250);
+    return () => clearTimeout(timer);
+  }, [tenantId, searchQuery, selectedModule, selectedSeverity, dateRange]);
 
-  // Handle creating a test audit log event
+  useEffect(() => {
+    const timer = setInterval(() => { void loadAuditLogs(pageCursors[pageIndex] || null); }, 30000);
+    return () => clearInterval(timer);
+  }, [tenantId, searchQuery, selectedModule, selectedSeverity, dateRange, pageCursors, pageIndex]);
+
+  // Test events use the same authenticated, server-classified write path.
   const handleCreateTestLog = async () => {
     if (!canCreateTestLog || !testDescription.trim()) return;
     setIsSubmittingTest(true);
-
     try {
-      const newLog = await logAuditEvent(tenantId, {
+      await logAuditEvent(tenantId, {
         action: testAction,
         module: testModule,
-        severity: testSeverity,
         description: testDescription.trim(),
-        actor: {
-          name: currentUserEmail.split('@')[0] || 'Admin User',
-          email: currentUserEmail,
-          role: 'ADMIN',
-        },
-        target: {
-          type: 'System',
-          id: 'sys-audit-test',
-          name: 'Audit Log Verification',
-        },
-        metadata: {
-          triggeredBy: 'MANUAL_UI_TEST',
-          clientTimestamp: new Date().toISOString(),
-        },
+        target: { type: 'System', id: 'sys-audit-test', name: 'Audit Log Verification' },
+        metadata: { triggeredBy: 'MANUAL_UI_TEST' },
       });
-
-      if (newLog) {
-        setLogs((prev) => [newLog, ...prev.filter((l) => l.id !== newLog.id)]);
-      }
-
       setIsTestLogModalOpen(false);
-      setToastMessage('New Audit Log entry successfully recorded in system ledger!');
+      setPageCursors([null]);
+      setPageIndex(0);
+      void loadAuditLogs(null);
+      setToastMessage('New audit event successfully recorded.');
       setTimeout(() => setToastMessage(null), 4000);
-    } catch (err: any) {
-      alert(`Error recording audit log: ${err?.message || err}`);
+    } catch (error: any) {
+      alert(`Error recording audit log: ${error?.message || error}`);
     } finally {
       setIsSubmittingTest(false);
     }
   };
 
-  // Filtered Logs Computation
-  const filteredLogs = useMemo(() => {
-    return logs.filter((log) => {
-      // Module navigation is not an actionable audit event; hide legacy entries from the operator view.
-      if (String(log.action || '').toUpperCase() === 'MODULE_VIEWED') return false;
-      // Search Query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchesDesc = log.description?.toLowerCase().includes(q);
-        const matchesAction = log.action?.toLowerCase().includes(q);
-        const matchesActorName = log.actor?.name?.toLowerCase().includes(q);
-        const matchesActorEmail = log.actor?.email?.toLowerCase().includes(q);
-        const matchesTargetName = log.target?.name?.toLowerCase().includes(q);
-        const matchesModule = log.module?.toLowerCase().includes(q);
-        if (!matchesDesc && !matchesAction && !matchesActorName && !matchesActorEmail && !matchesTargetName && !matchesModule) {
-          return false;
-        }
-      }
+  const filteredLogs = logs;
 
-      // Module Filter
-      if (selectedModule !== 'ALL' && log.module !== selectedModule) {
-        return false;
-      }
 
-      // Severity Filter
-      if (selectedSeverity !== 'ALL' && log.severity !== selectedSeverity) {
-        return false;
-      }
+  const metrics = useMemo(() => ({
+    total: allAuditCount,
+    criticalOrSecurity: criticalOrSecurityCount,
+    warning: warningCount,
+    uniqueActors: new Set(logs.map((log) => log.actor?.email || log.actor?.name).filter(Boolean)).size,
+  }), [allAuditCount, criticalOrSecurityCount, warningCount, logs]);
 
-      // Date Range Filter
-      if (dateRange !== 'ALL' && log.timestamp) {
-        const logTime = new Date(log.timestamp).getTime();
-        const now = Date.now();
-        if (dateRange === 'TODAY' && now - logTime > 24 * 60 * 60 * 1000) return false;
-        if (dateRange === '7_DAYS' && now - logTime > 7 * 24 * 60 * 60 * 1000) return false;
-        if (dateRange === '30_DAYS' && now - logTime > 30 * 24 * 60 * 60 * 1000) return false;
-      }
+  // Export every record matching the active filters, not only the current 25-row page.
+  const handleExportCsv = async () => {
+    if (totalCount === 0 || isExporting) return;
+    setIsExporting(true);
+    try {
+      const allMatchingLogs: AuditLog[] = [];
+      let cursor: string | null = null;
+      let pageCount = 0;
+      do {
+        const response = await fetch(buildAuditLogsUrl(cursor), { cache: 'no-store' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data?.success !== true) throw new Error(data?.error || 'Could not export audit logs.');
+        if (Array.isArray(data.logs)) allMatchingLogs.push(...data.logs);
+        cursor = typeof data.nextCursor === 'string' ? data.nextCursor : null;
+        pageCount += 1;
+        if (pageCount >= 1000 && cursor) throw new Error('Export is limited to 25,000 matching records. Apply a date filter and try again.');
+      } while (cursor);
 
-      return true;
-    });
-  }, [logs, searchQuery, selectedModule, selectedSeverity, dateRange]);
-
-  // Metrics summary
-  const metrics = useMemo(() => {
-    const total = logs.length;
-    const criticalOrSecurity = logs.filter((l) => l.severity === 'CRITICAL' || l.severity === 'SECURITY').length;
-    const warning = logs.filter((l) => l.severity === 'WARNING').length;
-    const uniqueActors = new Set(logs.map((l) => l.actor?.email || l.actor?.userId)).size;
-
-    return { total, criticalOrSecurity, warning, uniqueActors };
-  }, [logs]);
-
-  // Export CSV
-  const handleExportCsv = () => {
-    if (filteredLogs.length === 0) return;
-    const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-
-    const headers = ['Audit ID', 'Timestamp', 'Action', 'Module', 'Severity', 'Actor Name', 'Actor Email', 'Description', 'Target Type', 'Target Name'];
-    const csvRows = [
-      headers.join(','),
-      ...filteredLogs.map((l) =>
-        [
-          esc(l.id),
-          esc(l.timestamp),
-          esc(l.action),
-          esc(l.module),
-          esc(l.severity),
-          esc(l.actor?.name),
-          esc(l.actor?.email),
-          esc(l.description),
-          esc(l.target?.type || ''),
-          esc(l.target?.name || ''),
-        ].join(',')
-      ),
-    ];
-
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `audit-logs-${tenantId}-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (!allMatchingLogs.length) return;
+      const esc = (value: unknown) => {
+        const raw = String(value ?? '');
+        const safe = /^[=+@-]/.test(raw) ? `'${raw}` : raw;
+        return `"${safe.replace(/"/g, '""')}"`;
+      };
+      const headers = ['Timestamp', 'Action', 'Module', 'Severity', 'Actor Name', 'Actor Email', 'Description', 'Target Type', 'Target Name'];
+      const rows = [
+        headers.join(','),
+        ...allMatchingLogs.map((log) => [
+          esc(log.timestamp), esc(log.action), esc(log.module), esc(log.severity),
+          esc(log.actor?.name), esc(log.actor?.email), esc(log.description),
+          esc(log.target?.type || ''), esc(log.target?.name || ''),
+        ].join(',')),
+      ];
+      const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error: any) {
+      alert(error?.message || 'Could not export audit logs.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const getModuleIcon = (mod: AuditModule) => {
@@ -314,6 +255,14 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
     }
   };
 
+  const getSafeMetadataEntries = (metadata?: Record<string, any>) => {
+    const visibleKeys = new Set(['triggeredBy', 'status', 'channel', 'result', 'itemCount', 'reason', 'source', 'authMethod', 'confidenceScore', 'knowledgeSourcesUsed', 'category', 'version', 'changedFields', 'fromStatus', 'toStatus', 'provider', 'operation', 'deliveryStatus', 'triggerKeyword', 'handoffReason']);
+    return Object.entries(metadata || {}).filter(([key]) => visibleKeys.has(key)).slice(0, 12).map(([key, value]) => ({
+      label: key.replace(/([A-Z])/g, ' $1').replace(/^./, (letter) => letter.toUpperCase()),
+      value: Array.isArray(value) ? value.filter((item) => ['string', 'number', 'boolean'].includes(typeof item)).slice(0, 8).join(', ') : String(value ?? ''),
+    })).filter((item) => item.value.length > 0 && item.value.length <= 500);
+  };
+
   const formatRelativeTime = (isoString: string) => {
     try {
       const date = new Date(isoString);
@@ -358,11 +307,11 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
               <div className="flex items-center gap-2.5">
                 <h2 className="text-lg font-bold text-slate-900">System Audit Trail & Compliance Logs</h2>
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-50 text-orange-700 border border-orange-200">
-                  {filteredLogs.length} Events Logged
+                  {totalCount} Events Logged
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Immutable, real-time audit ledger tracking user actions, campaign dispatches, lead edits, and security permissions across workspace modules.
+                Server-verified audit history for workspace activity, operational changes, and security events.
               </p>
             </div>
           </div>
@@ -370,7 +319,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
 
         <div className="flex items-center gap-2.5 shrink-0">
           <button
-            onClick={loadAuditLogs}
+            onClick={() => loadAuditLogs(pageCursors[pageIndex] || null)}
             disabled={refreshing}
             className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 rounded-xl transition text-xs font-semibold flex items-center gap-1.5"
             title="Refresh Audit Logs"
@@ -381,12 +330,12 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
 
           <button
             onClick={handleExportCsv}
-            disabled={filteredLogs.length === 0}
+            disabled={totalCount === 0 || isExporting}
             className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 border border-slate-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-2xs"
             title="Export CSV for compliance audits"
           >
             <Download className="w-4 h-4 text-slate-600" />
-            <span>Export CSV</span>
+            <span>{isExporting ? 'Exporting...' : 'Export CSV'}</span>
           </button>
 
           {canCreateTestLog && (
@@ -412,7 +361,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
             {metrics.total}
           </div>
           <div className="text-[11px] text-slate-400 flex items-center gap-1">
-            <span>Directly synchronized in Firestore DB</span>
+            <span>All recorded events in this workspace</span>
           </div>
         </div>
 
@@ -438,7 +387,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
             {metrics.warning}
           </div>
           <div className="text-[11px] text-amber-700 font-medium">
-            <span>Operational system warnings</span>
+            <span>Server-classified operational warnings</span>
           </div>
         </div>
 
@@ -451,7 +400,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
             {metrics.uniqueActors}
           </div>
           <div className="text-[11px] text-slate-500">
-            <span>Team & automated agent identities</span>
+            <span>Users represented on this page</span>
           </div>
         </div>
       </div>
@@ -463,7 +412,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
           <Search className="w-4 h-4 text-slate-400 ml-1 shrink-0" />
           <input
             type="text"
-            placeholder="Search audit trail by description, action, user email, or target..."
+            placeholder="Search all audit records by description, action, user email, or target..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="bg-transparent border-none text-xs text-slate-800 placeholder-slate-400 focus:outline-none flex-1 font-sans"
@@ -537,7 +486,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-semibold text-[10px] tracking-wider">
               <tr>
-                <th className="py-3.5 px-4">Time & ID</th>
+                <th className="py-3.5 px-4">Time</th>
                 <th className="py-3.5 px-4">Actor / Identity</th>
                 <th className="py-3.5 px-4">Module & Action</th>
                 <th className="py-3.5 px-4">Audit Description</th>
@@ -550,9 +499,11 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-slate-400">
                     <RefreshCw className="w-6 h-6 animate-spin text-orange-500 mx-auto mb-2" />
-                    <span>Loading audit records from Firestore DB...</span>
+                    <span>Loading audit records...</span>
                   </td>
                 </tr>
+              ) : loadError ? (
+                <tr><td colSpan={6} className="py-12 text-center text-rose-600">{loadError}</td></tr>
               ) : filteredLogs.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-slate-400 space-y-2">
@@ -587,9 +538,6 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                         <div className="font-semibold text-slate-900 flex items-center gap-1.5">
                           <Clock className="w-3 h-3 text-slate-400 shrink-0" />
                           <span>{formatRelativeTime(log.timestamp)}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 font-mono mt-0.5 truncate max-w-[120px]" title={log.id}>
-                          {log.id}
                         </div>
                       </td>
 
@@ -647,7 +595,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                             setInspectedLog(log);
                           }}
                           className="p-1.5 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition"
-                          title="View Complete Payload & Metadata"
+                          title="View safe audit details"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
@@ -661,13 +609,27 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
         </div>
 
         {/* Table Footer */}
-        <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+        <div className="p-3 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
           <span>
-            Showing <strong className="text-slate-800">{filteredLogs.length}</strong> of {logs.length} total audit entries
+            Showing <strong className="text-slate-800">{totalCount === 0 ? 0 : pageIndex * 25 + 1}-{Math.min(pageIndex * 25 + filteredLogs.length, totalCount)}</strong> of {totalCount} matching audit entries
           </span>
-          <span className="text-[11px] text-slate-400 font-mono">
-            Synced with Firestore Collection: tenants/{tenantId}/audit_logs
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-500">Page {pageIndex + 1}</span>
+            <button type="button" onClick={() => {
+              if (pageIndex <= 0) return;
+              const previousIndex = pageIndex - 1;
+              const previousCursor = pageCursors[previousIndex] || null;
+              setPageIndex(previousIndex);
+              void loadAuditLogs(previousCursor);
+            }} disabled={pageIndex === 0 || loading} className="px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100">Previous</button>
+            <button type="button" onClick={() => {
+              if (!nextCursor) return;
+              const nextHistory = [...pageCursors.slice(0, pageIndex + 1), nextCursor];
+              setPageCursors(nextHistory);
+              setPageIndex(pageIndex + 1);
+              void loadAuditLogs(nextCursor);
+            }} disabled={!nextCursor || loading} className="px-3 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100">Next</button>
+          </div>
         </div>
       </div>
 
@@ -686,9 +648,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                     <span>Audit Log Event Details</span>
                     {getSeverityBadge(inspectedLog.severity)}
                   </h3>
-                  <p className="text-xs text-slate-500 font-mono">
-                    ID: {inspectedLog.id}
-                  </p>
+                  <p className="text-xs text-slate-500">Operator-safe event details</p>
                 </div>
               </div>
               <button
@@ -704,7 +664,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
               {/* Event Overview Box */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                 <div className="flex items-center justify-between text-slate-500 text-[11px]">
-                  <span>Action Code: <strong className="text-orange-700 font-mono">{inspectedLog.action}</strong></span>
+                  <span>Action: <strong className="text-slate-800">{inspectedLog.action}</strong></span>
                   <span>{new Date(inspectedLog.timestamp).toLocaleString()}</span>
                 </div>
                 <p className="text-sm font-semibold text-slate-900 leading-relaxed">
@@ -720,7 +680,6 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                   <div className="text-[11px] text-slate-500 font-mono">{inspectedLog.actor?.email || '—'}</div>
                   <div className="text-[10px] text-slate-400 pt-1">
                     Role: <span className="font-semibold text-slate-700">{inspectedLog.actor?.role}</span>
-                    {inspectedLog.actor?.ipAddress && ` · IP: ${inspectedLog.actor.ipAddress}`}
                   </div>
                 </div>
 
@@ -729,27 +688,27 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                   <div className="font-bold text-slate-900 text-xs">
                     {inspectedLog.target?.type ? `${inspectedLog.target.type}: ${inspectedLog.target.name}` : 'N/A'}
                   </div>
-                  {inspectedLog.target?.id && (
-                    <div className="text-[11px] text-slate-500 font-mono">ID: {inspectedLog.target.id}</div>
-                  )}
                   <div className="text-[10px] text-slate-400 pt-1">
                     Module: <span className="font-semibold text-orange-600">{inspectedLog.module}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Raw JSON Payload */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700">
-                  <span className="flex items-center gap-1">
-                    <Code className="w-3.5 h-3.5 text-orange-500" />
-                    <span>Raw Audit Payload & Metadata (JSON):</span>
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">Structured JSON Record</span>
-                </div>
-                <pre className="p-4 bg-slate-900 border border-slate-800 rounded-xl text-amber-300 font-mono text-[11px] leading-relaxed overflow-x-auto max-h-60 shadow-inner">
-                  {JSON.stringify(inspectedLog, null, 2)}
-                </pre>
+              {/* Only allow-listed technical details are visible to workspace operators. */}
+              <div className="space-y-2">
+                <div className="text-[11px] font-semibold text-slate-700">Additional details</div>
+                {getSafeMetadataEntries(inspectedLog.metadata).length > 0 ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {getSafeMetadataEntries(inspectedLog.metadata).map((item) => (
+                      <div key={item.label} className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                        <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">{item.label}</div>
+                        <div className="mt-1 text-xs text-slate-700 break-words">{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 p-3 bg-slate-50 border border-slate-200 rounded-lg">No additional operator-safe details are available for this event.</p>
+                )}
               </div>
             </div>
 
@@ -799,7 +758,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div>
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
                     Target Module *
@@ -819,21 +778,6 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
-                    Severity *
-                  </label>
-                  <select
-                    value={testSeverity}
-                    onChange={(e) => setTestSeverity(e.target.value as AuditSeverity)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-orange-500"
-                  >
-                    <option value="INFO">INFO</option>
-                    <option value="WARNING">WARNING</option>
-                    <option value="CRITICAL">CRITICAL</option>
-                    <option value="SECURITY">SECURITY</option>
-                  </select>
-                </div>
               </div>
 
               <div>

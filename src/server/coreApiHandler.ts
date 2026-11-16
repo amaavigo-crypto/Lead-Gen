@@ -91,8 +91,9 @@ import { isFirebaseConfigured } from '../firebase/config.js';
 import { searchTenantWorkspace } from './globalSearchService.js';
 import { db } from './adminFirestore.js';
 import { handleClientDataRequest } from './clientDataApi.js';
-import { getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, doc, query as fsQuery, where as fsWhere, orderBy as fsOrderBy, limit as fsLimit, countDocs, sumDocs } from './adminFirestore.js';
+import { getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, doc, query as fsQuery, where as fsWhere, orderBy as fsOrderBy, limit as fsLimit, countDocs, sumDocs, whereAnyContains as fsWhereAnyContains, orderByDocumentId as fsOrderByDocumentId, startAfterValues as fsStartAfterValues } from './adminFirestore.js';
 import { safeSetDoc } from './firestoreUtils.js';
+import { auditActionLabel, classifyAuditSeverity, sanitizeAuditMetadata, sanitizeAuditMetadataForDisplay, sanitizeAuditText } from './auditLogger.js';
 import {
   setCampaignActiveContext,
   getCampaignActiveCtx,
@@ -4862,73 +4863,170 @@ ${signature || defSig}`;
     }
 
     if (req.method === 'GET') {
-      let auditList: any[] = [];
-      if (isFirebaseConfigured && db) {
-        try {
-          const colRef = collection(db, 'tenants', targetTenant, 'audit_logs');
-          const requestedLimit = qp.has('limit') ? Number(qp.get('limit')) : null;
-          const safeLimit = requestedLimit !== null && Number.isFinite(requestedLimit)
-            ? Math.min(50, Math.max(1, Math.floor(requestedLimit)))
-            : null;
-          const auditQuery = safeLimit
-            ? fsQuery(colRef, fsOrderBy('timestamp', 'desc'), fsLimit(safeLimit))
-            : colRef;
-          const snap = await getDocs(auditQuery);
-          snap.forEach((d) => {
-            const data = d.data();
-            if (data && data.id) auditList.push(data);
-          });
-          if (!safeLimit) {
-            auditList.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
-          }
-        } catch (e: any) {
-          console.error('[AuditLogs API] Firestore fetch failed:', e);
-          res.statusCode = 500;
-          res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to read audit logs' }));
-          return true;
-        }
-      } else {
+      if (!isFirebaseConfigured || !db) {
         res.statusCode = 503;
-        res.end(JSON.stringify({ success: false, error: 'Firestore is not configured; audit logs are unavailable.' }));
+        res.end(JSON.stringify({ success: false, error: 'Audit logs are temporarily unavailable.' }));
         return true;
       }
-      res.statusCode = 200;
-      res.end(JSON.stringify({ success: true, logs: auditList }));
+      try {
+        const rawLimit = qp.get('limit');
+        const requestedLimit = rawLimit === null ? 25 : Number(rawLimit);
+        const pageSize = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(25, Math.floor(requestedLimit))) : 25;
+        const allowedModules = new Set(['CAMPAIGNS', 'CRM', 'INBOX', 'KNOWLEDGE', 'SETTINGS', 'AUTH', 'SCHEDULING', 'AI_ENGINE', 'WHATSAPP', 'EMAIL_DESIGN', 'DATABASE', 'SYSTEM']);
+        const allowedSeverities = new Set(['INFO', 'WARNING', 'CRITICAL', 'SECURITY']);
+        const selectedModule = qp.get('module') || '';
+        const selectedSeverity = qp.get('severity') || '';
+        const dateRange = qp.get('dateRange') || 'ALL';
+        const searchTerm = String(qp.get('search') || '').trim().slice(0, 120);
+        const logsCollection = collection(db, 'tenants', targetTenant, 'audit_logs');
+        const filterConstraints: any[] = [fsWhere('action', '!=', 'MODULE_VIEWED')];
+        if (allowedModules.has(selectedModule)) filterConstraints.push(fsWhere('module', '==', selectedModule));
+        if (allowedSeverities.has(selectedSeverity)) filterConstraints.push(fsWhere('severity', '==', selectedSeverity));
+        const rangeHours: Record<string, number> = { TODAY: 24, '7_DAYS': 168, '30_DAYS': 720 };
+        if (rangeHours[dateRange]) {
+          const earliest = new Date(Date.now() - rangeHours[dateRange] * 60 * 60 * 1000).toISOString();
+          filterConstraints.push(fsWhere('timestamp', '>=', earliest));
+        }
+        if (searchTerm) {
+          filterConstraints.push(fsWhereAnyContains(['description', 'action', 'actor.name', 'actor.email', 'target.name', 'module'], searchTerm));
+        }
+        const filteredQuery = fsQuery(logsCollection, ...filterConstraints);
+
+        let cursorValues: [string, string] | null = null;
+        const cursor = qp.get('cursor') || '';
+        if (cursor) {
+          const splitAt = cursor.indexOf('~');
+          const timestamp = splitAt >= 0 ? cursor.slice(0, splitAt) : '';
+          const documentId = splitAt >= 0 ? cursor.slice(splitAt + 1) : '';
+          if (!timestamp || !Number.isFinite(Date.parse(timestamp)) || !documentId || documentId.length > 240) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ success: false, error: 'The audit log page cursor is invalid. Refresh and try again.' }));
+            return true;
+          }
+          cursorValues = [timestamp, documentId];
+        }
+
+        const pageConstraints: any[] = [fsOrderBy('timestamp', 'desc'), fsOrderByDocumentId()];
+        if (cursorValues) pageConstraints.push(fsStartAfterValues(...cursorValues));
+        pageConstraints.push(fsLimit(pageSize + 1));
+        const pageSnapshot = await getDocs(fsQuery(filteredQuery, ...pageConstraints));
+        const pageRows = pageSnapshot.docs.map((document) => ({ ...document.data(), id: document.id }));
+        const hasMore = pageRows.length > pageSize;
+        const visibleRows = pageRows.slice(0, pageSize);
+        const lastVisible = visibleRows[visibleRows.length - 1] as any;
+        const nextCursor = hasMore && lastVisible?.timestamp && lastVisible?.id
+          ? `${String(lastVisible.timestamp)}~${String(lastVisible.id)}`
+          : null;
+        const totalCount = await countDocs(filteredQuery);
+        const displayRows = visibleRows.map((row: any) => ({
+          id: String(row.id || ''),
+          tenantId: '',
+          timestamp: String(row.timestamp || ''),
+          action: auditActionLabel(String(row.action || 'GENERAL_ACTION')),
+          module: String(row.module || 'SYSTEM'),
+          severity: allowedSeverities.has(String(row.severity))
+            ? row.severity
+            : classifyAuditSeverity(String(row.action || ''), String(row.module || 'SYSTEM'), String(row.description || '')),
+          description: sanitizeAuditText(row.description || 'System event', 1000),
+          actor: {
+            name: sanitizeAuditText(row.actor?.name || 'System', 120),
+            email: sanitizeAuditText(row.actor?.email || '', 160),
+            role: sanitizeAuditText(row.actor?.role || 'SYSTEM', 40),
+          },
+          target: row.target ? {
+            type: sanitizeAuditText(row.target.type || 'Record', 60),
+            name: sanitizeAuditText(row.target.name || '', 160),
+          } : undefined,
+          metadata: sanitizeAuditMetadataForDisplay(row.metadata),
+        }));
+
+        let metrics: any = undefined;
+        if (qp.get('metrics') === '1') {
+          const visibleAllQuery = fsQuery(logsCollection, fsWhere('action', '!=', 'MODULE_VIEWED'));
+          const [allEvents, criticalEvents, securityEvents, warningEvents] = await Promise.all([
+            countDocs(visibleAllQuery),
+            countDocs(fsQuery(visibleAllQuery, fsWhere('severity', '==', 'CRITICAL'))),
+            countDocs(fsQuery(visibleAllQuery, fsWhere('severity', '==', 'SECURITY'))),
+            countDocs(fsQuery(visibleAllQuery, fsWhere('severity', '==', 'WARNING'))),
+          ]);
+          metrics = { total: allEvents, criticalOrSecurity: criticalEvents + securityEvents, warning: warningEvents };
+        }
+        res.statusCode = 200;
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ success: true, logs: displayRows, nextCursor, totalCount, metrics }));
+      } catch (error: any) {
+        console.error('[AuditLogs API] Page fetch failed:', error?.message || error);
+        res.statusCode = 500;
+        res.end(JSON.stringify({ success: false, error: 'Failed to load audit logs. Please refresh and try again.' }));
+      }
       return true;
     }
 
     if (req.method === 'POST') {
       try {
-        const payload = body || {};
-        const logId = payload.id || `audit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const payload = body && typeof body === 'object' ? body : {};
+        const allowedModules = new Set(['CAMPAIGNS', 'CRM', 'INBOX', 'KNOWLEDGE', 'SETTINGS', 'AUTH', 'SCHEDULING', 'AI_ENGINE', 'WHATSAPP', 'EMAIL_DESIGN', 'DATABASE', 'SYSTEM']);
+        const requestedModule = String(payload.module || 'SYSTEM').toUpperCase();
+        const module = allowedModules.has(requestedModule) ? requestedModule : 'SYSTEM';
+        const action = sanitizeAuditText(String(payload.action || 'GENERAL_ACTION').trim() || 'GENERAL_ACTION', 120);
+        const description = sanitizeAuditText(String(payload.description || 'System event').trim() || 'System event', 1000);
+        const logId = `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const targetInput = payload.target && typeof payload.target === 'object' && !Array.isArray(payload.target) ? payload.target : null;
+        const target = targetInput ? {
+          type: sanitizeAuditText(targetInput.type || 'Record', 60),
+          id: sanitizeAuditText(targetInput.id || '', 200),
+          name: sanitizeAuditText(targetInput.name || '', 160),
+        } : null;
         const record = {
           id: logId,
           tenantId: targetTenant,
-          timestamp: payload.timestamp || new Date().toISOString(),
-          action: payload.action || 'GENERAL_ACTION',
-          module: payload.module || 'SYSTEM',
-          severity: payload.severity || 'INFO',
-          description: payload.description || 'System event',
-          actor: { userId: userUid, name: (userEmail || '').split('@')[0] || 'Workspace User', email: userEmail || 'system@workspace.local', role: String(userRole || 'member').toUpperCase() },
-          target: payload.target || null,
-          metadata: payload.metadata || {},
+          timestamp: new Date().toISOString(),
+          action,
+          module,
+          severity: classifyAuditSeverity(action, module, description),
+          description,
+          actor: {
+            userId: userUid || 'system',
+            name: (userEmail || '').split('@')[0] || 'Workspace User',
+            email: userEmail || 'system@workspace.local',
+            role: String(userRole || 'member').toUpperCase(),
+          },
+          target,
+          metadata: sanitizeAuditMetadata(payload.metadata),
         };
 
         if (!isFirebaseConfigured || !db) {
           res.statusCode = 503;
-          res.end(JSON.stringify({ success: false, error: 'Firestore is not configured; audit event was not saved.' }));
+          res.end(JSON.stringify({ success: false, error: 'Audit event was not saved because storage is unavailable.' }));
           return true;
         }
-        await safeSetDoc(tenantRepo({ ...activeTenantCtx, tenantId: targetTenant }).auditLogDoc(logId), record, { merge: true });
+        await safeSetDoc(tenantRepo({ ...activeTenantCtx, tenantId: targetTenant }).auditLogDoc(logId), record, { merge: false });
 
+        const displayLog = {
+          id: logId,
+          tenantId: '',
+          timestamp: record.timestamp,
+          action: auditActionLabel(action),
+          module,
+          severity: record.severity,
+          description,
+          actor: { name: record.actor.name, email: record.actor.email, role: record.actor.role },
+          target: target ? { type: target.type, name: target.name } : undefined,
+          metadata: sanitizeAuditMetadataForDisplay(record.metadata),
+        };
         res.statusCode = 200;
-        res.end(JSON.stringify({ success: true, log: record }));
-      } catch (err: any) {
+        res.end(JSON.stringify({ success: true, log: displayLog }));
+      } catch (error: any) {
+        console.error('[AuditLogs API] Write failed:', error?.message || error);
         res.statusCode = 500;
-        res.end(JSON.stringify({ error: err?.message || 'Failed to post audit log' }));
+        res.end(JSON.stringify({ success: false, error: 'Failed to save the audit event.' }));
       }
       return true;
     }
+
+    res.statusCode = 405;
+    res.end(JSON.stringify({ success: false, error: 'Method not allowed.' }));
+    return true;
   }
 
   // Not handled by core API routes

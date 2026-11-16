@@ -109,6 +109,8 @@ export const orderByDocumentId = (): Constraint => (q) => q.orderBy(DOCUMENT_ID_
 export const startAfterId = (id: string): Constraint => (q) => q.startAfter(id);
 /** Cursor for paging on one or more orderBy fields (values in the same order as the orderBy calls). */
 export const startAfterValues = (...values: any[]): Constraint => (q) => q.startAfter(...values);
+/** Case-insensitive substring match across server-controlled fields. */
+export const whereAnyContains = (fields: string[], value: string): Constraint => (q) => q.whereAnyContains(fields, value);
 export function query(base: Query | CollectionReference, ...constraints: Constraint[]): Query {
   return constraints.reduce((q: any, c) => c(q), base as any);
 }
