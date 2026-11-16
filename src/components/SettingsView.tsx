@@ -194,6 +194,7 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
         notificationPreferences: {
           newMessages: formData.notificationPreferences?.newMessages === true,
           humanHandoff: formData.notificationPreferences?.humanHandoff === true,
+          agentTaskCompletion: formData.notificationPreferences?.agentTaskCompletion === true,
         },
         workspacePreferences: {
           defaultLandingPage: formData.workspacePreferences?.defaultLandingPage || 'dashboard',
@@ -208,10 +209,10 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const notificationPreferences = formData.notificationPreferences || { newMessages: false, humanHandoff: false };
+  const notificationPreferences = formData.notificationPreferences || { newMessages: false, humanHandoff: false, agentTaskCompletion: false };
   const workspacePreferences = formData.workspacePreferences || { defaultLandingPage: 'dashboard' as const };
 
-  const handleNotificationPreferenceChange = async (key: 'newMessages' | 'humanHandoff', enabled: boolean) => {
+  const handleNotificationPreferenceChange = async (key: 'newMessages' | 'humanHandoff' | 'agentTaskCompletion', enabled: boolean) => {
     setNotificationPermissionError(null);
     if (enabled) {
       if (typeof window === 'undefined' || !('Notification' in window)) {
@@ -232,6 +233,7 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
       notificationPreferences: {
         newMessages: current.notificationPreferences?.newMessages === true,
         humanHandoff: current.notificationPreferences?.humanHandoff === true,
+        agentTaskCompletion: current.notificationPreferences?.agentTaskCompletion === true,
         [key]: enabled,
       },
     }));
@@ -246,7 +248,7 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
     ] : []),
     ...(canEditEmail ? [
       { id: 'team' as const, label: 'Team & Permissions', description: 'Workspace users, roles and module access', icon: <Users className="h-4 w-4" /> },
-      { id: 'billing' as const, label: 'Billing & Plan', description: 'Subscription, plan and workspace usage', icon: <CreditCard className="h-4 w-4" /> },
+      { id: 'billing' as const, label: 'Billing & Usage', description: 'Subscription status, invoices and workspace usage', icon: <CreditCard className="h-4 w-4" /> },
     ] : []),
     ...(canAccessAuditLogs ? [
       { id: 'audit' as const, label: 'Audit & Security', description: 'Activity records, compliance and security events', icon: <ShieldCheck className="h-4 w-4" /> },
@@ -272,8 +274,8 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
   }, { AUTO: 0, REVIEW: 0, OFF: 0 });
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-4 font-sans">
-      <header className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+    <div className="workspace-module marketing-studio-shell w-full max-w-[1440px] mx-auto font-sans">
+      <header className="workspace-header marketing-studio-header rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-orange-600">
@@ -305,7 +307,7 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
         </div>
       </header>
 
-      <nav aria-label="Workspace sections" className="flex w-full min-w-0 gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+      <nav aria-label="Workspace sections" className="workspace-navigation marketing-studio-tabs flex w-full min-w-0 gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
         {sectionItems.map((item) => (
           <button
             key={item.id}
@@ -313,17 +315,17 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
             onClick={() => changeSection(item.id)}
             aria-current={activeSection === item.id ? 'page' : undefined}
             title={item.description}
-            className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${activeSection === item.id ? 'border-orange-200 bg-orange-50 text-orange-800 shadow-sm' : 'border-transparent text-slate-600 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900'}`}
+            className={`workspace-navigation-tab marketing-studio-tab inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${activeSection === item.id ? 'is-active border-orange-200 bg-orange-50 text-orange-800 shadow-sm' : 'border-transparent text-slate-600 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900'}`}
           >
-            <span className={`shrink-0 ${activeSection === item.id ? 'text-orange-600' : 'text-slate-400'}`}>{item.icon}</span>
-            <span className="whitespace-nowrap">{item.label}</span>
+            <span className="workspace-navigation-icon">{item.icon}</span>
+            <span className="workspace-navigation-label whitespace-nowrap">{item.label}</span>
           </button>
         ))}
       </nav>
 
-      <main className="min-w-0 w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+      <main className="workspace-content min-w-0 w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
           {activeSection !== 'company' && activeSection !== 'audit' && (
-            <div className="mb-5 flex flex-col gap-1 border-b border-slate-100 pb-4">
+            <div className="workspace-section-heading mb-5 flex flex-col gap-1 border-b border-slate-100 pb-4">
               <h2 className="text-lg font-extrabold text-slate-950">{activeSectionMeta.label}</h2>
               <p className="text-xs text-slate-500">{activeSectionMeta.description}</p>
             </div>
@@ -422,7 +424,7 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
             const companyName = brand?.companyName || workspaceName || tenantId || 'Workspace';
 
             return (
-              <div className="space-y-5">
+              <div className="workspace-panel-stack space-y-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 className="text-base font-extrabold text-slate-950">Workspace Control Center</h3>
@@ -612,7 +614,7 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
                       </div>
                       <div className="min-w-0">
                         <dt className="text-[10px] text-slate-500">Browser alerts</dt>
-                        <dd className="mt-1 truncate text-xs font-semibold text-slate-900">{notificationPreferences.newMessages || notificationPreferences.humanHandoff ? 'Enabled' : 'Off'}</dd>
+                        <dd className="mt-1 truncate text-xs font-semibold text-slate-900">{notificationPreferences.newMessages || notificationPreferences.humanHandoff || notificationPreferences.agentTaskCompletion ? 'Enabled' : 'Off'}</dd>
                       </div>
                     </dl>
                     <div className="mt-4 flex flex-wrap gap-2 text-[10px] text-slate-500">
@@ -669,6 +671,13 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
                           </span>
                           <input type="checkbox" checked={notificationPreferences.humanHandoff} disabled={!canEditEmail} onChange={(event) => void handleNotificationPreferenceChange('humanHandoff', event.target.checked)} className="h-4 w-4 shrink-0 accent-orange-500" />
                         </label>
+                        <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 px-3 py-2.5">
+                          <span className="min-w-0">
+                            <span className="block text-xs font-medium text-slate-800">AI Agent task completions</span>
+                            <span className="block text-[10px] text-slate-400">When a draft, artwork or other Agent task finishes</span>
+                          </span>
+                          <input type="checkbox" checked={notificationPreferences.agentTaskCompletion === true} disabled={!canEditEmail} onChange={(event) => void handleNotificationPreferenceChange('agentTaskCompletion', event.target.checked)} className="h-4 w-4 shrink-0 accent-orange-500" />
+                        </label>
                       </div>
                       {notificationPermissionError && <p role="alert" className="mt-2 text-[10px] text-amber-700">{notificationPermissionError}</p>}
                       <p className="mt-2 text-[10px] text-slate-400">{typeof window !== 'undefined' && 'Notification' in window ? (Notification.permission === 'granted' ? 'Browser permission granted' : Notification.permission === 'denied' ? 'Browser permission blocked' : 'Permission requested when an alert is enabled') : 'Browser notifications are unavailable in this browser.'}</p>
@@ -712,7 +721,7 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
           })()}
 
           {activeSection === 'ai' && (
-            <div className="space-y-5">
+            <div className="workspace-panel-stack space-y-5">
       {/* Human Handoff configuration */}
       <div className="bg-white border border-amber-200 rounded-2xl p-6 shadow-sm space-y-4">
         <div className="flex items-center gap-2"><Shield className="w-5 h-5 text-amber-600" /><h3 className="font-extrabold text-sm text-slate-900">Human Handoff</h3></div>
@@ -843,7 +852,7 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
           )}
 
           {activeSection === 'channels' && (
-            <div className="space-y-5">
+            <div className="workspace-panel-stack space-y-5">
               <section className="rounded-xl border border-slate-200 bg-white p-4">
                 <h3 className="text-sm font-bold text-slate-900">Channels & Messaging</h3>
                 <p className="mt-1 text-xs text-slate-500">Manage connected channels, email delivery, inbound mailboxes, website webhooks and chatbot integrations.</p>
@@ -940,7 +949,7 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
           {activeSection === 'billing' && canEditEmail && (
             <section className="space-y-3">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Billing & Plan</h3>
+                <h3 className="text-sm font-bold text-slate-900">Billing & Usage</h3>
                 <p className="mt-1 text-xs text-slate-500">Manage the subscription, plan status, invoices and workspace usage.</p>
               </div>
               {tenantId && <BillingView tenantId={tenantId} />}

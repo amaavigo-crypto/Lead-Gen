@@ -7,7 +7,6 @@ import { HeaderBar } from './components/HeaderBar';
 import { UnifiedInbox } from './components/UnifiedInbox';
 import { LoginView } from './components/LoginView';
 import { LegalPage, legalSlugFromPath } from './components/LegalPage';
-import { LandingPage } from './components/LandingPage';
 import { onSession, signOutUser, installAuthFetch, type SessionInfo } from './services/authService';
 import { logAuditEvent } from './services/auditService';
 import { LockedModuleView } from './components/LockedModuleView';
@@ -55,7 +54,7 @@ import {
   WHATSAPP_BUSINESS_NUMBER_FORMATTED,
 } from './services/whatsappInboundService';
 import { db, isFirebaseConfigured } from './firebase/config';
-import { collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot } from './services/clientDb';
 
 // thsi is a test Screens loaded on demand (own JS files). Login, navigation and the inbox stay in the main bundle.
 const DashboardView = lazyNamed(() => import('./components/DashboardView'), 'DashboardView');
@@ -71,6 +70,7 @@ const AutoFollowUpDashboard = lazyNamed(() => import('./components/AutoFollowUpD
 const LeadDatabase = lazyNamed(() => import('./components/LeadDatabase'), 'LeadDatabase');
 const PlatformConsole = lazyNamed(() => import('./components/PlatformConsole'), 'PlatformConsole');
 const BillingView = lazyNamed(() => import('./components/BillingView'), 'BillingView');
+const LandingPage = lazyNamed(() => import('./components/LandingPage'), 'LandingPage');
 
 function ScreenLoading() {
   return (
@@ -212,7 +212,6 @@ function toAppUser(u: any): AppUser {
 //   const [activeTab, setActiveTab] = useState<ActiveTab>(() =>
 //     typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('mailbox') ? 'settings' : 'inbox'
 //   );
-//   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 type WorkspaceSection = 'overview' | 'company' | 'channels' | 'ai' | 'team' | 'billing' | 'audit';
 
 const LEGACY_WORKSPACE_SECTIONS: Partial<Record<ActiveTab, WorkspaceSection>> = {
@@ -319,7 +318,6 @@ export default function App() {
     setAgentEmailTemplateKind(kind);
     setActiveTab('email-design-studio');
   }, [setActiveTab]);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);  
 const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ? [] : INITIAL_CONTACTS);
   const [leads, setLeads] = useState<Lead[]>(() => isFirebaseConfigured ? [] : INITIAL_LEADS);
   const [conversations, setConversations] = useState<Conversation[]>(() => isFirebaseConfigured ? [] : INITIAL_CONVERSATIONS);
@@ -492,7 +490,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
   }, [session, currentTenantId]);
 
   // What the workspace's plan includes (the server enforces it too; this only drives the UI).
-  const [entitlements, setEntitlements] = useState<{ planName: string; features: Record<string, boolean>; billing?: { status: string; locked: boolean; graceEndsAt?: string } } | null>(null);
+  const [entitlements, setEntitlements] = useState<{ planName: string; features: Record<string, boolean>; limits?: Record<string, number>; billing?: { status: string; locked: boolean; graceEndsAt?: string } } | null>(null);
   const [activatingPlan, setActivatingPlan] = useState(false);
   const [entitlementsLoaded, setEntitlementsLoaded] = useState(false);
   useEffect(() => {
@@ -502,7 +500,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
       fetch('/api/entitlements')
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => {
-          if (!cancelled && d?.features) setEntitlements({ planName: d.planName, features: d.features, billing: d.billing });
+          if (!cancelled && d?.features) setEntitlements({ planName: d.planName, features: d.features, limits: d.limits || {}, billing: d.billing });
         })
         .catch(() => {})
         .finally(() => setEntitlementsLoaded(true));
@@ -514,7 +512,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
       fetch('/api/billing/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: checkoutSession }) })
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => {
-          if (d?.entitlements?.features) setEntitlements({ planName: d.entitlements.planName, features: d.entitlements.features, billing: d.entitlements.billing });
+          if (d?.entitlements?.features) setEntitlements({ planName: d.entitlements.planName, features: d.entitlements.features, limits: d.entitlements.limits || {}, billing: d.entitlements.billing });
         })
         .catch(() => {})
         .finally(() => {
@@ -2636,7 +2634,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
     if (pathname === '/login') {
       return <LoginView isFirebaseActive={isFirebaseActive} initialError={authError} />;
     }
-    return <LandingPage />;
+    return <Suspense fallback={<ScreenLoading />}><LandingPage /></Suspense>;
   }
 
   if (session?.isPlatformAdmin) {
@@ -2689,8 +2687,15 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
 
   return (
     <BrandProvider tenantId={currentTenantId} tenantName={currentTenant?.name}>
-    <AgentProvider tenantId={currentTenantId} userId={currentUser.userId} enabled={currentUser.accessLevel === 'ALL' || currentUser.role === 'ADMIN' || (currentUser.allowedModules || []).includes('agent')}>
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col md:flex-row font-sans selection:bg-orange-500/20 selection:text-orange-950">
+    <AgentProvider
+      tenantId={currentTenantId}
+      userId={currentUser.userId}
+      enabled={currentUser.accessLevel === 'ALL' || currentUser.role === 'ADMIN' || (currentUser.allowedModules || []).includes('agent')}
+      activeTab={activeTab}
+      agentTaskCompletionNotifications={settings.notificationPreferences?.agentTaskCompletion === true}
+      onOpenNotification={() => setActiveTab('agent')}
+    >
+    <div className={'min-h-screen w-full flex flex-col md:flex-row font-sans selection:bg-[#637dff]/35 selection:text-inherit ' + (activeTab === 'dashboard' ? 'bg-[#05051f] text-slate-100' : 'bg-slate-50 text-slate-900')}>
       {websiteScanToast && (
         <div role="status" className="fixed top-5 right-5 z-[100] max-w-sm rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm font-semibold text-emerald-800 shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-3">
           <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">✓</span>
@@ -2706,27 +2711,26 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
         isFirebaseActive={isFirebaseActive}
         currentUser={currentUser}
         onLogout={handleLogout}
-        currentTenant={currentTenant}
-        allTenants={allTenants}
-        onSwitchTenant={(tenantId) => setCurrentTenantId(tenantId)}
-        isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
       />
 
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        <HeaderBar
+<HeaderBar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
-          isCollapsed={isSidebarCollapsed}
-          onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
           unreadCount={unreadCount}
           handoffCount={handoffCount}
           tenantId={currentTenantId}
           currentUser={currentUser}
           onLogout={handleLogout}
+          currentTenant={currentTenant}
+          allTenants={allTenants}
+          onSwitchTenant={(tenantId) => setCurrentTenantId(tenantId)}
+          entitlements={entitlements}
+          planLocked={planLocked}
+          hideModuleNavigation={activeTab === 'inbox' || activeTab === 'dashboard' || activeTab === 'agent'}
         />
 
-        <main className={`flex-1 min-w-0 min-h-0 ${activeTab === 'inbox' ? 'p-0 h-full overflow-hidden flex flex-col' : activeTab === 'agent' ? 'p-3 sm:p-5 overflow-hidden flex flex-col' : 'p-3 sm:p-5 overflow-y-auto'}`}>
+        <main className={`app-workspace-content flex-1 min-w-0 min-h-0 ${activeTab === 'dashboard' ? 'app-workspace-content--dark p-0 overflow-y-auto' : activeTab === 'inbox' ? 'p-0 overflow-hidden flex flex-col' : activeTab === 'agent' ? 'p-0 overflow-hidden flex flex-col' : 'app-workspace-content--joined p-3 sm:p-5 overflow-y-auto'}`}>
         {entitlements?.billing?.status === 'past_due' && (
           <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">
             <span>
@@ -2760,6 +2764,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
                 tenantId={currentTenantId}
                 tenantName={currentTenant?.name}
                 userName={currentUser.name}
+                canUseAi={!planLocked('agent') && (currentUser.accessLevel === 'ALL' || currentUser.role === 'ADMIN' || (currentUser.allowedModules || []).includes('agent'))}
                 leads={leads}
                 contacts={contacts}
                 conversations={conversations}
@@ -2983,7 +2988,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
       </main>
     </div>
   </div>
-    <AgentFloatingCompanion hidden={activeTab === 'agent' || !(currentUser.accessLevel === 'ALL' || currentUser.role === 'ADMIN' || (currentUser.allowedModules || []).includes('agent'))} moduleContext={activeTab} onOpenEmailTemplate={openAgentEmailTemplate} />
+    <AgentFloatingCompanion hidden={activeTab === 'agent' || activeTab === 'dashboard' || !(currentUser.accessLevel === 'ALL' || currentUser.role === 'ADMIN' || (currentUser.allowedModules || []).includes('agent'))} moduleContext={activeTab} onOpenEmailTemplate={openAgentEmailTemplate} />
     </AgentProvider>
     </BrandProvider>
   );

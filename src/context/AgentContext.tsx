@@ -102,7 +102,7 @@ function createId(): string {
   try { return crypto.randomUUID(); } catch { return 'exec_' + Date.now() + '_' + Math.random().toString(36).slice(2); }
 }
 
-export const AgentProvider: React.FC<{ tenantId: string; userId: string; enabled?: boolean; children: React.ReactNode }> = ({ tenantId, userId, enabled = true, children }) => {
+export const AgentProvider: React.FC<{ tenantId: string; userId: string; enabled?: boolean; activeTab?: string; agentTaskCompletionNotifications?: boolean; onOpenNotification?: () => void; children: React.ReactNode }> = ({ tenantId, userId, enabled = true, children }) => {
   const [config, setConfig] = useState<AgentConfig>(DEFAULT_CONFIG);
   const [conversations, setConversations] = useState<AgentConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);

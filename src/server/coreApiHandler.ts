@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import * as dashboardCardService from './dashboardCardService.js';
 import { sanitizeAiEmailText } from './emailSanitizer.js';
 import { AI_RESPONSE_FORMATTING_INSTRUCTIONS } from '../shared/aiResponseFormatting.js';
 import { verifySmtpConnection, sendLiveEmail, getSmtpConfig, updateSmtpConfig, getResendConfig } from './smtpService.js';
@@ -87,7 +88,9 @@ import {
   verifyGoogleCalendarConnection,
 } from './demoSchedulingService.js';
 import { isFirebaseConfigured } from '../firebase/config.js';
+import { searchTenantWorkspace } from './globalSearchService.js';
 import { db } from './adminFirestore.js';
+import { handleClientDataRequest } from './clientDataApi.js';
 import { getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, doc, query as fsQuery, where as fsWhere, orderBy as fsOrderBy, limit as fsLimit, countDocs, sumDocs } from './adminFirestore.js';
 import { safeSetDoc } from './firestoreUtils.js';
 import {
@@ -283,6 +286,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   // =========================================================================
   const isPublicPath =
     url === '/api/health' ||
+    (req.method === 'GET' && url === '/api/public/plans') ||
     // Public asset raw/view streaming for email clients
     (req.method === 'GET' && /^\/api\/assets\/[^/]+\/view$/.test(url)) ||
     // Published legal pages (Privacy, Terms, DPA, AUP) are public by design.
@@ -383,6 +387,32 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     return await handleAgentApi(req, res, activeTenantCtx, body, url);
   }
 
+  // Public read-only plan catalog for the marketing website. Prices and entitlements
+  // come from the same Firestore plans collection managed in the Platform Console.
+  if (url === '/api/public/plans' && req.method === 'GET') {
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    try {
+      const plans = (await listPlans())
+        .filter((p) => p.active)
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          priceMonthly: p.priceMonthly,
+          currency: p.currency,
+          features: p.features,
+          limits: p.limits,
+          sortOrder: p.sortOrder,
+        }));
+      res.statusCode = 200;
+      res.end(JSON.stringify({ plans, features: FEATURES, limits: LIMITS }));
+    } catch (err: any) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: err?.message || 'Could not load plans' }));
+    }
+    return true;
+  }
+
   // Billing (workspace admins): /api/billing, /checkout, /portal, /sync
   if (url === '/api/billing' || url.startsWith('/api/billing/')) {
     res.setHeader('Content-Type', 'application/json');
@@ -405,7 +435,6 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
             planName: ent.planName,
             hasCustomer: Boolean(t.stripeCustomerId),
             stripeConfigured: Boolean(billingConfig().secretKey),
-            plans: (await listPlans()).filter((p) => p.active).map((p) => ({ id: p.id, name: p.name, priceMonthly: p.priceMonthly, currency: p.currency, features: p.features, limits: p.limits, purchasable: Boolean(p.stripePriceId) })),
           })
         );
         return true;
@@ -1044,6 +1073,161 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       res.end(JSON.stringify({ error: err?.message || 'Brand request failed' }));
       return true;
     }
+  }
+
+  // Browser data access (replaces the browser's direct Firestore connection). Authorization mirrors the
+  // old firestore.rules and is enforced in handleClientDataRequest from the verified session only.
+  if (url === '/api/db' && req.method === 'POST') {
+    const result = await handleClientDataRequest(activeTenantCtx, body);
+    res.statusCode = result.status;
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(JSON.stringify(result.payload));
+    return true;
+  }
+
+  // Product feedback: tenant users can submit ideas/bugs; only platform admins can review all records.
+  if (url === '/api/feedback' && req.method === 'POST') {
+    if (!isFirebaseConfigured || !db) {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ error: 'Feedback storage is not configured.' }));
+      return true;
+    }
+    const type = String(body?.type || '').toUpperCase();
+    const description = String(body?.description || '').replace(/\\u0000/g, '').trim().slice(0, 10000);
+    if (!['IDEA', 'BUG'].includes(type) || description.length < 10) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: 'Choose Idea or Bug and provide at least 10 characters of detail.' }));
+      return true;
+    }
+    try {
+      const [userSnap, legacyUserSnap, tenantSnap] = await Promise.all([
+        getDoc(globalUserDoc(userUid)).catch(() => null),
+        getDoc(doc(db, 'app_users', userUid)).catch(() => null),
+        isPlatformAdmin ? Promise.resolve(null) : getDoc(globalTenantDoc(resolvedTenantId)).catch(() => null),
+      ]);
+      const profile = (userSnap?.exists() ? userSnap.data() : legacyUserSnap?.exists() ? legacyUserSnap.data() : {}) as Record<string, any>;
+      const tenant = tenantSnap?.exists() ? tenantSnap.data() as Record<string, any> : {};
+      const id = 'fb_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+      const createdAt = new Date().toISOString();
+      const record = {
+        id,
+        type,
+        description,
+        status: 'NEW',
+        adminNote: '',
+        tenantId: resolvedTenantId,
+        tenantName: isPlatformAdmin ? 'Platform' : String(tenant.name || resolvedTenantId),
+        submittedBy: {
+          uid: userUid,
+          name: String(profile.name || profile.displayName || userEmail.split('@')[0] || 'Workspace user').slice(0, 160),
+          email: userEmail,
+          role: userRole,
+        },
+        contextModule: String(body?.contextModule || '').slice(0, 80),
+        contextPath: String(body?.contextPath || '').slice(0, 240),
+        userAgent: String(req.headers['user-agent'] || '').slice(0, 500),
+        createdAt,
+        updatedAt: createdAt,
+      };
+      await setDoc(doc(db, 'platform_feedback_submissions', id), record);
+      res.statusCode = 201;
+      res.end(JSON.stringify({ success: true, feedback: record }));
+    } catch (error: any) {
+      console.error('[Feedback] Could not save submission:', error?.message || error);
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: 'Could not save your feedback. Please try again.' }));
+    }
+    return true;
+  }
+
+  if (url === '/api/platform/feedback') {
+    if (!isPlatformAdmin) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ error: 'Platform admin access is required.' }));
+      return true;
+    }
+    if (!isFirebaseConfigured || !db) {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ error: 'Feedback storage is not configured.' }));
+      return true;
+    }
+    try {
+      if (req.method === 'GET') {
+        const snap = await getDocs(collection(db, 'platform_feedback_submissions'));
+        const submissions = snap.docs
+          .map((entry) => ({ ...(entry.data() as Record<string, any>), id: entry.id }))
+          .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+          .slice(0, 1000);
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, submissions }));
+        return true;
+      }
+      if (req.method === 'PATCH') {
+        const id = String(body?.id || '').trim();
+        const status = String(body?.status || '').toUpperCase();
+        const adminNote = String(body?.adminNote || '').replace(/\\u0000/g, '').trim().slice(0, 5000);
+        if (!/^fb_[a-z0-9_]+$/i.test(id) || !['NEW', 'IN_REVIEW', 'RESOLVED', 'CLOSED'].includes(status)) {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ error: 'A valid submission and status are required.' }));
+          return true;
+        }
+        const ref = doc(db, 'platform_feedback_submissions', id);
+        const existing = await getDoc(ref);
+        if (!existing.exists()) {
+          res.statusCode = 404;
+          res.end(JSON.stringify({ error: 'Feedback submission not found.' }));
+          return true;
+        }
+        const now = new Date().toISOString();
+        await updateDoc(ref, {
+          status,
+          adminNote,
+          updatedAt: now,
+          ...(status === 'RESOLVED' || status === 'CLOSED' ? { reviewedAt: now, reviewedBy: userEmail } : {}),
+        });
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, id, status, adminNote, updatedAt: now }));
+        return true;
+      }
+      res.statusCode = 405;
+      res.end(JSON.stringify({ error: 'Method not allowed.' }));
+    } catch (error: any) {
+      console.error('[Platform Feedback] Request failed:', error?.message || error);
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: 'Could not process feedback request.' }));
+    }
+    return true;
+  }
+
+  // Global Search: all searchable records are queried inside the authenticated tenant scope.
+  if (url === '/api/search' && req.method === 'GET') {
+    const searchParams = new URL(req.url || '/', 'http://localhost').searchParams;
+    const searchQuery = String(searchParams.get('q') || '').trim().slice(0, 100);
+    if (searchQuery.length < 2) {
+      res.statusCode = 200;
+      res.end(JSON.stringify({ query: searchQuery, results: [], total: 0, truncated: false }));
+      return true;
+    }
+    try {
+      let allowedModules: string[] = [];
+      if (activeTenantCtx.role !== 'admin' && !activeTenantCtx.isPlatformAdmin) {
+        const [userSnap, appUserSnap] = await Promise.all([
+          getDoc(globalUserDoc(userUid)).catch(() => null),
+          getDoc(doc(db, 'app_users', userUid)).catch(() => null),
+        ]);
+        const profile = (userSnap?.exists() ? userSnap.data() : appUserSnap?.exists() ? appUserSnap.data() : {}) as Record<string, any>;
+        allowedModules = Array.isArray(profile.allowedModules) ? profile.allowedModules.map(String) : [];
+      }
+      const result = await searchTenantWorkspace(activeTenantCtx, searchQuery, allowedModules);
+      res.statusCode = 200;
+      res.end(JSON.stringify(result));
+    } catch (error: any) {
+      console.error('[Global Search] Search failed:', error?.message || error);
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: 'Global search is temporarily unavailable.' }));
+    }
+    return true;
   }
 
   // Tenant Usage Metrics: /api/tenants/:tenantId/usage
@@ -3611,6 +3795,102 @@ ${signature || defSig}`;
     return true;
   }
 
+  // Dashboard customization is an AI Agent capability. Enforce the same role boundary
+  // as the navigation UI so a direct API request cannot bypass module permissions.
+  const canManageAiDashboard = async (): Promise<boolean> => {
+    if (activeTenantCtx.isPlatformAdmin || activeTenantCtx.role === 'admin') return true;
+    try {
+      const userSnapshot = await getDoc(globalUserDoc(activeTenantCtx.uid));
+      const userData: any = userSnapshot.exists() ? userSnapshot.data() : {};
+      return userData?.accessLevel === 'ALL' ||
+        userData?.role === 'admin' ||
+        (Array.isArray(userData?.allowedModules) && userData.allowedModules.includes('agent'));
+    } catch {
+      return false;
+    }
+  };
+
+  // AI-generated dashboard cards. All data access is derived from the authenticated tenant context.
+  if (url === '/api/dashboard/cards' && req.method === 'GET') {
+    try {
+      const dashboard = await dashboardCardService.getSavedDashboardCardsWithPreviews(activeTenantCtx);
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, cards: dashboard.cards, previews: dashboard.previews }));
+    } catch (err: any) {
+      console.error('[Dashboard Cards] Could not load tenant cards:', err?.message || err);
+      res.statusCode = 500;
+      res.end(JSON.stringify({ success: false, error: 'Could not load dashboard cards.' }));
+    }
+    return true;
+  }
+
+  if (url === '/api/dashboard/cards/generate' && req.method === 'POST') {
+    if (!(await canManageAiDashboard())) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ success: false, error: 'AI Agent access is required to generate dashboard cards.' }));
+      return true;
+    }
+    try {
+      const card = await dashboardCardService.generateDashboardCard(activeTenantCtx, String(body?.prompt || ''));
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, card }));
+    } catch (err: any) {
+      console.error('[Dashboard Cards] AI generation failed:', err?.message || err);
+      res.statusCode = 422;
+      res.end(JSON.stringify({ success: false, error: err?.message || 'AI could not create this dashboard card.' }));
+    }
+    return true;
+  }
+
+  if (url === '/api/dashboard/cards/preview' && req.method === 'POST') {
+    try {
+      const preview = await dashboardCardService.previewDashboardCard(activeTenantCtx, body?.card || {});
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, preview }));
+    } catch (err: any) {
+      console.error('[Dashboard Cards] Preview failed:', err?.message || err);
+      res.statusCode = 422;
+      res.end(JSON.stringify({ success: false, error: err?.message || 'Could not calculate a preview for this card.' }));
+    }
+    return true;
+  }
+
+  if (url === '/api/dashboard/cards/save' && req.method === 'POST') {
+    if (!(await canManageAiDashboard())) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ success: false, error: 'AI Agent access is required to save dashboard cards.' }));
+      return true;
+    }
+    try {
+      const cards = await dashboardCardService.saveDashboardCard(activeTenantCtx, body?.card || {});
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, cards }));
+    } catch (err: any) {
+      console.error('[Dashboard Cards] Save failed:', err?.message || err);
+      res.statusCode = 422;
+      res.end(JSON.stringify({ success: false, error: err?.message || 'Could not save dashboard card.' }));
+    }
+    return true;
+  }
+
+  if (url === '/api/dashboard/cards/delete' && req.method === 'POST') {
+    if (!(await canManageAiDashboard())) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ success: false, error: 'AI Agent access is required to manage dashboard cards.' }));
+      return true;
+    }
+    try {
+      const cards = await dashboardCardService.deleteDashboardCard(activeTenantCtx, String(body?.cardId || ''));
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, cards }));
+    } catch (err: any) {
+      console.error('[Dashboard Cards] Delete failed:', err?.message || err);
+      res.statusCode = 422;
+      res.end(JSON.stringify({ success: false, error: err?.message || 'Could not remove dashboard card.' }));
+    }
+    return true;
+  }
+
   // Low-read, tenant-scoped dashboard metrics. Aggregate queries avoid treating the inbox's
   // latest-50 conversation page as the workspace-wide total.
   if (url === '/api/dashboard/summary' && req.method === 'GET') {
@@ -3827,6 +4107,7 @@ ${signature || defSig}`;
           notificationPreferences: {
             newMessages: saved.notificationPreferences?.newMessages === true,
             humanHandoff: saved.notificationPreferences?.humanHandoff === true,
+            agentTaskCompletion: saved.notificationPreferences?.agentTaskCompletion === true,
           },
           workspacePreferences: {
             defaultLandingPage: ['dashboard', 'inbox', 'campaigns'].includes(saved.workspacePreferences?.defaultLandingPage)
@@ -3893,14 +4174,16 @@ ${signature || defSig}`;
         const prefs = body.notificationPreferences;
         if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs) ||
             (prefs.newMessages !== undefined && typeof prefs.newMessages !== 'boolean') ||
-            (prefs.humanHandoff !== undefined && typeof prefs.humanHandoff !== 'boolean')) {
+            (prefs.humanHandoff !== undefined && typeof prefs.humanHandoff !== 'boolean') ||
+            (prefs.agentTaskCompletion !== undefined && typeof prefs.agentTaskCompletion !== 'boolean')) {
           res.statusCode = 400;
-          res.end(JSON.stringify({ error: 'notificationPreferences must contain boolean newMessages and humanHandoff values.' }));
+          res.end(JSON.stringify({ error: 'notificationPreferences must contain boolean newMessages, humanHandoff and agentTaskCompletion values.' }));
           return true;
         }
         updates.notificationPreferences = {
           newMessages: prefs.newMessages === true,
           humanHandoff: prefs.humanHandoff === true,
+          agentTaskCompletion: prefs.agentTaskCompletion === true,
         };
       }
       if (body?.workspacePreferences !== undefined) {

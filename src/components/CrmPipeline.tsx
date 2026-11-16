@@ -89,6 +89,12 @@ const UMRAH360_TELECALLERS = [
 const AVATAR_COLORS = ['bg-emerald-500', 'bg-blue-500', 'bg-purple-500', 'bg-amber-500', 'bg-rose-500', 'bg-cyan-500'];
 
 // TeleCRM Core Statuses with colors & labels
+const CRM_STAGE_LABELS: Record<string, string> = {
+  ALL: 'All', NEW: 'New', FOLLOW_UP: 'Follow up', CONTACTED: 'Contacted',
+  ENGAGED: 'Engaged', QUALIFIED: 'Qualified', DEMO_BOOKED: 'Demo booked',
+  CLOSED_WON: 'Won', CLOSED_LOST: 'Lost',
+};
+
 const TELECRM_STAGES: { key: string; label: string; bg: string; text: string; border: string; dot: string }[] = [
   { key: 'ALL', label: 'All Leads', bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-300', dot: 'bg-slate-400' },
   { key: 'NEW', label: 'Fresh / New', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-300', dot: 'bg-blue-500' },
@@ -158,6 +164,28 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
   useEffect(() => {
     setActiveDrawerLeadId(initialSelectedLeadId || null);
   }, [initialSelectedLeadId]);
+
+  useEffect(() => {
+    const onGlobalSearchResult = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail;
+      if (!detail || detail.module !== 'crm') return;
+      setSearchQuery(String(detail.title || detail.query || ''));
+      setStageTab('ALL');
+      setDateFilter('ALL');
+      setCallerFilter('ALL');
+      setSourceFilter('ALL');
+      setScoreFilter('ALL');
+      const matchedLead = leads.find((lead) =>
+        lead.leadId === detail.recordId ||
+        lead.leadId === detail.relatedId ||
+        lead.contactId === detail.recordId ||
+        lead.contactId === detail.relatedId
+      );
+      if (matchedLead) setActiveDrawerLeadId(matchedLead.leadId);
+    };
+    window.addEventListener('umrah360:global-search-result', onGlobalSearchResult);
+    return () => window.removeEventListener('umrah360:global-search-result', onGlobalSearchResult);
+  }, [leads]);
 
   // Modals
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
@@ -781,6 +809,22 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
     return counts;
   }, [leads]);
 
+  const crmSummary = useMemo(() => {
+    const currentLeads = leads.filter((lead) => {
+      const isCampaignLead = Boolean(
+        lead.campaignId || lead.campaignLeadId || (lead.leadType === 'OUTBOUND' && lead.source === 'EMAIL')
+      );
+      return !(isCampaignLead && lead.replyStatus !== 'REPLIED');
+    });
+    return {
+      total: currentLeads.length,
+      fresh: currentLeads.filter((lead) => lead.status === 'NEW').length,
+      followUps: currentLeads.filter((lead) => Boolean(lead.nextFollowUpAt) || lead.status === 'FOLLOW_UP').length,
+      hot: currentLeads.filter((lead) => (lead.leadScore || 0) >= 80).length,
+      demos: currentLeads.filter((lead) => lead.status === 'DEMO_BOOKED').length,
+    };
+  }, [leads]);
+
   const handleSelectAll = () => {
     const pageLeadIds = paginatedLeads.map((l) => l.leadId);
     const allSelectedOnPage = pageLeadIds.length > 0 && pageLeadIds.every((id) => selectedLeadIds.has(id));
@@ -874,57 +918,91 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
   const drawerActivities = drawerLead ? activities.filter((a) => a.leadId === drawerLead.leadId) : [];
 
   return (
-    <div className="w-full min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
+    <div className="crm-workspace w-full min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
       {/* Sticky Header & Filter Container */}
-      <div className="sticky -top-4 sm:-top-5 z-30 bg-slate-50/95 backdrop-blur-xs pt-3 pb-2 border-b border-slate-200/60 shadow-xs -mx-3 sm:-mx-5 px-3 sm:px-5">
+      <div className="crm-sticky-header sticky -top-4 sm:-top-5 z-30 bg-slate-50/95 backdrop-blur-xs pt-3 pb-2 border-b border-slate-200/60 shadow-xs -mx-3 sm:-mx-5 px-3 sm:px-5">
         {/* 1. TeleCRM Top Header Bar */}
-        <div className="bg-white border-b border-slate-200/95 shadow-2xs">
-          <div className="max-w-[1700px] mx-auto px-4 py-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-            {/* Logo & Title */}
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-500 to-orange-600 flex items-center justify-center text-white shadow-md shadow-orange-500/20">
-                <PhoneCall className="w-5 h-5" />
+        <div className="crm-header-card bg-white border-b border-slate-200/95 shadow-2xs">
+          <div className="crm-page-header max-w-[1700px] mx-auto px-4 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+            {/* CRM page identity */}
+            <div className="crm-page-copy flex min-w-0 items-center gap-3">
+              <div className="crm-page-icon w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
+                <Users className="w-5 h-5" />
               </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">CRM</h1>
-                  <span className="px-2 py-0.5 text-[11px] font-bold bg-slate-100 text-slate-700 rounded-md">
-                    {processedLeads.length} Leads
-                  </span>
+              <div className="min-w-0">
+                <span className="crm-page-eyebrow">WORKSPACE / CUSTOMER MANAGEMENT</span>
+                <div className="crm-page-title-row flex items-center gap-2">
+                  <h1>CRM</h1>
+                  <span className="crm-lead-count">{processedLeads.length.toLocaleString()} matching leads</span>
                 </div>
-                <p className="text-xs text-slate-500 font-medium">
-                  High-velocity lead management, click-to-call dialer & smart follow-up tracker
-                </p>
+                <p>Manage leads, track pipeline progress, and coordinate every customer follow-up in one place.</p>
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex items-center space-x-2 self-stretch md:self-auto flex-wrap gap-y-2">
-              <button
-                onClick={handleExportCsv}
-                className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg border border-slate-300 transition-colors"
-                title="Export filtered leads to Excel/CSV"
-              >
-                <Download className="w-3.5 h-3.5 text-slate-600" />
-                <span>Export CSV</span>
-              </button>
-
-              {/* Add Lead Button */}
+            {/* Existing CRM actions, presented in the shared workspace order */}
+            <div className="crm-header-actions flex items-center space-x-2 self-stretch md:self-auto flex-wrap gap-y-2">
               <button
                 onClick={() => {
                   setAddLeadMode('SINGLE');
                   setIsAddLeadModalOpen(true);
                 }}
-                className="flex items-center space-x-1.5 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-lg shadow-sm shadow-orange-500/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                className="crm-primary-action flex items-center space-x-1.5 px-4 py-2 text-xs font-bold rounded-lg"
               >
                 <Plus className="w-4 h-4 stroke-[2.5]" />
                 <span>Add Lead</span>
               </button>
+              <button
+                onClick={() => {
+                  setAddLeadMode('BULK');
+                  setIsAddLeadModalOpen(true);
+                }}
+                className="crm-secondary-action flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-lg"
+                title="Import leads from CSV or Excel"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Import Leads</span>
+              </button>
+              <button
+                onClick={handleExportCsv}
+                className="crm-secondary-action flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-lg"
+                title="Export filtered leads to Excel/CSV"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export</span>
+              </button>
             </div>
           </div>
 
-          {/* 2. TeleCRM Signature Stage Counters Strip */}
-          <div className="max-w-[1700px] mx-auto px-4 pt-1 pb-2 flex items-center space-x-2 overflow-x-auto no-scrollbar border-t border-slate-100">
+          <div className="crm-summary-grid max-w-[1700px] mx-auto px-4 pb-4">
+            <div className="crm-summary-card crm-summary-card--total">
+              <span className="crm-summary-icon"><Users className="w-4 h-4" /></span>
+              <div className="crm-summary-copy"><span>Total leads</span><strong>{crmSummary.total.toLocaleString()}</strong></div>
+              <span className="crm-summary-foot">All active enquiries</span>
+            </div>
+            <div className="crm-summary-card crm-summary-card--new">
+              <span className="crm-summary-icon"><Zap className="w-4 h-4" /></span>
+              <div className="crm-summary-copy"><span>New leads</span><strong>{crmSummary.fresh.toLocaleString()}</strong></div>
+              <span className="crm-summary-foot">Awaiting first action</span>
+            </div>
+            <div className="crm-summary-card crm-summary-card--followup">
+              <span className="crm-summary-icon"><Clock className="w-4 h-4" /></span>
+              <div className="crm-summary-copy"><span>Follow-ups</span><strong>{crmSummary.followUps.toLocaleString()}</strong></div>
+              <span className="crm-summary-foot">Scheduled or due</span>
+            </div>
+            <div className="crm-summary-card crm-summary-card--hot">
+              <span className="crm-summary-icon"><Flame className="w-4 h-4" /></span>
+              <div className="crm-summary-copy"><span>Hot leads</span><strong>{crmSummary.hot.toLocaleString()}</strong></div>
+              <span className="crm-summary-foot">AI score 80 or higher</span>
+            </div>
+            <div className="crm-summary-card crm-summary-card--demo">
+              <span className="crm-summary-icon"><Calendar className="w-4 h-4" /></span>
+              <div className="crm-summary-copy"><span>Demo booked</span><strong>{crmSummary.demos.toLocaleString()}</strong></div>
+              <span className="crm-summary-foot">Consultations confirmed</span>
+            </div>
+          </div>
+
+          {/* 2. Pipeline stages — filter the table without leaving the page. */}
+          <div className="crm-stage-strip max-w-[1700px] mx-auto px-4 pt-3 pb-3 flex items-center space-x-2 overflow-x-auto no-scrollbar border-t border-slate-100">
             {TELECRM_STAGES.map((st) => {
               const isSelected = stageTab === st.key;
               const count = stageCounts[st.key] || 0;
@@ -932,14 +1010,15 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                 <button
                   key={st.key}
                   onClick={() => setStageTab(st.key)}
-                  className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all border ${
+                  aria-pressed={isSelected}
+                  className={`crm-stage-tab flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all border ${
                     isSelected
                       ? `${st.bg} ${st.text} ${st.border} shadow-2xs ring-1 ring-orange-500/30 font-extrabold`
                       : 'bg-white hover:bg-slate-50 text-slate-600 border-slate-200'
                   }`}
                 >
                   <span className={`w-2 h-2 rounded-full ${st.dot}`} />
-                  <span>{st.label}</span>
+                  <span>{CRM_STAGE_LABELS[st.key] || st.label}</span>
                   <span
                     className={`px-1.5 py-0.2 rounded-md text-[11px] font-mono tabular-nums ${
                       isSelected ? 'bg-white/80 shadow-2xs' : 'bg-slate-100 text-slate-600'
@@ -954,8 +1033,8 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
         </div>
 
         {/* 3. TeleCRM Advanced Filter & Search Toolbar */}
-        <div className="max-w-[1700px] mx-auto px-4 mt-3">
-          <div className="bg-white border border-slate-200/90 rounded-xl p-3 shadow-2xs flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+        <div className="crm-filter-wrap max-w-[1700px] mx-auto px-4 mt-3">
+          <div className="crm-filter-toolbar bg-white border border-slate-200/90 rounded-xl p-3 shadow-2xs flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
             <div className="relative flex-1 min-w-[260px]">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -963,7 +1042,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                 placeholder="Search by Name, Phone (+91...), Email, Package or City..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all font-medium"
+                className="crm-search-input w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all font-medium"
               />
               {searchQuery && (
                 <button
@@ -975,7 +1054,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
               )}
             </div>
 
-            <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+            <div className="crm-filter-controls flex items-center space-x-2 flex-wrap gap-y-2">
               <div className="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs">
                 <Calendar className="w-3.5 h-3.5 text-slate-500" />
                 <span className="text-[11px] font-semibold text-slate-500">Date:</span>
@@ -1085,8 +1164,8 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
 
       {/* 4. TeleCRM Bulk Action Float Bar */}
       {selectedLeadIds.size > 0 && (
-        <div className="max-w-[1700px] mx-auto px-4 mt-3">
-          <div className="bg-slate-900 text-white rounded-xl p-2.5 px-4 shadow-lg flex items-center justify-between flex-wrap gap-2 animate-in fade-in slide-in-from-top-2">
+        <div className="crm-bulk-actions max-w-[1700px] w-full mx-auto px-4 mt-3">
+          <div className="crm-bulk-actions-bar bg-slate-900 text-white rounded-xl p-2.5 px-4 shadow-lg flex items-center justify-between flex-wrap gap-2 animate-in fade-in slide-in-from-top-2">
             <div className="flex items-center space-x-3">
               <span className="px-2 py-0.5 bg-orange-500 text-white font-extrabold text-xs rounded-md">
                 {selectedLeadIds.size} Selected
@@ -1152,92 +1231,71 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
       )}
 
       {/* 5. The Pure TeleCRM Leads Table */}
-      <div className="max-w-[1700px] mx-auto px-4 mt-3">
-        <div className="bg-white border border-slate-200/90 rounded-xl shadow-2xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+      <div className="crm-table-wrap max-w-[1700px] mx-auto px-4 mt-3">
+        <div className="crm-table-panel bg-white border border-slate-200/90 rounded-xl shadow-2xs overflow-hidden">
+          <div className="crm-table-heading flex items-center justify-between gap-3">
+            <div>
+              <span className="crm-eyebrow">LEADS DIRECTORY</span>
+              <h2>All leads <span>{processedLeads.length.toLocaleString()}</span></h2>
+              <p>{stageTab === 'ALL' ? 'Every enquiry in your workspace, in one searchable view.' : 'Showing leads in the selected pipeline stage.'}</p>
+            </div>
+            <div className="crm-table-heading-meta">
+              <span><i className="crm-live-dot" /> Live workspace data</span>
+              <span>25 rows per page</span>
+            </div>
+          </div>
+          <div className="crm-table-scroll overflow-x-auto">
+            <table className="crm-leads-table w-full text-left border-collapse">
+              <colgroup>
+                <col style={{ width: '3%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '10%' }} />
+              </colgroup>
               <thead>
-                <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider select-none">
-                  <th className="py-3 px-3 w-10 text-center">
-                    <button
-                      onClick={handleSelectAll}
-                      className="text-slate-500 hover:text-slate-800 transition-colors"
-                      title="Select all"
-                    >
-                      {paginatedLeads.length > 0 && paginatedLeads.every((l) => selectedLeadIds.has(l.leadId)) ? (
-                        <CheckSquare className="w-4 h-4 text-orange-600" />
-                      ) : (
-                        <Square className="w-4 h-4" />
-                      )}
+                <tr className="bg-slate-100/80 border-b border-slate-200 text-[9px] font-bold text-slate-600 uppercase tracking-wider select-none">
+                  <th className="crm-select-column">
+                    <button onClick={handleSelectAll} className="text-slate-500 hover:text-slate-800 transition-colors" title="Select all leads on this page">
+                      {paginatedLeads.length > 0 && paginatedLeads.every((lead) => selectedLeadIds.has(lead.leadId))
+                        ? <CheckSquare className="w-4 h-4 text-blue-600" />
+                        : <Square className="w-4 h-4" />}
                     </button>
                   </th>
-                  <th
-                    className="py-3 px-3 cursor-pointer hover:text-slate-900 min-w-[140px]"
-                    onClick={() => {
-                      if (sortField === 'date') setSortAsc(!sortAsc);
-                      else {
-                        setSortField('date');
-                        setSortAsc(false);
-                      }
-                    }}
-                  >
-                    <div className="flex items-center space-x-1">
-                      <span>Date & Time</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                      {sortField === 'date' && (
-                        <span className="text-orange-600 font-extrabold">{sortAsc ? '↑' : '↓'}</span>
-                      )}
-                    </div>
+                  <th className="crm-sortable-heading" onClick={() => {
+                    if (sortField === 'date') setSortAsc(!sortAsc);
+                    else { setSortField('date'); setSortAsc(false); }
+                  }}>
+                    <span>Lead / Contact</span>
+                    <span className="crm-heading-sort">{sortField === 'date' ? (sortAsc ? '↑' : '↓') : <ArrowUpDown className="w-3 h-3" />}</span>
                   </th>
-                  <th className="py-3 px-3 min-w-[220px]">Lead / Contact</th>
-                  <th className="py-3 px-3 min-w-[210px]">Phone & Call Action</th>
-                  <th className="py-3 px-3 min-w-[150px]">Status</th>
-                  <th
-                    className="py-3 px-3 cursor-pointer hover:text-slate-900 min-w-[170px]"
-                    onClick={() => {
-                      if (sortField === 'followup') setSortAsc(!sortAsc);
-                      else {
-                        setSortField('followup');
-                        setSortAsc(true);
-                      }
-                    }}
-                  >
-                    <div className="flex items-center space-x-1">
-                      <span>AI Auto Follow-Up</span>
-                      <Clock className="w-3 h-3 text-slate-400" />
-                      {sortField === 'followup' && (
-                        <span className="text-orange-600 font-extrabold">{sortAsc ? '↑' : '↓'}</span>
-                      )}
-                    </div>
+                  <th>Phone & Actions</th>
+                  <th>Status</th>
+                  <th className="crm-sortable-heading" onClick={() => {
+                    if (sortField === 'followup') setSortAsc(!sortAsc);
+                    else { setSortField('followup'); setSortAsc(true); }
+                  }}>
+                    <span>Follow-up</span>
+                    <span className="crm-heading-sort">{sortField === 'followup' ? (sortAsc ? '↑' : '↓') : <ArrowUpDown className="w-3 h-3" />}</span>
                   </th>
-                  <th className="py-3 px-3 min-w-[160px]">Assigned Telecaller</th>
-                  <th className="py-3 px-3 min-w-[120px]">Source</th>
-                  <th
-                    className="py-3 px-3 cursor-pointer hover:text-slate-900 min-w-[110px]"
-                    onClick={() => {
-                      if (sortField === 'score') setSortAsc(!sortAsc);
-                      else {
-                        setSortField('score');
-                        setSortAsc(false);
-                      }
-                    }}
-                  >
-                    <div className="flex items-center space-x-1">
-                      <span>AI Score</span>
-                      <Flame className="w-3 h-3 text-orange-400" />
-                      {sortField === 'score' && (
-                        <span className="text-orange-600 font-extrabold">{sortAsc ? '↑' : '↓'}</span>
-                      )}
-                    </div>
+                  <th>Assigned To</th>
+                  <th className="crm-sortable-heading" onClick={() => {
+                    if (sortField === 'score') setSortAsc(!sortAsc);
+                    else { setSortField('score'); setSortAsc(false); }
+                  }}>
+                    <span>Source / AI Score</span>
+                    <span className="crm-heading-sort">{sortField === 'score' ? (sortAsc ? '↑' : '↓') : <ArrowUpDown className="w-3 h-3" />}</span>
                   </th>
-                  <th className="py-3 px-3 min-w-[180px]">Latest Note</th>
-                  <th className="py-3 px-3 text-right w-24">Actions</th>
+                  <th>Note / Profile</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
                 {processedLeads.length === 0 ? (
-                  <tr>
-                    <td colSpan={11} className="py-16 text-center text-slate-400">
+                  <tr className="crm-empty-row">
+                    <td colSpan={8} className="py-16 text-center text-slate-400">
                       <div className="flex flex-col items-center justify-center space-y-3">
                         <Users className="w-10 h-10 text-slate-300 stroke-[1.5]" />
                         <span className="text-sm font-semibold text-slate-600">No leads match your criteria</span>
@@ -1253,7 +1311,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                             setScoreFilter('ALL');
                             setSearchQuery('');
                           }}
-                          className="px-3 py-1.5 bg-orange-50 text-orange-700 border border-orange-200 rounded-lg font-bold text-xs hover:bg-orange-100"
+                          className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg font-bold text-xs hover:bg-blue-100"
                         >
                           Clear All Filters
                         </button>
@@ -1265,11 +1323,12 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                     const contact = contactsMap.get(lead.contactId);
                     const isSelected = selectedLeadIds.has(lead.leadId);
                     const dt = formatLeadDateTime(lead.createdAt || lead.lastActivityAt);
-                    const currentStage =
-                      TELECRM_STAGES.find((s) => s.key === lead.status) || TELECRM_STAGES[1];
+                    const currentStage = TELECRM_STAGES.find((stage) => stage.key === lead.status) || TELECRM_STAGES[1];
                     const callerName = lead.assignedCaller || lead.ownerId || 'Unassigned';
-                    const callerObj = telecallers.find((c) => c.name === callerName);
-                    const followupDate = lead.aiAutoFollowUp?.status === 'scheduled' ? parseLeadDate(lead.aiAutoFollowUp.scheduledAt) : null;
+                    const callerObj = telecallers.find((caller) => caller.name === callerName);
+                    const followupDate = lead.aiAutoFollowUp?.status === 'scheduled'
+                      ? parseLeadDate(lead.aiAutoFollowUp.scheduledAt)
+                      : null;
                     const isFollowupOverdue = followupDate ? followupDate.getTime() < Date.now() : false;
                     const followupFormatted = followupDate
                       ? followupDate.toLocaleDateString('en-IN', {
@@ -1279,242 +1338,198 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                           minute: '2-digit',
                         })
                       : null;
+                    const leadName = [contact?.firstName, contact?.lastName].filter(Boolean).join(' ') || 'Unnamed Lead';
+                    const leadEmail = contact?.email || lead.serviceInterest || contact?.companyName || '—';
+                    const leadCity = lead.city || contact?.city || '';
 
                     return (
                       <tr
                         key={lead.leadId}
-                        className={`hover:bg-slate-50/90 transition-colors group ${
-                          isSelected ? 'bg-orange-50/50' : ''
-                        }`}
+                        className={`crm-lead-row group transition-colors ${isSelected ? 'bg-blue-50/50' : ''}`}
                       >
-                        <td className="py-3 px-3 text-center">
+                        <td data-label="Select" className="crm-select-column text-center">
                           <button
                             onClick={() => toggleSelectRow(lead.leadId)}
-                            className="text-slate-400 hover:text-slate-700 transition-colors"
+                            className="text-slate-400 hover:text-blue-700 transition-colors"
+                            aria-label={`Select ${leadName}`}
                           >
-                            {isSelected ? (
-                              <CheckSquare className="w-4 h-4 text-orange-600" />
-                            ) : (
-                              <Square className="w-4 h-4" />
-                            )}
+                            {isSelected ? <CheckSquare className="w-4 h-4 text-blue-600" /> : <Square className="w-4 h-4" />}
                           </button>
                         </td>
 
-                        <td className="py-3 px-3 whitespace-nowrap">
-                          <div className="flex flex-col">
-                            <span className="font-bold text-slate-800 text-[11px] font-mono">{dt.date}</span>
-                            <div className="flex items-center space-x-1.5 text-[10px] text-slate-400 font-medium">
-                              <span>{dt.time}</span>
-                              <span>•</span>
-                              <span className="text-orange-700 font-semibold bg-orange-50 px-1 py-0.2 rounded text-[9px]">
-                                {dt.relative}
+                        <td data-label="Lead / Contact" className="crm-lead-cell">
+                          <div className="crm-lead-identity">
+                            <div
+                              onClick={() => setActiveDrawerLeadId(lead.leadId)}
+                              className="crm-lead-avatar cursor-pointer"
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') setActiveDrawerLeadId(lead.leadId);
+                              }}
+                              title={`Open ${leadName}`}
+                            >
+                              {(contact?.firstName?.[0] || 'U') + (contact?.lastName?.[0] || '')}
+                            </div>
+                            <div className="crm-lead-identity-copy">
+                              <button
+                                type="button"
+                                onClick={() => setActiveDrawerLeadId(lead.leadId)}
+                                className="crm-lead-name"
+                                title={leadName}
+                              >
+                                {leadName}
+                              </button>
+                              <span className="crm-lead-email" title={leadEmail}>{leadEmail}</span>
+                              <span className="crm-lead-meta">
+                                {leadCity && <><MapPin className="w-2.5 h-2.5" /> {leadCity}<span className="crm-meta-separator">·</span></>}
+                                <span>{dt.date}</span>
+                                {dt.time && <><span className="crm-meta-separator">·</span><span>{dt.time}</span></>}
+                                {dt.relative && <span className="crm-relative-chip">{dt.relative}</span>}
                               </span>
                             </div>
                           </div>
                         </td>
 
-                        <td className="py-3 px-3">
-                          <div className="flex items-center space-x-2.5">
-                            <div
-                              onClick={() => setActiveDrawerLeadId(lead.leadId)}
-                              className="w-8 h-8 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-xs shrink-0 cursor-pointer hover:ring-2 hover:ring-orange-500 transition-all shadow-2xs"
+                        <td data-label="Phone & Actions" className="crm-phone-cell">
+                          <span className={contact?.phone ? "crm-lead-phone" : "crm-lead-phone is-empty"}>
+                            {contact?.phone || "No phone added"}
+                          </span>
+                          <div className="crm-phone-actions">
+                            {contact?.phone ? (
+                              <>
+                                <button
+                                  onClick={() => handleStartCall(lead)}
+                                  className="crm-row-action crm-call-action"
+                                  title="Call lead"
+                                >
+                                  <PhoneCall className="w-3 h-3" /><span>Call</span>
+                                </button>
+                                <button
+                                  onClick={() => handleOpenWhatsApp(lead)}
+                                  className="crm-row-action crm-whatsapp-action"
+                                  title="Send WhatsApp message"
+                                >
+                                  <MessageCircle className="w-3 h-3" /><span>WhatsApp</span>
+                                </button>
+                              </>
+                            ) : <span className="crm-no-phone-hint">—</span>}
+                            <button
+                              onClick={() => onOpenConversation(undefined, lead.leadId)}
+                              className="crm-inbox-action"
+                              title="Open in Unified Inbox"
+                              aria-label="Open in Unified Inbox"
                             >
-                              {(contact?.firstName?.[0] || 'U') + (contact?.lastName?.[0] || '')}
-                            </div>
-                            <div className="min-w-0">
-                              <div
-                                onClick={() => setActiveDrawerLeadId(lead.leadId)}
-                                className="font-bold text-slate-900 hover:text-orange-700 cursor-pointer truncate max-w-[180px]"
-                                title={`${contact?.firstName} ${contact?.lastName}`}
-                              >
-                                {[contact?.firstName, contact?.lastName].filter(Boolean).join(' ') || 'Unnamed Lead'}
-                              </div>
-                              <div className="text-[11px] text-slate-500 truncate max-w-[180px]">
-                                {contact?.email || lead.serviceInterest || contact?.companyName || "—"}
-                              </div>
-                              {(lead.city || contact?.city) && (
-                                <div className="flex items-center space-x-1 text-[10px] text-slate-400 mt-0.5">
-                                  <MapPin className="w-2.5 h-2.5 text-slate-400" />
-                                  <span>{lead.city || contact?.city}</span>
-                                </div>
-                              )}
-                            </div>
+                              <Mail className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </td>
 
-                        <td className="py-3 px-3 whitespace-nowrap">
-                          <div className="flex flex-col space-y-1">
-                            <span className={contact?.phone ? "font-mono text-xs font-semibold text-slate-800" : "text-xs text-slate-400 font-normal"}>
-                              {contact?.phone || "—"}
-                            </span>
-                            <div className="flex items-center space-x-1.5">
-                              {contact?.phone ? (
-                                <>
-                                  <button
-                                    onClick={() => handleStartCall(lead)}
-                                    className="px-2 py-0.8 bg-orange-500 hover:bg-orange-600 text-white rounded-md text-[11px] font-bold flex items-center space-x-1 shadow-2xs transition-all hover:scale-105 active:scale-95"
-                                    title="Click to call"
-                                  >
-                                    <PhoneCall className="w-3 h-3" />
-                                    <span>Call</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleOpenWhatsApp(lead)}
-                                    className="px-2 py-0.8 bg-green-500 hover:bg-green-600 text-white rounded-md text-[11px] font-bold flex items-center space-x-1 shadow-2xs transition-all hover:scale-105 active:scale-95"
-                                    title="Send WhatsApp Message"
-                                  >
-                                    <MessageCircle className="w-3 h-3" />
-                                    <span>WhatsApp</span>
-                                  </button>
-                                </>
-                              ) : (
-                                <span className="text-[10px] text-slate-400 italic">No phone added</span>
-                              )}
-
-                              <button
-                                onClick={() => onOpenConversation(undefined, lead.leadId)}
-                                className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-md transition-colors"
-                                title="Open in Unified Inbox"
-                              >
-                                <Mail className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        </td>
-
-                        <td className="py-3 px-3 whitespace-nowrap">
-                          <div className="relative inline-block">
+                        <td data-label="Status" className="crm-status-cell">
+                          <div className="crm-status-control">
                             <select
                               value={lead.status}
-                              onChange={(e) => handleUpdateStatus(lead.leadId, e.target.value as LeadStatus)}
-                              className={`appearance-none font-bold text-xs px-2.5 py-1 pr-6 rounded-lg border cursor-pointer focus:outline-none transition-all ${currentStage.bg} ${currentStage.text} ${currentStage.border}`}
+                              onChange={(event) => handleUpdateStatus(lead.leadId, event.target.value as LeadStatus)}
+                              className={`crm-status-select ${currentStage.bg} ${currentStage.text} ${currentStage.border}`}
+                              title={currentStage.label}
+                              aria-label={`Status for ${leadName}`}
                             >
-                              {TELECRM_STAGES.filter((s) => s.key !== 'ALL').map((s) => (
-                                <option key={s.key} value={s.key} className="bg-white text-slate-800">
-                                  {s.label}
+                              {TELECRM_STAGES.filter((stage) => stage.key !== 'ALL').map((stage) => (
+                                <option key={stage.key} value={stage.key} className="bg-white text-slate-800">
+                                  {CRM_STAGE_LABELS[stage.key] || stage.label}
                                 </option>
                               ))}
                             </select>
-                            <ChevronDown className="w-3 h-3 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                            <ChevronDown className="crm-select-chevron w-3 h-3" />
                           </div>
                         </td>
 
-                        <td className="py-3 px-3 whitespace-nowrap">
+                        <td data-label="Follow-up" className="crm-followup-cell">
                           {followupFormatted ? (
-                            <div className="flex flex-col space-y-0.5">
-                              <div
+                            <div className="crm-followup-content">
+                              <button
+                                type="button"
                                 onClick={() => setCustomFollowUpLead(lead)}
-                                className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-bold border cursor-pointer ${
-                                  isFollowupOverdue
-                                    ? 'bg-rose-50 text-rose-700 border-rose-300 animate-pulse'
-                                    : 'bg-amber-50 text-amber-800 border-amber-300'
-                                }`}
-                                title="Click to reschedule callback"
+                                className={`crm-followup-date ${isFollowupOverdue ? 'is-overdue' : ''}`}
+                                title="Reschedule callback"
                               >
                                 <CalendarClock className="w-3 h-3" />
                                 <span>{followupFormatted}</span>
-                              </div>
-                              {isFollowupOverdue && (
-                                <span className="text-[10px] text-rose-600 font-bold">Callback Overdue!</span>
-                              )}
+                              </button>
+                              {isFollowupOverdue && <span className="crm-followup-overdue">Callback overdue</span>}
                             </div>
                           ) : (
-                            <div className="flex items-center space-x-1">
+                            <div className="crm-followup-quick-actions">
                               <button
                                 onClick={() => setQuickFollowUpPreset(lead.leadId, 2)}
-                                className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-semibold rounded border border-slate-200"
                                 title="Schedule an AI message in 2 hours"
-                              >
-                                +2h
-                              </button>
+                              >+2h</button>
                               <button
                                 onClick={() => setQuickFollowUpPreset(lead.leadId, 24)}
-                                className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-semibold rounded border border-slate-200"
                                 title="Schedule an AI message in 1 day"
-                              >
-                                +1d
-                              </button>
+                              >+1d</button>
                               <button
                                 onClick={() => setCustomFollowUpLead(lead)}
-                                className="px-2 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[10px] font-bold rounded border border-amber-200 flex items-center space-x-1"
-                              >
-                                <Plus className="w-2.5 h-2.5" />
-                                <span>Set Time</span>
-                              </button>
+                                title="Set a custom follow-up time"
+                              ><Plus className="w-3 h-3" /><span>Set Time</span></button>
                             </div>
                           )}
                         </td>
 
-                        <td className="py-3 px-3 whitespace-nowrap">
-                          <div className="flex items-center space-x-1.5">
-                            <div
-                              className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0 ${
-                                callerObj?.avatarColor || 'bg-slate-400'
-                              }`}
-                            >
+                        <td data-label="Assigned To" className="crm-assignee-cell">
+                          <div className="crm-assignee-control" title={callerName}>
+                            <span className={`crm-assignee-avatar ${callerObj?.avatarColor || 'bg-slate-400'}`}>
                               {callerName[0] || 'U'}
-                            </div>
+                            </span>
                             <select
                               value={callerName}
-                              onChange={(e) => handleAssignCaller(lead.leadId, e.target.value)}
-                              className="text-xs font-semibold text-slate-700 bg-transparent border-0 hover:bg-slate-100 rounded px-1 py-0.5 focus:outline-none cursor-pointer"
+                              onChange={(event) => handleAssignCaller(lead.leadId, event.target.value)}
+                              className="crm-assignee-select"
+                              aria-label={`Assigned to for ${leadName}`}
                             >
                               <option value="Unassigned">Unassigned</option>
-                              {telecallers.map((c) => (
-                                <option key={c.id} value={c.name}>
-                                  {c.name}
-                                </option>
+                              {telecallers.map((caller) => (
+                                <option key={caller.id} value={caller.name}>{caller.name}</option>
                               ))}
                             </select>
                           </div>
                         </td>
 
-                        <td className="py-3 px-3 whitespace-nowrap">
-                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md text-[10px] font-bold border border-slate-200">
-                            {lead.source === 'WHATSAPP' && <MessageCircle className="w-2.5 h-2.5 text-green-600" />}
-                            {lead.source === 'WEBSITE' && <Globe className="w-2.5 h-2.5 text-blue-600" />}
-                            {lead.source === 'INSTAGRAM' && <Share2 className="w-2.5 h-2.5 text-pink-600" />}
-                            {lead.source === 'EMAIL' && <Mail className="w-2.5 h-2.5 text-slate-600" />}
-                            {lead.source === 'OUTBOUND' && <Send className="w-2.5 h-2.5 text-purple-600" />}
-                            <span>{lead.source}</span>
+                        <td data-label="Source / Score" className="crm-source-score-cell">
+                          <span className={`crm-source-pill crm-source-${String(lead.source || 'manual').toLowerCase()}`}>
+                            {lead.source === 'WHATSAPP' && <MessageCircle className="w-3 h-3" />}
+                            {lead.source === 'WEBSITE' && <Globe className="w-3 h-3" />}
+                            {lead.source === 'INSTAGRAM' && <Share2 className="w-3 h-3" />}
+                            {lead.source === 'EMAIL' && <Mail className="w-3 h-3" />}
+                            {lead.source === 'OUTBOUND' && <Send className="w-3 h-3" />}
+                            {lead.source !== 'WHATSAPP' && lead.source !== 'WEBSITE' && lead.source !== 'INSTAGRAM' && lead.source !== 'EMAIL' && lead.source !== 'OUTBOUND' && <Target className="w-3 h-3" />}
+                            <span>{lead.source || 'MANUAL'}</span>
+                          </span>
+                          <span className={`crm-score-pill ${(lead.leadScore || 0) >= 80 ? 'is-hot' : (lead.leadScore || 0) >= 50 ? 'is-warm' : 'is-cold'}`}>
+                            <Flame className="w-3 h-3" /> {lead.leadScore || 50}
                           </span>
                         </td>
 
-                        <td className="py-3 px-3 whitespace-nowrap">
-                          <div className="flex items-center space-x-1">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[11px] font-extrabold font-mono tabular-nums ${
-                                (lead.leadScore || 0) >= 80
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : (lead.leadScore || 0) >= 50
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-slate-100 text-slate-600'
-                              }`}
+                        <td data-label="Note / Profile" className="crm-note-cell">
+                          <div className="crm-note-profile-actions">
+                            <button
+                              type="button"
+                              onClick={() => setQuickNoteLead(lead)}
+                              className="crm-note-text"
+                              title={lead.notes || lead.queryMessage || 'Click to add a call note'}
                             >
-                              {lead.leadScore || 50}
-                            </span>
-                            {(lead.leadScore || 0) >= 80 && <Flame className="w-3.5 h-3.5 text-orange-500" />}
+                              {lead.notes || lead.queryMessage || '+ Add call note'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setActiveDrawerLeadId(lead.leadId)}
+                              className="crm-profile-action"
+                              title="View Lead 360° Profile"
+                              aria-label="View Lead 360° Profile"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
                           </div>
-                        </td>
-
-                        <td className="py-3 px-3">
-                          <div
-                            onClick={() => setQuickNoteLead(lead)}
-                            className="cursor-pointer group-hover:text-slate-900 text-slate-500 truncate max-w-[200px] text-[11px] hover:underline"
-                            title={lead.notes || lead.queryMessage || 'Click to add note'}
-                          >
-                            {lead.notes || lead.queryMessage || '+ Add call note...'}
-                          </div>
-                        </td>
-
-                        <td className="py-3 px-3 text-right whitespace-nowrap">
-                          <button
-                            onClick={() => setActiveDrawerLeadId(lead.leadId)}
-                            className="p-1.5 text-slate-400 hover:text-orange-700 hover:bg-orange-50 rounded-lg transition-colors"
-                            title="View Lead 360° Profile"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
                         </td>
                       </tr>
                     );
@@ -1525,7 +1540,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
           </div>
 
           {/* Pagination & Status Footer */}
-          <div className="bg-slate-50 border-t border-slate-200 px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 font-medium">
+          <div className="crm-table-pagination bg-slate-50 border-t border-slate-200 px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 font-medium">
             <div className="flex items-center space-x-2 flex-wrap gap-y-1">
               <span>
                 Showing <strong className="text-slate-800 font-bold">{processedLeads.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1}</strong> - <strong className="text-slate-800 font-bold">{Math.min(safePage * PAGE_SIZE, processedLeads.length)}</strong> of{' '}
@@ -1603,7 +1618,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
 
       {/* 6. Calling Modal */}
       {callingLead && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="crm-modal-overlay fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95">
             <div className="bg-gradient-to-r from-orange-600 to-orange-500 text-white p-6 text-center relative">
               <button
@@ -1706,7 +1721,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
 
       {/* 7. WhatsApp Quick Sender Modal */}
       {whatsAppModalLead && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="crm-modal-overlay fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95">
             <div className="bg-emerald-600 text-white p-4 flex items-center justify-between">
               <div className="flex items-center space-x-2">
@@ -1818,7 +1833,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
 
       {/* 8. Custom AI Auto Follow-Up Modal */}
       {customFollowUpLead && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="crm-modal-overlay fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-1.5">
@@ -1874,7 +1889,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
 
       {/* 9. Quick Note Modal */}
       {quickNoteLead && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="crm-modal-overlay fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-1.5">
@@ -1924,7 +1939,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
 
       {/* 10. Add New Lead Modal (Single or Bulk Excel/CSV upload) */}
       {isAddLeadModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="crm-modal-overlay fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95">
             {/* Modal Header with Single / Bulk Toggle */}
             <div className="bg-orange-500 text-white p-4 flex items-center justify-between">
@@ -2257,8 +2272,8 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
 
       {/* 11. TeleCRM Lead 360° Slide-over Drawer (Right Sheet) */}
       {drawerLead && drawerContact && (
-        <div className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-2xs flex justify-end">
-          <div className="bg-white w-full max-w-xl h-full shadow-2xl border-l border-slate-200 flex flex-col animate-in slide-in-from-right duration-200">
+        <div className="crm-drawer-overlay fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-2xs flex justify-end">
+          <div className="crm-drawer bg-white w-full max-w-xl h-full shadow-2xl border-l border-slate-200 flex flex-col animate-in slide-in-from-right duration-200">
             {/* Drawer Header */}
             <div className="p-5 border-b border-slate-200 bg-slate-50/80 flex items-start justify-between">
               <div className="flex items-center space-x-3">

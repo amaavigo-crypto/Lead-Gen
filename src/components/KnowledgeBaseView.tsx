@@ -42,6 +42,19 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  useEffect(() => {
+    const onGlobalSearchResult = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail;
+      if (!detail || detail.module !== 'knowledge') return;
+      setSearchQuery(String(detail.title || detail.query || ''));
+      setCategoryFilter('ALL');
+      setStatusFilter('ALL');
+      setSelectedDocId(String(detail.recordId || ''));
+    };
+    window.addEventListener('umrah360:global-search-result', onGlobalSearchResult);
+    return () => window.removeEventListener('umrah360:global-search-result', onGlobalSearchResult);
+  }, []);
+
   const [ragTestQuery, setRagTestQuery] = useState<string>(brand.playbook === 'umrah360' ? 'Does Umrah360 support B2B sub-agents?' : `What does ${brand.companyName} offer?`);
   const [ragResults, setRagResults] = useState<RetrievedChunk[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -270,7 +283,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
   };
 
   return (
-    <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
+    <div className="knowledge-base-shell marketing-studio-shell">
       {/* Toast Notification */}
       {saveToast && (
         <div className="fixed top-20 right-6 z-50 bg-white border border-emerald-500 text-emerald-800 px-4 py-3 rounded-xl shadow-lg flex items-center space-x-3 text-xs animate-in fade-in slide-in-from-top-4">
@@ -280,7 +293,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
       )}
 
       {/* 1. HERO HEADER CARD (Matches Screenshot exactly) */}
-      <div className="bg-white border border-slate-200/90 rounded-2xl p-6 md:p-7 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-5">
+      <div className="knowledge-base-header">
         <div>
           <div className="flex items-center space-x-2.5 flex-wrap gap-y-1">
             <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
@@ -308,7 +321,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
               });
               setIsModalOpen(true);
             }}
-            className="flex items-center space-x-1.5 px-4 py-2.5 rounded-lg bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white text-xs font-semibold shadow-xs transition-all"
+            className="knowledge-base-create-button"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Create article</span>

@@ -1,32 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
-  Inbox,
   LayoutDashboard,
-  Send,
-  Mail,
-  Users,
-  Calendar,
-  BookOpen,
-  Sparkles,
-  Bot,
-  Database,
-  Radio,
   MessageSquare,
+  Bot,
+  Users,
+  Send,
+  Database,
+  BookOpen,
+  Building2,
   Lock,
   LogOut,
-  Shield,
   Menu,
   X,
-  PanelLeftClose,
-  PanelLeftOpen,
-  ChevronLeft,
-  ChevronRight,
-  FileBarChart,
-  Building2,
 } from 'lucide-react';
 import { AppUser } from '../types';
 import { Umrah360Logo } from './Umrah360Logo';
-import { useBrand } from '../context/BrandContext';
+import { useAgent } from '../context/AgentContext';
 
 export type ActiveTab =
   | 'dashboard'
@@ -54,14 +43,16 @@ export interface NavbarProps {
   isFirebaseActive: boolean;
   currentUser?: AppUser | null;
   onLogout?: () => void;
-  currentTenant?: { id: string; name: string; plan?: string; status?: string } | null;
-  allTenants?: { id: string; name: string; plan?: string; status?: string }[];
-  onSwitchTenant?: (tenantId: string) => void;
-  /** True when the workspace's plan does not include this tab. */
   planLocked?: (tabId: ActiveTab) => boolean;
-  isCollapsed?: boolean;
-  onToggleCollapse?: () => void;
 }
+
+type PrimaryNavItem = {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  route: ActiveTab;
+  tabs: ActiveTab[];
+};
 
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
@@ -71,30 +62,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   isFirebaseActive,
   currentUser,
   onLogout,
-  currentTenant,
-  allTenants = [],
-  onSwitchTenant,
   planLocked,
-  isCollapsed: controlledIsCollapsed,
-  onToggleCollapse,
 }) => {
-  const { brand } = useBrand();
-  const [internalCollapsed, setInternalCollapsed] = useState<boolean>(false);
   const [isMobileOpen, setIsMobileOpen] = useState<boolean>(false);
-
-  const isCollapsed = controlledIsCollapsed !== undefined ? controlledIsCollapsed : internalCollapsed;
-
-  const handleToggle = () => {
-    if (onToggleCollapse) {
-      onToggleCollapse();
-    } else {
-      setInternalCollapsed((prev) => !prev);
-    }
-  };
+  const { unreadNotificationCount: agentTaskUnreadCount } = useAgent();
 
   const isModuleAccessible = (tabId: ActiveTab): boolean => {
     if (planLocked?.(tabId)) return false;
-    // Database is shared by authenticated workspace users; deletion is admin-only on the server.
     if (tabId === 'dashboard' || tabId === 'database' || tabId === 'workspace' || tabId === 'company-profile') return true;
     if (!currentUser) return true;
     if (currentUser.accessLevel === 'ALL' || currentUser.role === 'ADMIN') return true;
@@ -102,75 +76,15 @@ export const Navbar: React.FC<NavbarProps> = ({
     return (currentUser.allowedModules || []).includes(tabId);
   };
 
-  const navItems: { id: ActiveTab; label: string; icon: React.ReactNode; badgeCount?: number; hasPulse?: boolean }[] = [
-    {
-      id: 'dashboard',
-      label: 'Dashboard',
-      icon: <LayoutDashboard className="w-4 h-4 shrink-0" />,
-    },
-    {
-      id: 'inbox',
-      label: 'Unified Inbox',
-      icon: <Inbox className="w-4 h-4 shrink-0" />,
-      badgeCount: unreadCount,
-    },
-    {
-      id: 'agent',
-      label: 'AI Agent',
-      icon: <Sparkles className="w-4 h-4 shrink-0" />,
-      hasPulse: true,
-    },
-    {
-      id: 'auto-followup',
-      label: 'Auto Follow-Up',
-      icon: <Bot className="w-4 h-4 shrink-0" />,
-      hasPulse: true,
-    },
-    {
-      id: 'database',
-      label: 'Database',
-      icon: <Database className="w-4 h-4 shrink-0" />,
-    },
-    {
-      id: 'campaigns',
-      label: 'Campaigns',
-      icon: <Send className="w-4 h-4 shrink-0" />,
-    },
-    {
-      id: 'campaign-reports',
-      label: 'AI Campaign Reporting',
-      icon: <FileBarChart className="w-4 h-4 shrink-0" />,
-    },
-    {
-      id: 'email-design-studio',
-      label: 'Template Studio',
-      icon: <Mail className="w-4 h-4 shrink-0" />,
-    },
-    {
-      id: 'crm',
-      label: 'CRM & Leads',
-      icon: <Users className="w-4 h-4 shrink-0" />,
-    },
-    {
-      id: 'scheduling',
-      label: 'Demo Scheduling',
-      icon: <Calendar className="w-4 h-4 shrink-0" />,
-    },
-    {
-      id: 'knowledge',
-      label: 'Knowledge Base',
-      icon: <BookOpen className="w-4 h-4 shrink-0" />,
-    },
-    {
-      id: 'playground',
-      label: 'AI Testing',
-      icon: <Sparkles className="w-4 h-4 shrink-0" />,
-    },
-    {
-      id: 'workspace',
-      label: 'Workspace',
-      icon: <Building2 className="w-4 h-4 shrink-0" />,
-    },
+  const primaryItems: PrimaryNavItem[] = [
+    { id: 'dashboard', label: 'Home', icon: <LayoutDashboard className="h-4 w-4 shrink-0" />, route: 'dashboard', tabs: ['dashboard', 'agent'] },
+    { id: 'conversation', label: 'Conversation', icon: <MessageSquare className="h-4 w-4 shrink-0" />, route: 'inbox', tabs: ['inbox'] },
+    { id: 'ai', label: 'AI', icon: <Bot className="h-4 w-4 shrink-0" />, route: 'auto-followup', tabs: ['auto-followup', 'scheduling', 'playground'] },
+    { id: 'sales', label: 'Sales', icon: <Users className="h-4 w-4 shrink-0" />, route: 'crm', tabs: ['crm'] },
+    { id: 'marketing', label: 'Marketing', icon: <Send className="h-4 w-4 shrink-0" />, route: 'campaigns', tabs: ['campaigns', 'email-design-studio', 'campaign-reports'] },
+    { id: 'database', label: 'Database', icon: <Database className="h-4 w-4 shrink-0" />, route: 'database', tabs: ['database'] },
+    { id: 'knowledge', label: 'Knowledge Base', icon: <BookOpen className="h-4 w-4 shrink-0" />, route: 'knowledge', tabs: ['knowledge'] },
+    { id: 'workspace', label: 'Workspace', icon: <Building2 className="h-4 w-4 shrink-0" />, route: 'workspace', tabs: ['workspace'] },
   ];
 
   const handleSelectTab = (tabId: ActiveTab) => {
@@ -178,231 +92,65 @@ export const Navbar: React.FC<NavbarProps> = ({
     setIsMobileOpen(false);
   };
 
+  const isItemActive = (item: PrimaryNavItem) => item.tabs.includes(activeTab);
+  const isItemAccessible = (item: PrimaryNavItem) => item.tabs.some((tab) => isModuleAccessible(tab));
+
   const sidebarContent = (
-    <div className="flex flex-col h-full justify-between bg-white text-slate-800 border-r border-slate-200/90 select-none transition-all duration-200">
-      {/* Top Header & Brand */}
-      <div className="p-3 border-b border-slate-100 space-y-3">
-        <div className="flex items-center justify-between">
-          {!isCollapsed ? (
-            <div className="flex items-center justify-between w-full">
-              <Umrah360Logo size="sm" systemBadge="" showSubtitle={false} />
-              <button
-                onClick={handleToggle}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition hidden md:flex items-center justify-center"
-                title="Collapse Sidebar"
-              >
-                <PanelLeftClose className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setIsMobileOpen(false)}
-                className="md:hidden p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between w-full px-1">
-              {brand.playbook === 'umrah360' && !brand.logoUrl ? (
-                <img src="/amaavigo-logo.png" alt="Logo" className="h-6 w-auto object-contain" />
-              ) : brand.logoUrl ? (
-                <img src={brand.logoUrl} alt={brand.companyName} className="h-6 w-auto object-contain" />
-              ) : (
-                <span className="w-6 h-6 rounded-full bg-[#fef6f3] border border-[#fed7aa] text-[#ef741a] text-xs font-bold flex items-center justify-center">
-                  {(brand.companyName || '?').charAt(0).toUpperCase()}
-                </span>
-              )}
-              <button
-                onClick={handleToggle}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition hidden md:flex items-center justify-center"
-                title="Expand Sidebar"
-              >
-                <PanelLeftOpen className="w-4 h-4 text-slate-600" />
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Tenant Switcher & Plan Status (Expanded mode only) */}
-        {!isCollapsed && (
-          <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200/80 text-xs">
-            <div className="flex items-center space-x-1.5 truncate">
-              <Shield className="w-3.5 h-3.5 text-[#ef741a] shrink-0" />
-              {allTenants.length > 1 && onSwitchTenant ? (
-                <select
-                  value={currentTenant?.id || ''}
-                  onChange={(e) => onSwitchTenant(e.target.value)}
-                  className="bg-transparent text-[11px] font-semibold focus:outline-none cursor-pointer text-slate-800 truncate"
-                >
-                  {allTenants.map((t) => (
-                    <option key={t.id} value={t.id} className="bg-white text-slate-900">
-                      {t.name} ({t.plan || 'growth'})
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span className="font-semibold text-slate-800 text-[11px] truncate">
-                  {currentTenant?.name || brand.companyName}
-                </span>
-              )}
-            </div>
-            <span className="bg-[#fef6f3] text-[#ef741a] border border-[#fed7aa] text-[9px] font-bold px-1.5 py-0.2 rounded uppercase shrink-0">
-              {currentTenant?.plan || 'Enterprise'}
-            </span>
-          </div>
-        )}
+    <div className="flex h-full w-[56px] shrink-0 flex-col items-center overflow-hidden bg-[#05051f] text-white select-none">
+      <div className="flex h-[56px] w-full shrink-0 items-center justify-center border-b border-white/10">
+        <button type="button" onClick={() => handleSelectTab('dashboard')} title="Go to Home dashboard" aria-label="Go to Home dashboard" className="flex h-full w-full items-center justify-center transition hover:bg-white/[.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-blue-400">
+          <Umrah360Logo size="sm" systemBadge="" showSubtitle={false} lightOnDark compactMark />
+        </button>
       </div>
-
-      {/* Navigation List */}
-      <div className="flex-1 px-2 py-3 space-y-1 overflow-y-auto scrollbar-none">
-        {!isCollapsed && (
-          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2.5 mb-1.5">
-            Menu
-          </div>
-        )}
-
-        {navItems.map((item) => {
-          const accessible = isModuleAccessible(item.id);
-          const isActive = activeTab === item.id;
-
+      <nav aria-label="Main modules" className="flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto py-3">
+        {primaryItems.map((item) => {
+          const active = isItemActive(item);
+          const accessible = isItemAccessible(item);
+          const badgeCount = item.id === 'conversation' ? unreadCount : item.id === 'dashboard' ? agentTaskUnreadCount : 0;
           return (
-            <button
-              key={item.id}
-              onClick={() => handleSelectTab(item.id)}
-              title={isCollapsed ? item.label : undefined}
-              className={`w-full flex items-center ${
-                isCollapsed ? 'justify-center px-0 py-2.5' : 'justify-between px-3 py-2'
-              } rounded-xl text-xs font-medium transition-all ${
-                !accessible
-                  ? 'opacity-40 text-slate-400 hover:opacity-60 cursor-pointer'
-                  : isActive
-                  ? 'bg-gradient-to-r from-[#ef741a] to-[#f97316] text-white shadow-2xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 font-medium'
-              }`}
-            >
-              <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-2.5'} truncate`}>
-                <span className={isActive ? 'text-white' : 'text-slate-500'}>{item.icon}</span>
-                {!isCollapsed && <span className="truncate">{item.label}</span>}
-              </div>
-
-              {!isCollapsed ? (
-                <div className="flex items-center space-x-1 shrink-0">
-                  {!accessible ? (
-                    <Lock className="w-3.5 h-3.5 text-orange-400" />
-                  ) : item.badgeCount && item.badgeCount > 0 ? (
-                    <span className={`px-1.5 py-0.2 ${isActive ? 'bg-white text-orange-600' : 'bg-orange-500 text-white'} text-[10px] font-bold rounded-full`}>
-                      {item.badgeCount}
-                    </span>
-                  ) : item.hasPulse ? (
-                    <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-white' : 'bg-orange-500'} animate-pulse`} />
-                  ) : null}
-                </div>
-              ) : (
-                item.badgeCount && item.badgeCount > 0 ? (
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-orange-500 rounded-full" />
-                ) : null
+            <button key={item.id} type="button" onClick={() => handleSelectTab(item.route)} title={item.label} aria-label={item.label} aria-current={active ? 'page' : undefined}
+              className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors ${active ? 'bg-[#0848ef] text-white shadow-[0_3px_10px_rgba(8,72,239,.3)]' : 'text-slate-300 hover:bg-white/10 hover:text-white'} ${!accessible ? 'opacity-45' : ''}`}>
+              {item.icon}
+              {badgeCount > 0 && (item.id === 'dashboard'
+                ? <span title={badgeCount + ' unread AI Agent task notifications'} className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[#7895ff] shadow-[0_0_8px_rgba(120,149,255,.8)] ring-2 ring-[#05051f]" />
+                : <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-4 text-white">{badgeCount > 99 ? '99+' : badgeCount}</span>
               )}
+              {!accessible && <Lock className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-[#05051f] text-slate-400" />}
             </button>
           );
         })}
-      </div>
-
-      {/* Footer Section */}
-      <div className="p-2 border-t border-slate-200/90 bg-slate-50/50 space-y-2">
-        <button
-          onClick={handleToggle}
-          title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-          className="w-full flex items-center justify-center p-2 rounded-xl bg-slate-100/90 hover:bg-slate-200/80 text-slate-600 hover:text-slate-900 transition text-xs font-semibold gap-2 border border-slate-200/80 shadow-2xs"
-        >
-          {isCollapsed ? (
-            <ChevronRight className="w-4 h-4 text-orange-600" />
-          ) : (
-            <>
-              <ChevronLeft className="w-4 h-4 text-orange-600" />
-              <span>Collapse Sidebar</span>
-            </>
-          )}
-        </button>
-
-        {!isCollapsed && currentUser && (
-          <div className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200/80 shadow-2xs">
-            <div className="flex flex-col truncate pr-1">
-              <div className="flex items-center space-x-1.5 truncate">
-                <span className="text-xs font-bold text-slate-900 truncate leading-tight">
-                  {currentUser.name}
-                </span>
-                <span className="bg-orange-50 text-orange-700 border border-orange-200/80 text-[9px] font-bold px-1.5 py-0.2 rounded shrink-0">
-                  {currentUser.role === 'ADMIN' ? 'ADMIN' : 'HR002'}
-                </span>
-              </div>
-            </div>
-
-            {onLogout && (
-              <button
-                onClick={onLogout}
-                title="Sign Out"
-                className="p-1 rounded-lg text-slate-400 hover:text-orange-600 hover:bg-orange-50 transition shrink-0"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-        )}
-
-        {isCollapsed && currentUser && onLogout && (
-          <div className="flex justify-center py-1">
-            <button
-              onClick={onLogout}
-              title={`Sign Out (${currentUser.name})`}
-              className="p-2 rounded-lg text-slate-400 hover:text-orange-600 hover:bg-orange-50 transition"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-      </div>
+      </nav>
+      {onLogout && (
+        <div className="flex w-full shrink-0 items-center justify-center border-t border-white/10 py-3">
+          <button type="button" onClick={onLogout} title={currentUser ? 'Sign out (' + currentUser.name + ')' : 'Sign out'} aria-label="Sign out"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition hover:bg-white/10 hover:text-white">
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 
   return (
     <>
-      {/* Mobile Top Navigation Header */}
-      <div className="md:hidden bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between sticky top-0 z-30 shadow-2xs">
-        <Umrah360Logo size="sm" systemBadge="" showSubtitle={false} />
-
-        <div className="flex items-center space-x-2">
-          {unreadCount > 0 && (
-            <span className="px-2 py-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-full">
-              {unreadCount}
-            </span>
-          )}
-          <button
-            onClick={() => setIsMobileOpen(true)}
-            className="p-2 text-slate-700 hover:bg-slate-100 rounded-xl border border-slate-200"
-          >
-            <Menu className="w-5 h-5" />
+      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-white/10 bg-[#05051f] px-4 py-2.5 text-white shadow-2xs md:hidden">
+        <button type="button" onClick={() => handleSelectTab('dashboard')} title="Go to Home dashboard" aria-label="Go to Home dashboard" className="rounded-md px-1 py-1"><Umrah360Logo size="sm" systemBadge="" showSubtitle={false} lightOnDark compactMark /></button>
+        <div className="flex items-center gap-2">
+          {unreadCount > 0 && <span className="rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold text-white">{unreadCount}</span>}
+          <button type="button" onClick={() => setIsMobileOpen(true)} className="rounded-xl border border-white/20 p-2 text-white hover:bg-white/10" aria-label="Open navigation">
+            <Menu className="h-5 w-5" />
           </button>
         </div>
       </div>
 
-      {/* Desktop Persistent Left Sidebar (Collapsible) */}
-      <aside
-        className={`hidden md:block ${
-          isCollapsed ? 'w-16' : 'w-60'
-        } h-screen sticky top-0 shrink-0 z-40 transition-all duration-200`}
-      >
+      <aside className="sticky top-0 z-40 hidden h-screen w-[56px] shrink-0 md:block">
         {sidebarContent}
       </aside>
 
-      {/* Mobile Slide-Over Drawer */}
       {isMobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden flex">
-          <div
-            className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs transition-opacity"
-            onClick={() => setIsMobileOpen(false)}
-          />
-          <div className="relative w-64 max-w-full h-full shadow-2xl z-10">
-            {sidebarContent}
-          </div>
+        <div className="fixed inset-0 z-50 flex md:hidden">
+          <button type="button" aria-label="Close navigation" onClick={() => setIsMobileOpen(false)} className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px]" />
+          <div className="relative z-10 h-full w-[56px] shrink-0 shadow-2xl">{sidebarContent}</div>
         </div>
       )}
     </>
