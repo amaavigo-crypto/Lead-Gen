@@ -43159,11 +43159,11 @@ async function persistCoexistenceMessage(tenantId, phoneNumberId, rawMessage, di
   const timestamp = metaWebhookTimestamp(message2?.timestamp || rawMessage?.timestamp);
   const contactSnap = await getDoc(repo.contactDoc(contactId));
   const existingContact = contactSnap.exists() ? contactSnap.data() : {};
-  const contactName = String(message2?.contacts?.[0]?.profile?.name || existingContact.firstName || "WhatsApp contact").trim();
+  const contactName2 = String(message2?.contacts?.[0]?.profile?.name || existingContact.firstName || "WhatsApp contact").trim();
   await setDoc(repo.contactDoc(contactId), {
     ...existingContact,
     contactId,
-    firstName: existingContact.firstName || contactName,
+    firstName: existingContact.firstName || contactName2,
     lastName: existingContact.lastName || "",
     phone: `+${customer}`,
     whatsappId: customer,
@@ -43184,7 +43184,7 @@ async function persistCoexistenceMessage(tenantId, phoneNumberId, rawMessage, di
     conversationId,
     channel: "WHATSAPP",
     senderType: direction === "OUTBOUND" ? "AGENT" : "CUSTOMER",
-    senderName: direction === "OUTBOUND" ? "WhatsApp Business App" : contactName,
+    senderName: direction === "OUTBOUND" ? "WhatsApp Business App" : contactName2,
     text: text2,
     hasText,
     direction,
@@ -138063,6 +138063,194 @@ var init_websiteLeadAutoResponder = __esm({
   }
 });
 
+// src/server/dashboardSummaryService.ts
+var dashboardSummaryService_exports = {};
+__export(dashboardSummaryService_exports, {
+  buildDashboardSummary: () => buildDashboardSummary,
+  isFollowUpDue: () => isFollowUpDue,
+  isVisibleCrmLead: () => isVisibleCrmLead,
+  monthlyBuckets: () => monthlyBuckets
+});
+function toMs(value) {
+  if (value === void 0 || value === null || value === "") return 0;
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value?.toDate === "function") {
+    const d = value.toDate();
+    return d instanceof Date && Number.isFinite(d.getTime()) ? d.getTime() : 0;
+  }
+  if (typeof value?.seconds === "number") return value.seconds * 1e3;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+function isVisibleCrmLead(lead) {
+  const isCampaignLead = Boolean(
+    lead?.campaignId || lead?.campaignLeadId || lead?.leadType === "OUTBOUND" && lead?.source === "EMAIL"
+  );
+  return !(isCampaignLead && lead?.replyStatus !== "REPLIED");
+}
+function isFollowUpDue(lead, now) {
+  if (CLOSED_STATUSES.has(lead?.status)) return false;
+  const scheduledAt = lead?.aiAutoFollowUp?.status === "scheduled" ? lead.aiAutoFollowUp.scheduledAt : lead?.autoFollowUp?.enabled ? lead.autoFollowUp.nextScheduledAt || lead.nextFollowUpAt : lead?.nextFollowUpAt;
+  return scheduledAt ? toMs(scheduledAt) <= now : lead?.status === "FOLLOW_UP";
+}
+function zonedYearMonth(ms, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric" }).formatToParts(new Date(ms));
+  return {
+    y: Number(parts.find((p2) => p2.type === "year")?.value),
+    m: Number(parts.find((p2) => p2.type === "month")?.value)
+  };
+}
+function zonedWallClockToMs(date, time2, timeZone) {
+  const naive = Date.parse(`${date}T${time2.length === 5 ? `${time2}:00` : time2}Z`);
+  if (!Number.isFinite(naive)) return 0;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).formatToParts(new Date(naive));
+  const get = (t2) => Number(parts.find((p2) => p2.type === t2)?.value);
+  const asIfUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  return naive - (asIfUtc - naive);
+}
+function monthlyBuckets(leads, now, timeZone) {
+  const { y, m: m2 } = zonedYearMonth(now, timeZone);
+  const buckets = Array.from({ length: 6 }, (_, i2) => {
+    const idx = y * 12 + (m2 - 1) - (5 - i2);
+    const by = Math.floor(idx / 12);
+    const bm = idx % 12 + 1;
+    const label = new Intl.DateTimeFormat("en-IN", { month: "short", timeZone: "UTC" }).format(new Date(Date.UTC(by, bm - 1, 15)));
+    return { key: `${by}-${String(bm).padStart(2, "0")}`, label, count: 0 };
+  });
+  const byKey = new Map(buckets.map((b2) => [b2.key, b2]));
+  for (const lead of leads) {
+    const ms = toMs(lead?.createdAt);
+    if (!ms) continue;
+    const ym = zonedYearMonth(ms, timeZone);
+    const bucket = byKey.get(`${ym.y}-${String(ym.m).padStart(2, "0")}`);
+    if (bucket) bucket.count++;
+  }
+  return buckets;
+}
+async function buildDashboardSummary(ctx, now = Date.now()) {
+  const repo = tenantRepo(ctx);
+  const brand = await getTenantBrand(ctx.tenantId).catch(() => null);
+  const timeZone = brand?.timezone || "UTC";
+  const conversations = repo.conversations();
+  const campaigns = repo.campaigns();
+  const campaignLeadRows = repo.campaignLeads();
+  const [
+    leadsSnap,
+    bookingsSnap,
+    totalConversations,
+    activeConversations,
+    unreadTotals,
+    unreadFlagged,
+    humanHandoffFlagged,
+    humanModeFlagged,
+    totalCampaigns,
+    runningCampaigns,
+    campaignLeadCount,
+    emailsSent,
+    pendingEmails,
+    replies,
+    campaignDemosBooked,
+    failedEmails
+  ] = await Promise.all([
+    getDocs(repo.leads()),
+    getDocs(query(repo.bookings(), where("status", "in", ["BOOKED", "RESCHEDULED"]))),
+    countDocs(conversations),
+    countDocs(query(conversations, where("status", "in", ["ACTIVE", "REVIEW"]))),
+    sumDocs(conversations, ["unreadCount"]),
+    getDocs(query(conversations, where("unread", "==", true))),
+    getDocs(query(conversations, where("humanHandoff", "==", true))),
+    getDocs(query(conversations, where("managementMode", "==", "HUMAN"))),
+    countDocs(campaigns),
+    countDocs(query(campaigns, where("status", "==", "RUNNING"))),
+    countDocs(campaignLeadRows),
+    countDocs(query(campaignLeadRows, where("sendStatus", "==", "SENT"))),
+    countDocs(query(campaignLeadRows, where("sendStatus", "in", ["PENDING", "SENDING"]))),
+    countDocs(query(campaignLeadRows, where("replyStatus", "==", "REPLIED"))),
+    countDocs(query(campaignLeadRows, where("demoStatus", "==", "BOOKED"))),
+    countDocs(query(campaignLeadRows, where("sendStatus", "==", "FAILED")))
+  ]);
+  const leads = leadsSnap.docs.map((d) => ({ ...d.data() || {}, leadId: d.data()?.leadId || d.id })).filter(isVisibleCrmLead);
+  const statusCounts = /* @__PURE__ */ new Map();
+  for (const lead of leads) {
+    const status = String(lead.status || "NEW");
+    statusCounts.set(status, (statusCounts.get(status) || 0) + 1);
+  }
+  const recent = [...leads].sort((a, b2) => toMs(b2.updatedAt || b2.lastActivityAt || b2.createdAt) - toMs(a.updatedAt || a.lastActivityAt || a.createdAt)).slice(0, 5);
+  const contactIds = [...new Set(recent.map((l) => l.contactId).filter(Boolean))];
+  const contactSnaps = await Promise.all(contactIds.map((id) => getDoc(repo.contactDoc(id)).catch(() => null)));
+  const contactsById = /* @__PURE__ */ new Map();
+  contactSnaps.forEach((snap, i2) => {
+    if (snap?.exists()) contactsById.set(contactIds[i2], snap.data());
+  });
+  const recentLeads = recent.map((lead) => {
+    const contact = contactsById.get(lead.contactId);
+    return {
+      leadId: lead.leadId,
+      name: contactName(contact) || lead.name || lead.fullName || "Unnamed lead",
+      subline: contact?.email || contact?.phone || lead.email || lead.source || "CRM lead",
+      status: String(lead.status || "NEW"),
+      updatedAt: toIso(lead.updatedAt || lead.lastActivityAt || lead.createdAt),
+      leadScore: Number(lead.leadScore) || 0
+    };
+  });
+  const upcomingBookings = bookingsSnap.docs.filter((d) => {
+    const b2 = d.data() || {};
+    const start = b2.startDateTimeIso ? toMs(b2.startDateTimeIso) : b2.date && b2.startTime ? zonedWallClockToMs(String(b2.date), String(b2.startTime), timeZone) : 0;
+    return start >= now;
+  }).length;
+  const legacyUnreadCount = unreadFlagged.docs.filter((d) => typeof d.data()?.unreadCount !== "number").length;
+  const handoffsById = /* @__PURE__ */ new Map();
+  for (const snap of [humanHandoffFlagged, humanModeFlagged]) snap.docs.forEach((d) => handoffsById.set(d.id, d.data()));
+  const humanHandoffs = [...handoffsById.values()].filter((c) => c?.status !== "RESOLVED" && c?.status !== "ARCHIVED").length;
+  return {
+    totalLeads: leads.length,
+    demosBooked: statusCounts.get("DEMO_BOOKED") || 0,
+    followUpsDue: leads.filter((lead) => isFollowUpDue(lead, now)).length,
+    pipeline: [...statusCounts.entries()].map(([status, count]) => ({ status, count })),
+    monthlyNewLeads: monthlyBuckets(leads, now, timeZone),
+    recentLeads,
+    upcomingBookings,
+    totalConversations,
+    activeConversations,
+    unreadMessages: Math.max(0, Math.round(unreadTotals.unreadCount || 0)) + legacyUnreadCount,
+    humanHandoffs,
+    totalCampaigns,
+    runningCampaigns,
+    campaignLeads: campaignLeadCount,
+    emailsSent,
+    pendingEmails,
+    replies,
+    campaignDemosBooked,
+    failedEmails,
+    timezone: timeZone,
+    updatedAt: new Date(now).toISOString()
+  };
+}
+var CLOSED_STATUSES, toIso, contactName;
+var init_dashboardSummaryService = __esm({
+  "src/server/dashboardSummaryService.ts"() {
+    init_adminFirestore();
+    init_tenantRepo();
+    init_brandService();
+    CLOSED_STATUSES = /* @__PURE__ */ new Set(["CLOSED_WON", "CLOSED_LOST", "UNSUBSCRIBED", "NOT_INTERESTED"]);
+    toIso = (value) => {
+      const ms = toMs(value);
+      return ms ? new Date(ms).toISOString() : null;
+    };
+    contactName = (contact) => contact?.fullName || [contact?.firstName, contact?.lastName].filter(Boolean).join(" ") || contact?.companyName || "";
+  }
+});
+
 // src/server/coreApiHandler.ts
 init_openai();
 
@@ -165328,68 +165516,11 @@ ${signature || defSig}`;
   }
   if (url === "/api/dashboard/summary" && req.method === "GET") {
     try {
-      const tenant = tenantRepo(activeTenantCtx);
-      const conversations = tenant.conversations();
-      const campaigns = tenant.campaigns();
-      const campaignLeadRows = tenant.campaignLeads();
-      const [
-        totalConversations,
-        activeConversations,
-        unreadTotals,
-        unreadFlagged,
-        humanHandoffFlagged,
-        humanModeFlagged,
-        totalCampaigns,
-        runningCampaigns,
-        campaignLeadCount,
-        emailsSent,
-        pendingEmails,
-        replies,
-        demosBooked,
-        failedEmails
-      ] = await Promise.all([
-        countDocs(conversations),
-        countDocs(query(conversations, where("status", "in", ["ACTIVE", "REVIEW"]))),
-        sumDocs(conversations, ["unreadCount"]),
-        getDocs(query(conversations, where("unread", "==", true))),
-        getDocs(query(conversations, where("humanHandoff", "==", true))),
-        getDocs(query(conversations, where("managementMode", "==", "HUMAN"))),
-        countDocs(campaigns),
-        countDocs(query(campaigns, where("status", "==", "RUNNING"))),
-        countDocs(campaignLeadRows),
-        countDocs(query(campaignLeadRows, where("sendStatus", "==", "SENT"))),
-        countDocs(query(campaignLeadRows, where("sendStatus", "in", ["PENDING", "SENDING"]))),
-        countDocs(query(campaignLeadRows, where("replyStatus", "==", "REPLIED"))),
-        countDocs(query(campaignLeadRows, where("demoStatus", "==", "BOOKED"))),
-        countDocs(query(campaignLeadRows, where("sendStatus", "==", "FAILED")))
-      ]);
-      const legacyUnreadCount = unreadFlagged.docs.filter(
-        (d) => typeof d.data()?.unreadCount !== "number"
-      ).length;
-      const handoffsById = /* @__PURE__ */ new Map();
-      for (const snap of [humanHandoffFlagged, humanModeFlagged]) {
-        snap.docs.forEach((d) => handoffsById.set(d.id, d.data()));
-      }
-      const humanHandoffs = Array.from(handoffsById.values()).filter(
-        (conversation) => conversation.status !== "RESOLVED" && conversation.status !== "ARCHIVED"
-      ).length;
-      const summary = {
-        totalConversations,
-        activeConversations,
-        unreadMessages: Math.max(0, Math.round(unreadTotals.unreadCount || 0)) + legacyUnreadCount,
-        humanHandoffs,
-        totalCampaigns,
-        runningCampaigns,
-        campaignLeads: campaignLeadCount,
-        emailsSent,
-        pendingEmails,
-        replies,
-        demosBooked,
-        failedEmails,
-        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-      };
+      const { buildDashboardSummary: buildDashboardSummary2 } = await Promise.resolve().then(() => (init_dashboardSummaryService(), dashboardSummaryService_exports));
+      const summary = await buildDashboardSummary2(activeTenantCtx);
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "no-store");
       res.end(JSON.stringify({ success: true, summary }));
     } catch (err) {
       console.error("[Dashboard] Could not aggregate tenant metrics:", err?.message || err);

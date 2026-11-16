@@ -16,7 +16,11 @@ const QUICK_TASKS = [
 ];
 
 export const DashboardAiHomeHero: React.FC<DashboardAiHomeHeroProps> = ({ userName, canUseAi, onNavigate }) => {
-  const { conversations, notifications, unreadNotificationCount, sending, loading, error, sendMessage, newConversation, selectConversation, clearError } = useAgent();
+  const agent = useAgent();
+  const { conversations, sending, loading, error, sendMessage, newConversation, selectConversation, clearError } = agent;
+  // Task notifications are optional in the agent context; without them the history list must still render.
+  const notifications: Array<{ conversationId: string }> = Array.isArray((agent as any).notifications) ? (agent as any).notifications : [];
+  const unreadNotificationCount: number = Number((agent as any).unreadNotificationCount) || 0;
   const [prompt, setPrompt] = useState('');
   const [startingAgent, setStartingAgent] = useState(false);
   const [showChatHistory, setShowChatHistory] = useState(false);

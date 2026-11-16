@@ -3891,77 +3891,15 @@ ${signature || defSig}`;
     return true;
   }
 
-  // Low-read, tenant-scoped dashboard metrics. Aggregate queries avoid treating the inbox's
-  // latest-50 conversation page as the workspace-wide total.
+  // Every dashboard number, read from the database. Lead metrics use the CRM's own rules so the
+  // dashboard and CRM always agree (see dashboardSummaryService.ts).
   if (url === '/api/dashboard/summary' && req.method === 'GET') {
     try {
-      const tenant = tenantRepo(activeTenantCtx);
-      const conversations = tenant.conversations();
-      const campaigns = tenant.campaigns();
-      const campaignLeadRows = tenant.campaignLeads();
-
-      const [
-        totalConversations,
-        activeConversations,
-        unreadTotals,
-        unreadFlagged,
-        humanHandoffFlagged,
-        humanModeFlagged,
-        totalCampaigns,
-        runningCampaigns,
-        campaignLeadCount,
-        emailsSent,
-        pendingEmails,
-        replies,
-        demosBooked,
-        failedEmails,
-      ] = await Promise.all([
-        countDocs(conversations),
-        countDocs(fsQuery(conversations, fsWhere('status', 'in', ['ACTIVE', 'REVIEW']))),
-        sumDocs(conversations, ['unreadCount']),
-        getDocs(fsQuery(conversations, fsWhere('unread', '==', true))),
-        getDocs(fsQuery(conversations, fsWhere('humanHandoff', '==', true))),
-        getDocs(fsQuery(conversations, fsWhere('managementMode', '==', 'HUMAN'))),
-        countDocs(campaigns),
-        countDocs(fsQuery(campaigns, fsWhere('status', '==', 'RUNNING'))),
-        countDocs(campaignLeadRows),
-        countDocs(fsQuery(campaignLeadRows, fsWhere('sendStatus', '==', 'SENT'))),
-        countDocs(fsQuery(campaignLeadRows, fsWhere('sendStatus', 'in', ['PENDING', 'SENDING']))),
-        countDocs(fsQuery(campaignLeadRows, fsWhere('replyStatus', '==', 'REPLIED'))),
-        countDocs(fsQuery(campaignLeadRows, fsWhere('demoStatus', '==', 'BOOKED'))),
-        countDocs(fsQuery(campaignLeadRows, fsWhere('sendStatus', '==', 'FAILED'))),
-      ]);
-
-      const legacyUnreadCount = unreadFlagged.docs.filter((d) =>
-        typeof d.data()?.unreadCount !== 'number'
-      ).length;
-
-      const handoffsById = new Map<string, any>();
-      for (const snap of [humanHandoffFlagged, humanModeFlagged]) {
-        snap.docs.forEach((d) => handoffsById.set(d.id, d.data()));
-      }
-      const humanHandoffs = Array.from(handoffsById.values()).filter((conversation: any) =>
-        conversation.status !== 'RESOLVED' && conversation.status !== 'ARCHIVED'
-      ).length;
-
-      const summary = {
-        totalConversations,
-        activeConversations,
-        unreadMessages: Math.max(0, Math.round(unreadTotals.unreadCount || 0)) + legacyUnreadCount,
-        humanHandoffs,
-        totalCampaigns,
-        runningCampaigns,
-        campaignLeads: campaignLeadCount,
-        emailsSent,
-        pendingEmails,
-        replies,
-        demosBooked,
-        failedEmails,
-        updatedAt: new Date().toISOString(),
-      };
-
+      const { buildDashboardSummary } = await import('./dashboardSummaryService.js');
+      const summary = await buildDashboardSummary(activeTenantCtx);
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Cache-Control', 'no-store');
       res.end(JSON.stringify({ success: true, summary }));
     } catch (err: any) {
       console.error('[Dashboard] Could not aggregate tenant metrics:', err?.message || err);

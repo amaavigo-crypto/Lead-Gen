@@ -2765,9 +2765,6 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
                 tenantName={currentTenant?.name}
                 userName={currentUser.name}
                 canUseAi={!planLocked('agent') && (currentUser.accessLevel === 'ALL' || currentUser.role === 'ADMIN' || (currentUser.allowedModules || []).includes('agent'))}
-                leads={leads}
-                contacts={contacts}
-                conversations={conversations}
                 onNavigate={setActiveTab}
                 onAddLead={() => { setOpenCrmAddLead(true); setActiveTab('crm'); }}
                 onOpenLead={handleViewLeadInCrm}
