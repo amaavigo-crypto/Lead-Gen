@@ -602,7 +602,7 @@ async function runAgent(
         return { outputItems, text };
       } catch (error: any) {
         if (!isOpenAiFallbackError(error) || !isGeminiConfigured()) throw error;
-        openAiFailure = describeAiError(error);
+        openAiFailure = describeAiError(error).replace(/\s*(at\s+)?https?:\/\/\S+/g, '').replace(/\s+\./g, '.').trim();
         console.warn('[AI Agent] OpenAI unavailable, switching to Gemini backup:', openAiFailure);
         provider = 'gemini';
         await onProgress?.('The main AI is unavailable. Continuing with the backup AI (Gemini)…');
@@ -893,7 +893,7 @@ export async function handleAgentApi(req: any, res: any, ctx: TenantContext, bod
           const currentExecution = await getDoc(executionRef);
           const currentState = currentExecution.exists() ? currentExecution.data() as any : null;
           if (currentState?.status !== 'completed') {
-            await setDoc(executionRef, { status: 'failed', progress: 'Failed', error: cleanText(error?.message || 'Agent execution failed.', 300), failedAt: new Date().toISOString() }, { merge: true });
+            await setDoc(executionRef, { status: 'failed', progress: 'Failed', error: cleanText(error?.message || 'Agent execution failed.', 700), failedAt: new Date().toISOString() }, { merge: true });
           }
           await writeTenantAuditEvent(ctx, {
             action: 'AGENT_EXECUTION_FAILED',

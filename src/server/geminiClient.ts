@@ -29,7 +29,8 @@ export function geminiFallbackModels(): string[] {
 const FOREIGN_THOUGHT_SIGNATURE = 'skip_thought_signature_validator';
 
 export function getGeminiApiKey(): string {
-  return (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+  // Tolerate values pasted with surrounding quotes or whitespace (a common env-var mistake).
+  return (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim().replace(/^['"]+|['"]+$/g, '').trim();
 }
 
 export function isGeminiConfigured(): boolean {
@@ -44,10 +45,30 @@ export function getGeminiClient(): GoogleGenAI {
   return cachedClient.client;
 }
 
-/** Short, log-safe description of a provider error (never includes keys or payloads). */
+/**
+ * Short, readable description of a provider error (never includes keys or payloads). Gemini errors arrive as a
+ * JSON string such as {"error":{"code":400,"message":"API key not valid...","status":"INVALID_ARGUMENT"}};
+ * the inner message is extracted so the user sees the actual reason.
+ */
 export function describeAiError(err: any): string {
-  const status = err?.status ?? err?.code ?? err?.error?.code;
-  const message = String(err?.error?.message || err?.message || err || 'unknown error').replace(/\s+/g, ' ').slice(0, 240);
+  let status = err?.status ?? err?.code ?? err?.error?.code;
+  let message = String(err?.error?.message || err?.message || err || 'unknown error');
+  const jsonStart = message.indexOf('{');
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(message.slice(jsonStart));
+      const inner = parsed?.error || parsed;
+      if (inner?.message) message = String(inner.message);
+      if (inner?.code && !status) status = inner.code;
+    } catch {
+      // not JSON; keep the raw message
+    }
+  }
+  message = message.replace(/\s+/g, ' ').trim();
+  if (/api key not valid|api_key_invalid|api key expired|permission_denied.*api key|api key.*(missing|invalid)/i.test(message)) {
+    message += ' Check GEMINI_API_KEY in the server environment (create a key at aistudio.google.com/apikey).';
+  }
+  message = message.slice(0, 220);
   return status ? `${status}: ${message}` : message;
 }
 

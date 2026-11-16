@@ -166516,7 +166516,7 @@ function geminiFallbackModels() {
   return [...new Set([GEMINI_FALLBACK_MODEL, GEMINI_SECONDARY_FALLBACK_MODEL].filter(Boolean))];
 }
 function getGeminiApiKey() {
-  return (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "").trim();
+  return (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "").trim().replace(/^['"]+|['"]+$/g, "").trim();
 }
 function isGeminiConfigured() {
   return Boolean(getGeminiApiKey());
@@ -166528,8 +166528,23 @@ function getGeminiClient() {
   return cachedClient.client;
 }
 function describeAiError(err) {
-  const status = err?.status ?? err?.code ?? err?.error?.code;
-  const message2 = String(err?.error?.message || err?.message || err || "unknown error").replace(/\s+/g, " ").slice(0, 240);
+  let status = err?.status ?? err?.code ?? err?.error?.code;
+  let message2 = String(err?.error?.message || err?.message || err || "unknown error");
+  const jsonStart = message2.indexOf("{");
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(message2.slice(jsonStart));
+      const inner = parsed?.error || parsed;
+      if (inner?.message) message2 = String(inner.message);
+      if (inner?.code && !status) status = inner.code;
+    } catch {
+    }
+  }
+  message2 = message2.replace(/\s+/g, " ").trim();
+  if (/api key not valid|api_key_invalid|api key expired|permission_denied.*api key|api key.*(missing|invalid)/i.test(message2)) {
+    message2 += " Check GEMINI_API_KEY in the server environment (create a key at aistudio.google.com/apikey).";
+  }
+  message2 = message2.slice(0, 220);
   return status ? `${status}: ${message2}` : message2;
 }
 function errorStatus(err) {
@@ -191403,7 +191418,7 @@ async function runAgent(message2, history, ctx, config4, moduleContext, modules,
         return { outputItems, text: text2 };
       } catch (error) {
         if (!isOpenAiFallbackError(error) || !isGeminiConfigured()) throw error;
-        openAiFailure = describeAiError(error);
+        openAiFailure = describeAiError(error).replace(/\s*(at\s+)?https?:\/\/\S+/g, "").replace(/\s+\./g, ".").trim();
         console.warn("[AI Agent] OpenAI unavailable, switching to Gemini backup:", openAiFailure);
         provider = "gemini";
         await onProgress?.("The main AI is unavailable. Continuing with the backup AI (Gemini)\u2026");
@@ -191684,7 +191699,7 @@ async function handleAgentApi(req, res, ctx, body, url) {
           const currentExecution = await getDoc(executionRef);
           const currentState = currentExecution.exists() ? currentExecution.data() : null;
           if (currentState?.status !== "completed") {
-            await setDoc(executionRef, { status: "failed", progress: "Failed", error: cleanText2(error?.message || "Agent execution failed.", 300), failedAt: (/* @__PURE__ */ new Date()).toISOString() }, { merge: true });
+            await setDoc(executionRef, { status: "failed", progress: "Failed", error: cleanText2(error?.message || "Agent execution failed.", 700), failedAt: (/* @__PURE__ */ new Date()).toISOString() }, { merge: true });
           }
           await writeTenantAuditEvent(ctx, {
             action: "AGENT_EXECUTION_FAILED",
