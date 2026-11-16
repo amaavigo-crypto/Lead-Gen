@@ -2593,7 +2593,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
 
   if (!currentUser) {
     const pathname = typeof window !== 'undefined' ? window.location.pathname.replace(/\/+$/, '') || '/' : '/';
-    if (pathname === '/login') {
+    if (pathname === '/login' || pathname === '/signin' || pathname === '/sign-in') {
       return <LoginView isFirebaseActive={isFirebaseActive} initialError={authError} />;
     }
     return <Suspense fallback={<ScreenLoading />}><LandingPage /></Suspense>;

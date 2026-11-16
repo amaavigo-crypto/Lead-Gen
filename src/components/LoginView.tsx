@@ -1,24 +1,29 @@
 import React, { useState } from 'react';
 import {
-  Lock,
-  Mail,
+  AlertCircle,
+  Check,
+  ArrowRight,
+  ArrowUpRight,
   Eye,
   EyeOff,
-  ArrowRight,
-  Database,
-  KeyRound,
-  AlertCircle,
-  Shield,
+  Lock,
+  Mail,
+  MessageCircle,
+  ShieldCheck,
   Sparkles,
+  Users,
+  Workflow,
+  Zap,
 } from 'lucide-react';
 import { signIn, requestPasswordReset, friendlyAuthError } from '../services/authService';
+import './LoginView.css';
 
 interface LoginViewProps {
   isFirebaseActive: boolean;
   initialError?: string | null;
 }
 
-export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialError }) => {
+export const LoginView: React.FC<LoginViewProps> = ({ initialError }) => {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -26,9 +31,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
   const [info, setInfo] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // On success, onAuthStateChanged in App takes over; nothing to call here.
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setError(null);
     setInfo(null);
     const email = identifier.trim();
@@ -56,130 +60,131 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
     try {
       await requestPasswordReset(email);
     } catch {
-      // Same message either way, so we never reveal which emails have accounts.
+      // Use the same response either way to avoid revealing which emails have accounts.
     }
     setInfo('If an account exists for that email, a reset link has been sent.');
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden selection:bg-orange-500/20 selection:text-orange-900">
-      {/* Soft orange ambient ambient glows */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/4 left-1/3 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+    <main className="av-login-page">
+      <div className="av-login-orb av-login-orb-one" />
+      <div className="av-login-orb av-login-orb-two" />
+      <div className="av-login-layout">
+        <section className="av-login-story">
+          <header className="av-login-brand-row">
+            <a href="/" className="av-login-brand" aria-label="Amaavigo home">
+              <img src="/amaavigo-logo.png" alt="Amaavigo" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
+              <span>amaavigo</span>
+            </a>
+            <span className="av-login-secure"><ShieldCheck size={13} /> SECURE WORKSPACE</span>
+          </header>
 
-      <div className="w-full max-w-md space-y-6 relative z-10">
-        {/* Brand Header */}
-        <div className="text-center space-y-3">
-          <div className="flex justify-center mb-2">
-            <img src="/amaavigo-logo.png" alt="Amaavigo" className="h-11 w-auto object-contain" />
-          </div>
-          <p className="text-xs text-slate-600 max-w-sm mx-auto font-medium">
-            Autonomous Inbound Lead Capture, Cold Outreach & Omnichannel Lead Engine
-          </p>
-        </div>
-
-        {/* Login Card */}
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-8 shadow-xl space-y-5">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div className="flex items-center space-x-2">
-              <KeyRound className="w-4 h-4 text-orange-500" />
-              <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">Account Sign In</h2>
-            </div>
-            <div className="flex items-center space-x-1.5 text-[11px] text-slate-500 font-medium">
-              <Database className="w-3.5 h-3.5 text-orange-500" />
-              <span>{isFirebaseActive ? 'Firestore Live' : 'Database Ready'}</span>
+          <div className="av-login-story-copy">
+            <span className="av-login-kicker"><Sparkles size={14} /> THE LEAD-TO-REVENUE WORKSPACE</span>
+            <h1>Good to have you back.<br /><span>Let's move work forward.</span></h1>
+            <p>Lead capture, customer conversations, AI assistance and campaigns—connected in one place, ready for your team.</p>
+            <div className="av-login-proof">
+              <span><Check size={13} /> Keep customer context connected</span>
+              <span><Check size={13} /> Bring AI and people together</span>
+              <span><Check size={13} /> Keep every next step visible</span>
             </div>
           </div>
 
-          {info && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs">
-              {info}
+          <div className="av-login-product">
+            <div className="av-login-product-head">
+              <div><span className="av-login-product-mark">A</span><b>Workspace overview</b></div>
+              <span className="av-login-sample-pill">ILLUSTRATIVE PREVIEW</span>
             </div>
-          )}
-
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-xs flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-              <span>{error}</span>
+            <div className="av-login-product-body">
+              <aside className="av-login-mini-nav">
+                <span className="is-active"><Workflow size={13} /> Overview</span>
+                <span><MessageCircle size={13} /> Inbox</span>
+                <span><Users size={13} /> CRM</span>
+                <span><Zap size={13} /> AI Agent</span>
+              </aside>
+              <div className="av-login-mini-main">
+                <div className="av-login-mini-greeting"><small>YOUR WORKSPACE</small><b>Everything in motion.</b></div>
+                <div className="av-login-mini-metrics">
+                  <div><small>New leads</small><b>128</b><span>Sample activity</span></div>
+                  <div><small>Conversations</small><b>42</b><span>Across channels</span></div>
+                  <div><small>Next actions</small><b>16</b><span>Ready to review</span></div>
+                </div>
+                <div className="av-login-mini-activity">
+                  <div><span className="av-mini-avatar">AK</span><span><b>New WhatsApp enquiry</b><small>AI response prepared · just now</small></span><i /></div>
+                  <div><span className="av-mini-avatar is-blue">IP</span><span><b>Demo request received</b><small>Lead context added · 4 min ago</small></span><i /></div>
+                  <div><span className="av-mini-avatar is-violet">SM</span><span><b>Campaign draft ready</b><small>Waiting for approval · 12 min ago</small></span><i /></div>
+                </div>
+              </div>
             </div>
-          )}
+          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-            <div>
-              <label className="text-slate-700 block mb-1.5 font-bold">Email</label>
-              <div className="relative">
-                <Mail className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+          <footer className="av-login-story-foot"><span>CAPTURE</span><i /><span>CONVERSE</span><i /><span>QUALIFY</span><i /><span>GROW</span></footer>
+        </section>
+
+        <section className="av-login-form-side">
+          <div className="av-login-form-card">
+            <a href="/" className="av-login-mobile-brand"><span>A</span> amaavigo</a>
+            <div className="av-login-form-heading">
+              <span className="av-login-form-icon"><Lock size={17} /></span>
+              <span className="av-login-eyebrow">YOUR WORKSPACE IS WAITING</span>
+              <h2>Welcome back.</h2>
+              <p>Sign in to continue to your Amaavigo workspace.</p>
+            </div>
+
+            {info && <div className="av-login-alert is-info"><ShieldCheck size={15} /><span>{info}</span></div>}
+            {error && <div className="av-login-alert is-error"><AlertCircle size={15} /><span>{error}</span></div>}
+
+            <form onSubmit={handleSubmit} className="av-login-form">
+              <label htmlFor="av-login-email">Work email</label>
+              <div className="av-login-input-wrap">
+                <Mail size={16} />
                 <input
+                  id="av-login-email"
                   type="email"
                   autoComplete="username"
                   value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
+                  onChange={(event) => setIdentifier(event.target.value)}
                   placeholder="you@company.com"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 font-medium transition"
                   required
                 />
               </div>
-            </div>
 
-            <div>
-              <label className="text-slate-700 block mb-1.5 font-bold">Password</label>
-              <div className="relative">
-                <Lock className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+              <div className="av-login-password-label">
+                <label htmlFor="av-login-password">Password</label>
+                <button type="button" onClick={handleForgot}>Forgot password?</button>
+              </div>
+              <div className="av-login-input-wrap">
+                <Lock size={16} />
                 <input
+                  id="av-login-password"
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="current-password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-10 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 font-medium transition"
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Enter your password"
                   required
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 focus:outline-none"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                <button type="button" className="av-login-toggle-password" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
-            </div>
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-xs transition flex items-center justify-center space-x-2 shadow-md shadow-orange-500/20 disabled:opacity-50 cursor-pointer"
-            >
-              {isLoading ? (
-                <span>Verifying credentials...</span>
-              ) : (
-                <>
-                  <span>Sign In</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </form>
+              <button type="submit" disabled={isLoading} className="av-login-submit">
+                {isLoading ? 'Verifying credentials…' : 'Sign in to workspace'}
+                {!isLoading && <ArrowRight size={16} />}
+              </button>
+            </form>
 
-          <div className="pt-2 border-t border-slate-100 text-center">
-            <button
-              type="button"
-              onClick={handleForgot}
-              className="text-[11px] font-bold text-orange-600 hover:text-orange-700"
-            >
-              Forgot password?
-            </button>
+            <div className="av-login-security-note"><ShieldCheck size={15} /><span>Your sign-in is protected. Workspace access follows your assigned role and permissions.</span></div>
+            <div className="av-login-form-divider"><span>AMAAVIGO WORKSPACE</span></div>
+            <a href="/" className="av-login-back-link"><ArrowUpRight size={14} /> Back to the website</a>
+            <p className="av-login-legal">
+              <a href="/terms">Terms</a><i /> <a href="/privacy">Privacy</a><i /> <a href="/dpa">DPA</a><i /> <a href="/aup">Acceptable Use</a>
+            </p>
           </div>
-          <p className="text-center text-[11px] text-slate-500">
-            <a href="/terms" className="hover:text-orange-600 underline">Terms</a>
-            {' · '}
-            <a href="/privacy" className="hover:text-orange-600 underline">Privacy</a>
-            {' · '}
-            <a href="/dpa" className="hover:text-orange-600 underline">DPA</a>
-            {' · '}
-            <a href="/aup" className="hover:text-orange-600 underline">Acceptable Use</a>
-          </p>
-        </div>
+          <p className="av-login-side-note">One connected workspace for the work that moves your business forward.</p>
+        </section>
       </div>
-    </div>
+    </main>
   );
 };

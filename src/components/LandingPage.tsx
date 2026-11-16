@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import './LandingPage.css';
+import { AiAgentExecutionShowcase, CampaignStudioShowcase } from './LandingShowcase';
 
 const DEMO_URL = 'https://www.amaavigo.com/consult-now';
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
@@ -492,8 +493,8 @@ const HomePage: React.FC = () => (
         <Reveal className="av-inbox-copy"><Eyebrow>THE CONVERSATION LAYER</Eyebrow><h2>Every conversation in context.<br /><span>Not scattered across tabs.</span></h2><p>Bring supported channels into one shared Inbox. Let AI prepare responses, give people a clear way to take over and keep the lead profile beside the conversation.</p><div className="av-inbox-benefits"><div><span><MessageSquare size={16} /></span><div><b>One place to respond</b><small>Work across connected channels from a shared view.</small></div></div><div><span><Bot size={16} /></span><div><b>AI and people together</b><small>Use automatic, review or off modes, with human handoff.</small></div></div><div><span><Users size={16} /></span><div><b>Customer context stays close</b><small>Keep lead details and activity visible while your team replies.</small></div></div></div><a href="/unified-inbox" className="av-inline-link">Explore Unified Inbox <ArrowUpRight size={15} /></a></Reveal>
       </div>
     </section>
-    <AgentSection />
-    <CampaignStudio />
+    <AiAgentExecutionShowcase />
+    <CampaignStudioShowcase />
     <WorkspaceSection />
     <SolutionsSection />
     <PricingTeaser />
