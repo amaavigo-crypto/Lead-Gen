@@ -2695,7 +2695,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
       agentTaskCompletionNotifications={settings.notificationPreferences?.agentTaskCompletion === true}
       onOpenNotification={() => setActiveTab('agent')}
     >
-    <div className={'min-h-screen w-full flex flex-col md:flex-row font-sans selection:bg-[#637dff]/35 selection:text-inherit ' + (activeTab === 'dashboard' ? 'bg-[#05051f] text-slate-100' : 'bg-slate-50 text-slate-900')}>
+    <div className={'min-h-screen w-full flex flex-col md:flex-row font-sans selection:bg-[#637dff]/35 selection:text-inherit ' + 'bg-[#05051f] ' + (activeTab === 'dashboard' ? 'text-slate-100' : 'text-slate-900')}>
       {websiteScanToast && (
         <div role="status" className="fixed top-5 right-5 z-[100] max-w-sm rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm font-semibold text-emerald-800 shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-3">
           <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">✓</span>

@@ -4788,16 +4788,20 @@
 
 
 /* Shared workspace frame: ActiveCampaign-style curved edge and restrained perimeter rules.
-   Applied once to the main content area so every module receives the same finish. */
+   Applied once to the main content area so every module receives the same finish.
+   The app shell behind the frame (page wrapper and header) is the same dark navy as the left rail, so the
+   rounded corners are visible on every module; the frame paints the light module canvas itself. */
 .app-workspace-content {
   min-width:0;
   min-height:0;
   border:1px solid #e1e7f0;
   border-radius:12px;
+  background:#f8fafc;
   background-clip:padding-box;
 }
 .app-workspace-content--dark {
   border-color:#2b3454;
+  background:#05051f;
 }
 @media(max-width:767px) {
   .app-workspace-content {
