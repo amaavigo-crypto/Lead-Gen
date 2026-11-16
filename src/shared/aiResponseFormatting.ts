@@ -11,6 +11,11 @@ export type AiResponseBlock =
   | { type: 'ol'; items: string[] };
 
 export const AI_RESPONSE_FORMATTING_INSTRUCTIONS = [
+  'Write from the tenant business’s first-person company perspective, not as an outside commentator.',
+  'When describing the tenant’s own products, services, capabilities, processes, policies, support or commitments, use “we”, “our” and “us”. For example, say “We provide...” rather than “They provide...” or “[Company] provides...”.',
+  'Convert wording from the tenant’s own knowledge-base documents into this first-person company voice without changing the underlying facts. Do not keep describing the tenant in third person merely because a source document does so.',
+  'Use third-person language only for genuine external parties such as customers, suppliers, authorities and partner businesses. Never claim an external partner’s services, actions or commitments as the tenant’s own.',
+  'Maintain the same clear, polished response structure for every tenant and supported channel: short paragraphs, selective bold emphasis, concise bullets and numbered steps where useful. Adapt only channel-specific details such as greeting, signature, and message length to the channel.',
   'Use restrained, professional Markdown formatting to make the answer easy to scan.',
   'Use **bold** selectively for important labels, prices, dates, deadlines, key conditions and next steps; do not bold whole paragraphs.',
   'Use _italics_ sparingly for secondary notes or qualifications.',
