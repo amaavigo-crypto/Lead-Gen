@@ -115,7 +115,7 @@ const CapabilityMock: React.FC<{kind:'capture'|'schedule'|'analytics'|'integrati
  return <div className="avx-resource-visual"><div className="avx-resource-paper"><span>AMAAVIGO GUIDE</span><b>Capture → Engage<br/>→ Convert</b><i/><i/><i/><em>Product guide</em></div><div className="avx-resource-card back"><BookOpen/><b>Insights & guides</b><small>Ideas for growing teams</small></div><div className="avx-resource-card front"><FileText/><b>Product updates</b><small>What’s new in Amaavigo</small></div></div>;
 };
 
-const CapabilityPage: React.FC<{kind:'capture'|'schedule'|'analytics'|'integrations'|'platform'|'solutions'|'resources';path:string}> = ({kind,path}) => {
+export const CapabilityPage: React.FC<{kind:'capture'|'schedule'|'analytics'|'integrations'|'platform'|'solutions'|'resources';path:string}> = ({kind,path}) => {
  const config={
   capture:{tag:'Lead Capture',title:'Turn more visitors into',accent:'qualified leads.',copy:'Capture enquiries from your website, connected channels and imported lists. Bring every new prospect into the right workflow.',bullets:['AI chat on your website','Custom lead capture forms','Enrich leads with more data','Auto-assign to your team','Capture from ads & campaigns'],cta:'Explore Lead Capture'},
   schedule:{tag:'Scheduling',title:'Turn interest into',accent:'confirmed meetings.',copy:'Let customers choose a suitable time while your connected calendar, working hours and meeting links stay in sync.',bullets:['Share your booking link','Real-time availability','Automatic reminders','Google Calendar & Outlook sync','Capture meeting outcomes'],cta:'Explore Scheduling'},
