@@ -36,6 +36,7 @@ const DEFAULT_MODULES = ['inbox', 'campaigns', 'crm', 'scheduling', 'knowledge',
 const MODEL = process.env.AGENT_MODEL_ID || 'gpt-6.1-sol';
 const IMAGE_MODEL = process.env.AGENT_IMAGE_MODEL_ID || 'gpt-image-2.5-flare';
 const REASONING_EFFORT = process.env.AGENT_REASONING_EFFORT || 'medium';
+const MODEL_FALLBACKS = ['gpt-6-luna', 'gpt-4.1', 'gpt-4o-mini'];
 const MAX_USER_MESSAGE = 8000;
 const MAX_CONTEXT_MESSAGES = 16;
 
@@ -517,6 +518,42 @@ async function executeRegisteredTool(
   }
 }
 
+async function createAgentResponse(client: OpenAI, input: any[]): Promise<{ response: any; model: string }> {
+  const candidates = [...new Set([MODEL, ...MODEL_FALLBACKS].filter(Boolean))];
+  let lastError: any = null;
+
+  for (const model of candidates) {
+    try {
+      const response: any = await client.responses.create({
+        model,
+        input,
+        tools: TOOL_DEFINITIONS,
+        tool_choice: 'auto',
+        parallel_tool_calls: false,
+        ...(/^gpt-(?:6|o[1-9])/i.test(model) ? { reasoning: { effort: REASONING_EFFORT } } : {}),
+        max_output_tokens: 10000,
+        store: false,
+      } as any);
+      return { response, model };
+    } catch (error: any) {
+      lastError = error;
+      const status = Number(error?.status || error?.statusCode || 0);
+      const code = String(error?.code || '');
+      const message = String(error?.message || 'Model request failed.');
+      console.error('[AI Agent] Model request failed', { model, status, code, message: message.slice(0, 300) });
+
+      // Switch models only for model availability/access/compatibility errors.
+      const lowerMessage = message.toLowerCase();
+      const modelUnavailable = status === 404
+        || (status === 403 && /model|permission|access/.test(lowerMessage))
+        || (status === 400 && (/model_not_found|unsupported_model/.test(code) || /model.*(not found|unsupported|not available)/.test(lowerMessage)));
+      if (!modelUnavailable) throw error;
+    }
+  }
+
+  throw lastError || new Error('No available AI Agent model could be reached.');
+}
+
 function buildAgentUserInputContent(message: string, attachments: AgentAttachment[]): any[] {
   const content: any[] = [{ type: 'input_text', text: message }];
   for (const attachment of attachments) {
@@ -616,17 +653,8 @@ async function runAgent(
   let finalText = '';
 
   for (let turn = 0; turn < 10; turn++) {
-    const response: any = await client.responses.create({
-      model: MODEL,
-      input,
-      tools: TOOL_DEFINITIONS,
-      tool_choice: 'auto',
-      parallel_tool_calls: false,
-      reasoning: { effort: REASONING_EFFORT },
-      max_output_tokens: 10000,
-      store: false,
-    } as any);
-    await recordAiCompletionUsage(ctx.tenantId, response, MODEL, 'openai', 'ai_agent');
+    const { response, model: actualModel } = await createAgentResponse(client, input);
+    await recordAiCompletionUsage(ctx.tenantId, response, response?.model || actualModel, 'openai', 'ai_agent');
     const outputItems: any[] = Array.isArray(response.output) ? response.output : [];
     if (!outputItems.length) break;
     input.push(...outputItems);
@@ -828,6 +856,13 @@ export async function handleAgentApi(req: any, res: any, ctx: TenantContext, bod
             metadata: { toolsUsed: result.toolsUsed, executionId, artifactCount: result.artifacts.length },
           });
         } catch (error: any) {
+          console.error('[AI Agent] Background execution failed', {
+            executionId,
+            conversationId,
+            status: Number(error?.status || error?.statusCode || 0) || undefined,
+            code: String(error?.code || '').slice(0, 100) || undefined,
+            message: cleanText(error?.message || 'Agent execution failed.', 300),
+          });
           const currentExecution = await getDoc(executionRef);
           const currentState = currentExecution.exists() ? currentExecution.data() as any : null;
           if (currentState?.status !== 'completed') {

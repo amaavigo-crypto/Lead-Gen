@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { getIdToken } from '../services/authService';
 
 export type AgentAutonomy = 'ask' | 'balanced' | 'full';
 export interface AgentConfig {
@@ -88,13 +89,25 @@ const DEFAULT_CONFIG: AgentConfig = { autonomy: 'balanced', companyPreferences: 
 const AgentContext = createContext<AgentContextValue | null>(null);
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-  });
+  const request = async (forceRefresh = false) => {
+    const headers = new Headers(init?.headers || {});
+    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+    const token = await getIdToken(forceRefresh).catch(() => null);
+    if (token) headers.set('Authorization', 'Bearer ' + token);
+    return fetch(path, { ...init, headers });
+  };
+
+  // Agent requests carry their own Firebase session token. Do not rely only on
+  // the app-wide fetch interceptor, which may not have mounted during bootstrap.
+  let response = await request(false);
+  if (response.status === 401) response = await request(true);
+
   const data = await response.json().catch(() => ({}));
   if (!response.ok || (data && data.success === false)) {
-    throw new Error(data?.error || 'The AI Agent request failed.');
+    const message = data?.error || (response.status === 401
+      ? 'Your session has expired. Please sign in again.'
+      : 'The AI Agent request failed.');
+    throw new Error(message);
   }
   return data as T;
 }
