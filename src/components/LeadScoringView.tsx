@@ -208,7 +208,7 @@ export const LeadScoringView: React.FC<LeadScoringViewProps> = ({ tenantId, canM
             <span className="h-2 w-2 rounded-full bg-orange-500" />
             Sales workspace
             <span className="text-slate-300">/</span>
-            CRM
+            Lead Scoring
           </div>
           <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">AI Lead Scoring</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
@@ -226,7 +226,7 @@ export const LeadScoringView: React.FC<LeadScoringViewProps> = ({ tenantId, canM
             onClick={onBack}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
           >
-            <ArrowLeft className="h-4 w-4" /> Back to leads
+            <ArrowLeft className="h-4 w-4" /> Back to CRM
           </button>
           {canManage && (
             <button

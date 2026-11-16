@@ -39,7 +39,6 @@ import {
   CalendarClock,
   CheckSquare,
   Square,
-  Sparkles,
   ExternalLink,
   RefreshCw,
   Tag,
@@ -59,7 +58,6 @@ import {
   AppUser,
 } from '../types';
 import { findDuplicateContact } from '../services/dataService';
-import LeadScoringView from './LeadScoringView';
 
 export interface CrmPipelineProps {
   leads: Lead[];
@@ -78,7 +76,6 @@ export interface CrmPipelineProps {
   teamMembers?: { id: string; name: string; role?: string }[];
   users?: AppUser[];
   tenantId: string;
-  canManageScoring: boolean;
 }
 
 // Umrah360's default telecallers. Other workspaces use their own team members (see `teamMembers` prop).
@@ -126,7 +123,6 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
   teamMembers,
   users,
   tenantId,
-  canManageScoring,
 }) => {
   const { brand } = useBrand();
   const isUmrah = brand.playbook === 'umrah360';
@@ -164,7 +160,6 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
 
   // Selected lead for 360° Drawer
   const [activeDrawerLeadId, setActiveDrawerLeadId] = useState<string | null>(initialSelectedLeadId || null);
-  const [crmSection, setCrmSection] = useState<'leads' | 'scoring'>('leads');
   const [scoreHistory, setScoreHistory] = useState<any[]>([]);
   const [scoreHistoryLoading, setScoreHistoryLoading] = useState(false);
   const [scoreRecalculating, setScoreRecalculating] = useState(false);
@@ -963,10 +958,6 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
     }
   };
 
-  if (crmSection === 'scoring') {
-    return <LeadScoringView tenantId={tenantId} canManage={canManageScoring} leads={leads} onBack={() => setCrmSection('leads')} />;
-  }
-
   return (
     <div className="crm-workspace w-full min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
       {/* Sticky Header & Filter Container */}
@@ -986,10 +977,6 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                   <span className="crm-lead-count">{processedLeads.length.toLocaleString()} matching leads</span>
                 </div>
                 <p>Manage leads, track pipeline progress, and coordinate every customer follow-up in one place.</p>
-                <div className="mt-3 flex flex-wrap items-center gap-1 rounded-xl bg-slate-100 p-1">
-                  <button onClick={() => setCrmSection('leads')} className={'rounded-lg px-3 py-1.5 text-xs font-semibold transition ' + (crmSection === 'leads' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800')}>Leads</button>
-                  <button onClick={() => setCrmSection('scoring')} className={'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ' + (crmSection === 'scoring' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800')}><Sparkles className="h-3.5 w-3.5" />Lead Scoring</button>
-                </div>
               </div>
             </div>
 

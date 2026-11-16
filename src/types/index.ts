@@ -4,6 +4,7 @@ export type ActiveTab =
   | 'campaigns'
   | 'email-design-studio'
   | 'crm'
+  | 'lead-scoring'
   | 'scheduling'
   | 'knowledge'
   | 'playground'

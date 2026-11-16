@@ -58,6 +58,7 @@ const TAB_TITLES: Record<ActiveTab, { title: string; icon: React.ReactNode; cate
   scheduling: { title: 'Demo Scheduling Agent', icon: <Calendar className="h-4 w-4" />, category: 'AI & AUTOMATION', workspaceLabel: 'AI' },
   playground: { title: 'AI Testing', icon: <Sparkles className="h-4 w-4" />, category: 'AI & AUTOMATION', workspaceLabel: 'AI' },
   crm: { title: 'CRM', icon: <Users className="h-4 w-4" />, category: 'SALES', workspaceLabel: 'Sales' },
+  'lead-scoring': { title: 'Lead Scoring', icon: <Sparkles className="h-4 w-4" />, category: 'SALES', workspaceLabel: 'Sales' },
   campaigns: { title: 'Campaigns', icon: <Send className="h-4 w-4" />, category: 'GROWTH & MARKETING', workspaceLabel: 'Marketing' },
   'email-design-studio': { title: 'Template Studio', icon: <Mail className="h-4 w-4" />, category: 'GROWTH & MARKETING', workspaceLabel: 'Marketing' },
   'campaign-reports': { title: 'AI Campaign Report', icon: <FileBarChart className="h-4 w-4" />, category: 'GROWTH & MARKETING', workspaceLabel: 'Marketing' },
@@ -80,11 +81,17 @@ const MARKETING_TABS: ModuleTab[] = [
   { id: 'campaign-reports', label: 'AI Campaign Report', icon: <FileBarChart className="h-3.5 w-3.5" /> },
 ];
 
+const SALES_TABS: ModuleTab[] = [
+  { id: 'crm', label: 'CRM', icon: <Users className="h-3.5 w-3.5" /> },
+  { id: 'lead-scoring', label: 'Lead Scoring', icon: <Sparkles className="h-3.5 w-3.5" /> },
+];
+
 const MODULE_TABS: Partial<Record<ActiveTab, ModuleTab[]>> = {
   'auto-followup': AI_TABS,
   scheduling: AI_TABS,
   playground: AI_TABS,
-  crm: [{ id: 'crm', label: 'CRM', icon: <Users className="h-3.5 w-3.5" /> }],
+  crm: SALES_TABS,
+  'lead-scoring': SALES_TABS,
   campaigns: MARKETING_TABS,
   'email-design-studio': MARKETING_TABS,
   'campaign-reports': MARKETING_TABS,
@@ -102,6 +109,7 @@ const APP_SHORTCUTS: ModuleTab[] = [
   { id: 'inbox', label: 'Unified Inbox', icon: <Inbox className="h-4 w-4" /> },
   { id: 'agent', label: 'AI Agent', icon: <Sparkles className="h-4 w-4" /> },
   { id: 'crm', label: 'CRM', icon: <Users className="h-4 w-4" /> },
+  { id: 'lead-scoring', label: 'Lead Scoring', icon: <Sparkles className="h-4 w-4" /> },
   { id: 'campaigns', label: 'Campaigns', icon: <Send className="h-4 w-4" /> },
   { id: 'email-design-studio', label: 'Template Studio', icon: <Mail className="h-4 w-4" /> },
   { id: 'campaign-reports', label: 'Campaign Reports', icon: <FileBarChart className="h-4 w-4" /> },

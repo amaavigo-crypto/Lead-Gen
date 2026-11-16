@@ -62,6 +62,7 @@ const CampaignManagement = lazyNamed(() => import('./components/CampaignManageme
 const CampaignReports = lazyNamed(() => import('./components/CampaignReports'), 'CampaignReports');
 const TemplateStudio = lazyNamed(() => import('./components/TemplateStudio'), 'TemplateStudio');
 const CrmPipeline = lazyNamed(() => import('./components/CrmPipeline'), 'CrmPipeline');
+const LeadScoringView = React.lazy(() => import('./components/LeadScoringView'));
 const KnowledgeBaseView = lazyNamed(() => import('./components/KnowledgeBaseView'), 'KnowledgeBaseView');
 const AiTestingPlayground = lazyNamed(() => import('./components/AiTestingPlayground'), 'AiTestingPlayground');
 const WorkspaceView = lazyNamed(() => import('./components/SettingsView'), 'WorkspaceView');
@@ -227,6 +228,7 @@ const ALL_TABS: readonly ActiveTab[] = [
   'campaigns',
   'email-design-studio',
   'crm',
+  'lead-scoring',
   'scheduling',
   'knowledge',
   'playground',
@@ -2680,6 +2682,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
     currentUser.role === 'ADMIN' ||
     (currentUser.allowedModules || []).includes(activeTab) ||
     (activeTab === 'email-design-studio' && (currentUser.allowedModules || []).includes('settings')) ||
+    (activeTab === 'lead-scoring' && (currentUser.allowedModules || []).includes('crm')) ||
     activeTab === 'dashboard' ||
     activeTab === 'database' ||
     activeTab === 'company-profile' ||
@@ -2834,7 +2837,6 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
               <CrmPipeline
                 leads={leads}
                 tenantId={currentTenantId}
-                canManageScoring={currentUser?.role === 'ADMIN'}
                 users={users}
                 contacts={contacts}
                 activities={activities}
@@ -2918,6 +2920,15 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
                       .catch((err) => console.error('[Firestore] Failed adding lead/contact:', err));
                   } else { auditNewLead(); }
                 }}
+              />
+            )}
+
+            {activeTab === 'lead-scoring' && (
+              <LeadScoringView
+                tenantId={currentTenantId}
+                canManage={currentUser?.role === 'ADMIN'}
+                leads={leads}
+                onBack={() => setActiveTab('crm')}
               />
             )}
 
