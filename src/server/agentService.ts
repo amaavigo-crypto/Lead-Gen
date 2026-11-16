@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { getDoc, getDocs, setDoc, createDoc, query, orderBy, limit, where } from './adminFirestore.js';
 import { tenantRepo, globalUserDoc } from './tenantRepo.js';
 import { getOpenAIApiKey } from './openaiClient.js';
-import { describeAiError, geminiFallbackModels, isGeminiConfigured, isGeminiNextModelError, isOpenAiFallbackError, runGeminiAgentStep } from './geminiClient.js';
+import { clearOpenAiFailure, describeAiError, geminiFallbackModels, isGeminiConfigured, isGeminiNextModelError, isOpenAiFallbackError, noteOpenAiFailure, openAiSkipReasonNow, runGeminiAgentStep } from './geminiClient.js';
 import { recordAiCompletionUsage, checkTenantQuota } from './usageService.js';
 import { writeTenantAuditEvent } from './auditLogger.js';
 import { requireFeature } from './entitlements.js';
@@ -37,6 +37,11 @@ const DEFAULT_MODULES = ['inbox', 'campaigns', 'crm', 'scheduling', 'knowledge',
 const MODEL = process.env.AGENT_MODEL_ID || 'gpt-6.1-sol';
 const IMAGE_MODEL = process.env.AGENT_IMAGE_MODEL_ID || 'gpt-image-2.5-flare';
 const REASONING_EFFORT = process.env.AGENT_REASONING_EFFORT || 'medium';
+// Time budget for one Agent request. Serverless functions are stopped at their maxDuration (60 s here), which
+// would lose the answer, so the Agent wraps up with a progress reply before that. Long-running servers get more.
+const AGENT_TIME_BUDGET_MS = Number(process.env.AGENT_TIME_BUDGET_MS) || (process.env.VERCEL ? 50_000 : 240_000);
+/** An execution still "processing" after this long was stopped by the host; report it as failed. */
+const AGENT_STALE_EXECUTION_MS = Number(process.env.AGENT_STALE_EXECUTION_MS) || (process.env.VERCEL ? 90_000 : 300_000);
 const MAX_USER_MESSAGE = 8000;
 const MAX_CONTEXT_MESSAGES = 16;
 
@@ -569,10 +574,14 @@ async function runAgent(
   // one when a model is rate limited. Image generation is not part of this fallback (OpenAI only).
   const apiKey = await getOpenAIApiKey().catch(() => null);
   if (!apiKey && !isGeminiConfigured()) throw new Error('No AI provider is configured for this workspace. Add an OpenAI API key or GEMINI_API_KEY.');
-  // One SDK retry only: when credits are exhausted, repeated retries just delay the switch to the backup model.
-  const client = apiKey ? new OpenAI({ apiKey, maxRetries: 1 }) : null;
-  let provider: 'openai' | 'gemini' = client ? 'openai' : 'gemini';
-  let openAiFailure = client ? '' : 'OpenAI is not configured';
+  // No SDK retries: a failed OpenAI call moves straight to the backup model, which is faster than retrying.
+  const startedAt = Date.now();
+  const remainingMs = () => AGENT_TIME_BUDGET_MS - (Date.now() - startedAt);
+  const client = apiKey ? new OpenAI({ apiKey, maxRetries: 0, timeout: Math.max(10_000, AGENT_TIME_BUDGET_MS - 15_000) }) : null;
+  // OpenAI failed recently with no credits / invalid key: go straight to Gemini instead of waiting for it again.
+  const recentOpenAiFailure = client && isGeminiConfigured() ? openAiSkipReasonNow() : '';
+  let provider: 'openai' | 'gemini' = client && !recentOpenAiFailure ? 'openai' : 'gemini';
+  let openAiFailure = !client ? 'OpenAI is not configured' : recentOpenAiFailure;
   const geminiModels = geminiFallbackModels();
   let geminiModelIndex = 0;
   let usedModel = client ? MODEL : geminiModels[0];
@@ -593,6 +602,7 @@ async function runAgent(
           store: false,
         } as any);
         await recordAiCompletionUsage(ctx.tenantId, response, MODEL, 'openai', 'ai_agent');
+        clearOpenAiFailure();
         const outputItems: any[] = Array.isArray(response.output) ? response.output : [];
         let text = String(response.output_text || '').trim();
         if (!text) {
@@ -602,6 +612,7 @@ async function runAgent(
         return { outputItems, text };
       } catch (error: any) {
         if (!isOpenAiFallbackError(error) || !isGeminiConfigured()) throw error;
+        noteOpenAiFailure(error);
         openAiFailure = describeAiError(error).replace(/\s*(at\s+)?https?:\/\/\S+/g, '').replace(/\s+\./g, '.').trim();
         console.warn('[AI Agent] OpenAI unavailable, switching to Gemini backup:', openAiFailure);
         provider = 'gemini';
@@ -620,7 +631,7 @@ async function runAgent(
     while (geminiModelIndex < geminiModels.length) {
       const model = geminiModels[geminiModelIndex];
       try {
-        const step = await runGeminiAgentStep({ model, input, tools: TOOL_DEFINITIONS, geminiSignatures, extraSystemInstruction: GEMINI_NOTE });
+        const step = await runGeminiAgentStep({ model, input, tools: TOOL_DEFINITIONS, geminiSignatures, extraSystemInstruction: GEMINI_NOTE, timeoutMs: Math.max(8_000, remainingMs() - 3_000) });
         await recordAiCompletionUsage(ctx.tenantId, step.response, model, 'gemini', 'ai_agent').catch(() => {});
         usedModel = model;
         return { outputItems: step.outputItems, text: step.text };
@@ -689,6 +700,14 @@ async function runAgent(
   let finalText = '';
 
   for (let turn = 0; turn < 10; turn++) {
+    // Not enough time left for another model call: reply with progress instead of being cut off by the host.
+    if (turn > 0 && remainingMs() < 12_000) {
+      const done = [...new Set(calledTools)].map((tool) => '• ' + tool.replaceAll('_', ' ')).join('\n');
+      finalText = 'This request is taking longer than one step allows, so I paused here.' +
+        (done ? '\n\nCompleted so far:\n' + done : '') +
+        '\n\nReply "continue" and I will pick up where I left off.';
+      break;
+    }
     const step = await runModelStep();
     const outputItems = step.outputItems;
     if (!outputItems.length) break;
@@ -812,6 +831,14 @@ export async function handleAgentApi(req: any, res: any, ctx: TenantContext, bod
       if (!snap.exists()) return send(404, { success: false, error: 'Execution not found.' });
       const data = snap.data() as any;
       if (data?.actorUid !== ctx.uid) return send(404, { success: false, error: 'Execution not found.' });
+      // The host stops background work at its time limit; such a task stays "processing" forever. Report it.
+      const lastActivity = Date.parse(String(data.updatedAt || data.createdAt || ''));
+      if (String(data.status || 'processing') === 'processing' && Number.isFinite(lastActivity) && Date.now() - lastActivity > AGENT_STALE_EXECUTION_MS) {
+        const timedOutError = 'The Agent task was stopped because it ran past the server time limit before finishing. Some steps may have completed; check the workspace, then send the request again (or split it into smaller steps).';
+        await setDoc(repo.doc('agent_executions', executionId), { status: 'failed', progress: 'Timed out', error: timedOutError, failedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+        data.status = 'failed';
+        data.error = timedOutError;
+      }
       return send(200, {
         success: true,
         status: String(data.status || 'processing'),

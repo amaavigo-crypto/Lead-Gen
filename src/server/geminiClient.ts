@@ -275,20 +275,35 @@ export async function runGeminiAgentStep(options: {
   geminiSignatures: Map<string, string | null>;
   extraSystemInstruction?: string;
   maxOutputTokens?: number;
+  /** Abort the call after this many milliseconds (keeps the request inside the hosting time limit). */
+  timeoutMs?: number;
 }): Promise<GeminiAgentStepResult> {
   const ai = getGeminiClient();
   const { systemInstruction, contents } = openAiInputToGemini(options.input, options.geminiSignatures);
   const functionDeclarations = toGeminiFunctionDeclarations(options.tools);
-  const response: any = await ai.models.generateContent({
-    model: options.model,
-    contents,
-    config: {
-      systemInstruction: [systemInstruction, options.extraSystemInstruction].filter(Boolean).join('\n\n'),
-      ...(functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {}),
-      // Thinking shares the output budget; leave plenty of room for tool arguments such as full email HTML.
-      maxOutputTokens: options.maxOutputTokens ?? 24000,
-    },
-  });
+  // A regular timer (AbortSignal.timeout uses an unref'd one that may never fire if nothing else keeps the
+  // process awake).
+  const controller = options.timeoutMs && options.timeoutMs > 0 ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(new Error('Gemini call timed out')), options.timeoutMs) : null;
+  let response: any;
+  try {
+    response = await ai.models.generateContent({
+      model: options.model,
+      contents,
+      config: {
+        systemInstruction: [systemInstruction, options.extraSystemInstruction].filter(Boolean).join('\n\n'),
+        ...(functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {}),
+        // Low thinking keeps each agent step fast enough for serverless time limits; tool choice and
+        // argument quality stay good for this workload.
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        // Thinking shares the output budget; leave plenty of room for tool arguments such as full email HTML.
+        maxOutputTokens: options.maxOutputTokens ?? 24000,
+        ...(controller ? { abortSignal: controller.signal } : {}),
+      },
+    });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 
   const candidate = response?.candidates?.[0];
   const parts: any[] = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
@@ -313,4 +328,31 @@ export async function runGeminiAgentStep(options: {
     throw Object.assign(new Error('Gemini returned no answer (' + reason + ').'), { geminiEmpty: true, finishReason: reason });
   }
   return { outputItems, text: calls.length ? '' : text, response };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// OpenAI availability memory: after OpenAI fails with "no credits" / invalid key, skip it for a while so every
+// request does not first wait for a failing OpenAI call (per server instance).
+// ---------------------------------------------------------------------------------------------------------------
+
+let openAiSkipUntil = 0;
+let openAiSkipReason = '';
+
+export function noteOpenAiFailure(err: any): void {
+  const status = errorStatus(err);
+  const text = errorText(err);
+  const accountProblem = status === 401 || status === 402 || status === 403 ||
+    /insufficient_quota|no credits|exceeded your current quota|billing|invalid_api_key|incorrect api key/.test(text);
+  openAiSkipUntil = Date.now() + (accountProblem ? 10 * 60_000 : 60_000);
+  openAiSkipReason = describeAiError(err);
+}
+
+/** Reason OpenAI should be skipped right now, or '' when it should be tried. */
+export function openAiSkipReasonNow(): string {
+  return Date.now() < openAiSkipUntil ? openAiSkipReason : '';
+}
+
+export function clearOpenAiFailure(): void {
+  openAiSkipUntil = 0;
+  openAiSkipReason = '';
 }

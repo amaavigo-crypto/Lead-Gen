@@ -166678,16 +166678,27 @@ async function runGeminiAgentStep(options) {
   const ai = getGeminiClient();
   const { systemInstruction, contents } = openAiInputToGemini(options.input, options.geminiSignatures);
   const functionDeclarations = toGeminiFunctionDeclarations(options.tools);
-  const response = await ai.models.generateContent({
-    model: options.model,
-    contents,
-    config: {
-      systemInstruction: [systemInstruction, options.extraSystemInstruction].filter(Boolean).join("\n\n"),
-      ...functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {},
-      // Thinking shares the output budget; leave plenty of room for tool arguments such as full email HTML.
-      maxOutputTokens: options.maxOutputTokens ?? 24e3
-    }
-  });
+  const controller = options.timeoutMs && options.timeoutMs > 0 ? new AbortController() : null;
+  const timer2 = controller ? setTimeout(() => controller.abort(new Error("Gemini call timed out")), options.timeoutMs) : null;
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: options.model,
+      contents,
+      config: {
+        systemInstruction: [systemInstruction, options.extraSystemInstruction].filter(Boolean).join("\n\n"),
+        ...functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {},
+        // Low thinking keeps each agent step fast enough for serverless time limits; tool choice and
+        // argument quality stay good for this workload.
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        // Thinking shares the output budget; leave plenty of room for tool arguments such as full email HTML.
+        maxOutputTokens: options.maxOutputTokens ?? 24e3,
+        ...controller ? { abortSignal: controller.signal } : {}
+      }
+    });
+  } finally {
+    if (timer2) clearTimeout(timer2);
+  }
   const candidate = response?.candidates?.[0];
   const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
   const textParts = [];
@@ -166711,7 +166722,21 @@ async function runGeminiAgentStep(options) {
   }
   return { outputItems, text: calls.length ? "" : text2, response };
 }
-var GEMINI_FALLBACK_MODEL, GEMINI_SECONDARY_FALLBACK_MODEL, FOREIGN_THOUGHT_SIGNATURE, cachedClient;
+function noteOpenAiFailure(err) {
+  const status = errorStatus(err);
+  const text2 = errorText(err);
+  const accountProblem = status === 401 || status === 402 || status === 403 || /insufficient_quota|no credits|exceeded your current quota|billing|invalid_api_key|incorrect api key/.test(text2);
+  openAiSkipUntil = Date.now() + (accountProblem ? 10 * 6e4 : 6e4);
+  openAiSkipReason = describeAiError(err);
+}
+function openAiSkipReasonNow() {
+  return Date.now() < openAiSkipUntil ? openAiSkipReason : "";
+}
+function clearOpenAiFailure() {
+  openAiSkipUntil = 0;
+  openAiSkipReason = "";
+}
+var GEMINI_FALLBACK_MODEL, GEMINI_SECONDARY_FALLBACK_MODEL, FOREIGN_THOUGHT_SIGNATURE, cachedClient, openAiSkipUntil, openAiSkipReason;
 var init_geminiClient = __esm({
   "src/server/geminiClient.ts"() {
     init_node();
@@ -166720,6 +166745,8 @@ var init_geminiClient = __esm({
     GEMINI_SECONDARY_FALLBACK_MODEL = (process.env.AI_FALLBACK_SECONDARY_MODEL_ID || "gemini-3.1-flash-lite").trim();
     FOREIGN_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
     cachedClient = null;
+    openAiSkipUntil = 0;
+    openAiSkipReason = "";
   }
 });
 
@@ -190908,6 +190935,8 @@ var DEFAULT_MODULES = ["inbox", "campaigns", "crm", "scheduling", "knowledge", "
 var MODEL = process.env.AGENT_MODEL_ID || "gpt-6.1-sol";
 var IMAGE_MODEL2 = process.env.AGENT_IMAGE_MODEL_ID || "gpt-image-2.5-flare";
 var REASONING_EFFORT = process.env.AGENT_REASONING_EFFORT || "medium";
+var AGENT_TIME_BUDGET_MS = Number(process.env.AGENT_TIME_BUDGET_MS) || (process.env.VERCEL ? 5e4 : 24e4);
+var AGENT_STALE_EXECUTION_MS = Number(process.env.AGENT_STALE_EXECUTION_MS) || (process.env.VERCEL ? 9e4 : 3e5);
 var MAX_USER_MESSAGE = 8e3;
 var MAX_CONTEXT_MESSAGES = 16;
 var TOOL_DEFINITIONS = [
@@ -191387,9 +191416,12 @@ async function runAgent(message2, history, ctx, config4, moduleContext, modules,
   }
   const apiKey = await getOpenAIApiKey().catch(() => null);
   if (!apiKey && !isGeminiConfigured()) throw new Error("No AI provider is configured for this workspace. Add an OpenAI API key or GEMINI_API_KEY.");
-  const client2 = apiKey ? new OpenAI({ apiKey, maxRetries: 1 }) : null;
-  let provider = client2 ? "openai" : "gemini";
-  let openAiFailure = client2 ? "" : "OpenAI is not configured";
+  const startedAt = Date.now();
+  const remainingMs = () => AGENT_TIME_BUDGET_MS - (Date.now() - startedAt);
+  const client2 = apiKey ? new OpenAI({ apiKey, maxRetries: 0, timeout: Math.max(1e4, AGENT_TIME_BUDGET_MS - 15e3) }) : null;
+  const recentOpenAiFailure = client2 && isGeminiConfigured() ? openAiSkipReasonNow() : "";
+  let provider = client2 && !recentOpenAiFailure ? "openai" : "gemini";
+  let openAiFailure = !client2 ? "OpenAI is not configured" : recentOpenAiFailure;
   const geminiModels = geminiFallbackModels();
   let geminiModelIndex = 0;
   let usedModel = client2 ? MODEL : geminiModels[0];
@@ -191409,6 +191441,7 @@ async function runAgent(message2, history, ctx, config4, moduleContext, modules,
           store: false
         });
         await recordAiCompletionUsage(ctx.tenantId, response, MODEL, "openai", "ai_agent");
+        clearOpenAiFailure();
         const outputItems = Array.isArray(response.output) ? response.output : [];
         let text2 = String(response.output_text || "").trim();
         if (!text2) {
@@ -191418,6 +191451,7 @@ async function runAgent(message2, history, ctx, config4, moduleContext, modules,
         return { outputItems, text: text2 };
       } catch (error) {
         if (!isOpenAiFallbackError(error) || !isGeminiConfigured()) throw error;
+        noteOpenAiFailure(error);
         openAiFailure = describeAiError(error).replace(/\s*(at\s+)?https?:\/\/\S+/g, "").replace(/\s+\./g, ".").trim();
         console.warn("[AI Agent] OpenAI unavailable, switching to Gemini backup:", openAiFailure);
         provider = "gemini";
@@ -191436,7 +191470,7 @@ async function runAgent(message2, history, ctx, config4, moduleContext, modules,
     while (geminiModelIndex < geminiModels.length) {
       const model = geminiModels[geminiModelIndex];
       try {
-        const step = await runGeminiAgentStep({ model, input, tools: TOOL_DEFINITIONS, geminiSignatures, extraSystemInstruction: GEMINI_NOTE });
+        const step = await runGeminiAgentStep({ model, input, tools: TOOL_DEFINITIONS, geminiSignatures, extraSystemInstruction: GEMINI_NOTE, timeoutMs: Math.max(8e3, remainingMs() - 3e3) });
         await recordAiCompletionUsage(ctx.tenantId, step.response, model, "gemini", "ai_agent").catch(() => {
         });
         usedModel = model;
@@ -191499,6 +191533,11 @@ async function runAgent(message2, history, ctx, config4, moduleContext, modules,
   const artifacts = [];
   let finalText = "";
   for (let turn = 0; turn < 10; turn++) {
+    if (turn > 0 && remainingMs() < 12e3) {
+      const done = [...new Set(calledTools)].map((tool) => "\u2022 " + tool.replaceAll("_", " ")).join("\n");
+      finalText = "This request is taking longer than one step allows, so I paused here." + (done ? "\n\nCompleted so far:\n" + done : "") + '\n\nReply "continue" and I will pick up where I left off.';
+      break;
+    }
     const step = await runModelStep();
     const outputItems = step.outputItems;
     if (!outputItems.length) break;
@@ -191610,6 +191649,14 @@ async function handleAgentApi(req, res, ctx, body, url) {
       if (!snap.exists()) return send(404, { success: false, error: "Execution not found." });
       const data = snap.data();
       if (data?.actorUid !== ctx.uid) return send(404, { success: false, error: "Execution not found." });
+      const lastActivity = Date.parse(String(data.updatedAt || data.createdAt || ""));
+      if (String(data.status || "processing") === "processing" && Number.isFinite(lastActivity) && Date.now() - lastActivity > AGENT_STALE_EXECUTION_MS) {
+        const timedOutError = "The Agent task was stopped because it ran past the server time limit before finishing. Some steps may have completed; check the workspace, then send the request again (or split it into smaller steps).";
+        await setDoc(repo.doc("agent_executions", executionId), { status: "failed", progress: "Timed out", error: timedOutError, failedAt: (/* @__PURE__ */ new Date()).toISOString() }, { merge: true }).catch(() => {
+        });
+        data.status = "failed";
+        data.error = timedOutError;
+      }
       return send(200, {
         success: true,
         status: String(data.status || "processing"),
