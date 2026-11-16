@@ -3,6 +3,7 @@ import { FEATURES, LIMITS } from '../shared/features';
 import {
   Activity,
   ArrowDown,
+  ArrowRight,
   ArrowUpRight,
   BadgeCheck,
   BarChart3,
