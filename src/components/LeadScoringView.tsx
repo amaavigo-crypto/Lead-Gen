@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Sparkles, Plus, Trash2, Save, RefreshCw, AlertCircle, CheckCircle2, Flame, Users, Loader2, WandSparkles, SlidersHorizontal, ArrowLeft } from 'lucide-react';
+import { Sparkles, Plus, Trash2, Save, RefreshCw, AlertCircle, CheckCircle2, Flame, Users, Loader2, WandSparkles, ArrowLeft } from 'lucide-react';
 import type { Lead } from '../types';
 
 type Parameter = {
@@ -534,7 +534,6 @@ export const LeadScoringView: React.FC<LeadScoringViewProps> = ({ tenantId, canM
       </div>
     </div>
   );
-}
 };
 
 export default LeadScoringView;
