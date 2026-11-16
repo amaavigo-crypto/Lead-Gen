@@ -152,3 +152,149 @@
 .avx-capture-window{grid-template-columns:55px 1fr}.avx-capture-main{padding:9px}.avx-schedule-window{padding:10px;gap:8px}.avx-integrations-screen{min-height:300px;gap:5px;padding:12px}.avx-integration-icon{width:42px;height:42px}.avx-integration-icon svg{width:21px}.avx-integration-center{width:76px;height:76px}.avx-integration-center span{font-size:36px}.avx-integration-center b{font-size:5px}.avx-platform-network{min-height:300px}.avx-platform-core{width:80px;height:80px}.avx-platform-core span{font-size:39px}.avx-platform-node{gap:4px;padding:6px 7px;font-size:5px}.avx-platform-node svg{width:11px}.avx-platform-node.one{left:1%}.avx-platform-node.two{right:1%}.avx-platform-node.three{right:0}.avx-platform-node.four{right:1%}.avx-platform-node.five{left:1%}.avx-platform-node.six{left:0}
 .avx-resource-grid,.avx-solution-detail-grid{grid-template-columns:repeat(2,1fr)}.avx-resource-filters{flex-wrap:wrap}.avx-resource-grid article{padding:12px}.avx-resource-grid article>b{font-size:8px}.avx-simple-hero{padding:55px 0 38px}.avx-simple-hero h1{font-size:39px}.avx-how-row{grid-template-columns:27px 35px 1fr 16px;gap:8px}.avx-how-row>i{width:32px;height:32px}.avx-how-row>div p{font-size:7px}.avx-faq-item button b{font-size:8px}.av-site .av-pricing-page .av-live-plan-grid{grid-template-columns:1fr}.av-site .av-footer-main{grid-template-columns:repeat(2,1fr);gap:22px}.av-site .av-footer-main>div:first-child{grid-column:1/-1}}
 @media(prefers-reduced-motion:reduce){.avx-orbit,.avx-ai-orb{animation:none!important}.avx-button{transition:none!important}}
+
+
+/* Home campaign showcase — make Email and WhatsApp tangible product experiences. */
+.avx-home-campaign-showcase{position:relative;isolation:isolate;overflow:hidden;padding:92px 0 96px;background:radial-gradient(ellipse at 18% 45%,rgba(82,59,185,.18),transparent 42%),radial-gradient(ellipse at 82% 65%,rgba(13,91,255,.16),transparent 40%),linear-gradient(180deg,#070a25,#090d2d 55%,#060820)}
+.avx-home-campaign-showcase:before{content:"";position:absolute;z-index:-1;inset:0;background-image:linear-gradient(rgba(151,166,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(151,166,255,.035) 1px,transparent 1px);background-size:54px 54px;mask-image:linear-gradient(180deg,transparent,#000 18%,#000 82%,transparent)}
+.avx-home-campaign-heading{max-width:720px;margin:0 auto 38px;text-align:center}
+.avx-home-campaign-heading h2{margin:16px 0 12px;color:#f7f8ff;font-size:clamp(32px,4.5vw,51px);line-height:1.04;font-weight:800;letter-spacing:-.065em}
+.avx-home-campaign-heading h2 span{background:linear-gradient(95deg,#9eb8ff,#8e72ff 48%,#f08be8);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.avx-home-campaign-heading p{max-width:620px;margin:0 auto;color:#aab5d5;font-size:13px;line-height:1.8}
+.avx-home-campaign-grid{display:grid;grid-template-columns:1.07fr .93fr;align-items:stretch;gap:18px}
+.avx-home-campaign-card{min-width:0;padding:17px;border:1px solid rgba(151,166,255,.22);border-radius:17px;background:linear-gradient(145deg,rgba(22,29,75,.92),rgba(10,15,47,.96));box-shadow:0 25px 70px rgba(0,0,0,.25),inset 0 1px rgba(255,255,255,.055)}
+.avx-home-campaign-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;color:#e9edff}
+.avx-home-campaign-card-head>span{display:inline-flex;align-items:center;gap:8px;font-size:9px;font-weight:850;letter-spacing:.12em}
+.avx-home-campaign-card-head>span svg{color:#9db7ff}
+.avx-home-campaign-card-head small{color:#8190ba;font-size:7px;font-weight:750;letter-spacing:.12em}
+.avx-home-email-frame{overflow:hidden;border:1px solid #dce4f2;border-radius:11px;background:#e8edf6;box-shadow:0 20px 40px rgba(0,0,0,.2)}
+.avx-home-email-browser{display:flex;height:30px;align-items:center;gap:12px;padding:0 11px;border-bottom:1px solid #dbe2ee;background:#f9fbff;color:#8492aa}
+.avx-home-email-browser>span{display:flex;gap:4px}
+.avx-home-email-browser i{width:6px;height:6px;border-radius:50%;background:#f18b82}
+.avx-home-email-browser i:nth-child(2){background:#eac66c}.avx-home-email-browser i:nth-child(3){background:#65c68d}
+.avx-home-email-browser b{margin:auto;color:#77859d;font-size:7px;font-weight:650}
+.avx-home-email-browser small{font-size:6px}
+.avx-home-email-sheet{max-width:470px;margin:0 auto;padding:17px 22px 15px;background:#fff;color:#263550}
+.avx-home-email-brand{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:12px;border-bottom:1px solid #eef1f6}
+.avx-home-email-brand b{color:#111b3d;font-size:15px;font-weight:900;letter-spacing:-.06em}
+.avx-home-email-brand b span{color:#f0a03d}
+.avx-home-email-brand small{color:#91a0b5;font-size:6px;font-weight:800;letter-spacing:.11em}
+.avx-home-email-art{position:relative;isolation:isolate;overflow:hidden;min-height:205px;margin-top:13px;padding:23px 22px;border-radius:8px;background:radial-gradient(circle at 82% 20%,rgba(172,145,255,.88),transparent 27%),linear-gradient(115deg,#101b4b 0%,#234fbd 52%,#7960d8 100%);color:#fff}
+.avx-home-email-art:after{content:"";position:absolute;z-index:-1;right:-48px;bottom:-92px;width:260px;height:260px;border:1px solid rgba(255,255,255,.24);border-radius:50%;box-shadow:0 0 0 24px rgba(255,255,255,.035),0 0 0 52px rgba(255,255,255,.025)}
+.avx-home-email-art>small{display:block;color:#cad8ff;font-size:6px;font-weight:850;letter-spacing:.18em}
+.avx-home-email-art>strong{display:block;margin-top:15px;color:#fff;font-size:clamp(21px,2.4vw,29px);line-height:1.03;letter-spacing:-.055em}
+.avx-home-email-art>strong em{color:#c9b5ff;font-style:normal}
+.avx-home-email-art>p{max-width:230px;margin:10px 0 0;color:#dce5ff;font-size:8px;line-height:1.6}
+.avx-home-email-orbit{position:absolute;right:29px;top:45px;display:grid;width:88px;height:88px;place-items:center;border:1px solid rgba(255,255,255,.38);border-radius:28px;background:linear-gradient(145deg,rgba(255,255,255,.26),rgba(255,255,255,.035));box-shadow:0 0 32px rgba(191,173,255,.4);transform:rotate(-13deg);backdrop-filter:blur(8px)}
+.avx-home-email-orbit span{color:#fff;font-size:49px;font-weight:900;font-style:italic;text-shadow:0 0 25px rgba(255,255,255,.75)}
+.avx-home-email-orbit i,.avx-home-email-orbit b{position:absolute;width:8px;height:8px;border-radius:50%;background:#f4a3ef;box-shadow:0 0 12px #f4a3ef}
+.avx-home-email-orbit i{top:9px;right:15px}.avx-home-email-orbit b{bottom:13px;left:12px;background:#83e4ff;box-shadow:0 0 12px #83e4ff}
+.avx-home-email-body{margin:14px 0 0;color:#65728b!important;font-size:8px;line-height:1.7}
+.avx-home-email-cta{display:inline-flex;align-items:center;gap:6px;margin-top:12px;padding:8px 12px;border-radius:5px;background:#155eef;color:#fff;font-size:7px;font-weight:850}
+.avx-home-email-foot{display:block;margin-top:15px;padding-top:10px;border-top:1px solid #edf0f5;color:#9aa5b8;font-size:6px;text-align:center}
+.avx-home-campaign-tags{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px}
+.avx-home-campaign-tags span{padding:6px 9px;border:1px solid rgba(151,166,255,.18);border-radius:30px;background:rgba(255,255,255,.045);color:#aab8db;font-size:7px;font-weight:650}
+.avx-home-wa-stage{display:grid;min-height:380px;place-items:center;overflow:hidden;border:1px solid rgba(150,170,238,.16);border-radius:11px;background:radial-gradient(circle at 50% 32%,rgba(94,125,230,.2),transparent 56%),linear-gradient(145deg,#0c143b,#111a42)}
+.avx-home-wa-phone{width:min(270px,86%);overflow:hidden;border:7px solid #171d3f;border-radius:25px;background:#e9f1e9;box-shadow:0 20px 42px rgba(0,0,0,.42),0 0 0 1px rgba(255,255,255,.2)}
+.avx-home-wa-status{display:flex;height:21px;align-items:center;justify-content:space-between;padding:0 12px;background:#e9f1e9;color:#263a36;font-size:7px;font-weight:800}
+.avx-home-wa-header{display:flex;align-items:center;gap:8px;padding:9px 11px;background:#087b69;color:#fff}
+.avx-home-wa-avatar{display:grid;width:26px;height:26px;place-items:center;border-radius:50%;background:linear-gradient(135deg,#6f8eff,#b77cff);color:#fff;font-size:14px;font-weight:900}
+.avx-home-wa-header>span:nth-child(2){display:grid;min-width:0;flex:1;gap:2px}
+.avx-home-wa-header b{font-size:8px}.avx-home-wa-header small{color:#d2f0e8;font-size:6px}
+.avx-home-wa-date{width:max-content;margin:10px auto;padding:4px 8px;border-radius:8px;background:rgba(255,255,255,.82);color:#829188;font-size:5px;font-weight:850;letter-spacing:.1em}
+.avx-home-wa-message{width:88%;margin:0 auto;padding:7px;border-radius:9px 9px 9px 2px;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.08)}
+.avx-home-wa-art{position:relative;isolation:isolate;overflow:hidden;min-height:135px;padding:13px;border-radius:6px;background:radial-gradient(circle at 82% 28%,rgba(196,142,255,.65),transparent 28%),linear-gradient(135deg,#101b4b,#2152b7 60%,#7255cc);color:#fff}
+.avx-home-wa-art:after{content:"";position:absolute;z-index:-1;right:-38px;bottom:-65px;width:150px;height:150px;border:1px solid rgba(255,255,255,.32);border-radius:50%;box-shadow:0 0 0 18px rgba(255,255,255,.04),0 0 0 38px rgba(255,255,255,.025)}
+.avx-home-wa-art>small{display:block;color:#c8d9ff;font-size:5px;font-weight:850;letter-spacing:.13em}
+.avx-home-wa-art>strong{display:block;margin-top:12px;color:#fff;font-size:19px;line-height:1;letter-spacing:-.05em}
+.avx-home-wa-art>strong em{color:#d6a9ff;font-style:normal}
+.avx-home-wa-art>span{position:absolute;right:15px;top:40px;display:flex;gap:5px}
+.avx-home-wa-art>span i{width:18px;height:18px;border:1px solid rgba(255,255,255,.48);border-radius:6px;background:rgba(255,255,255,.14);transform:rotate(18deg)}
+.avx-home-wa-art>span i:nth-child(2){transform:translateY(13px) rotate(-12deg)}
+.avx-home-wa-art>span i:nth-child(3){transform:translateY(-5px) rotate(30deg)}
+.avx-home-wa-art>b{position:absolute;right:10px;bottom:8px;color:rgba(255,255,255,.7);font-size:5px;letter-spacing:.13em}
+.avx-home-wa-message>p{margin:8px 2px 5px;color:#50645d!important;font-size:7px;line-height:1.55}
+.avx-home-wa-message>small{display:block;color:#90a19a;font-size:5px;text-align:right}
+.avx-home-wa-message>small span{color:#16a78a}
+.avx-home-wa-actions{display:grid;width:88%;gap:5px;margin:5px auto 10px}
+.avx-home-wa-actions span{display:flex;min-height:24px;align-items:center;justify-content:center;gap:5px;border:1px solid #d7e8e3;border-radius:6px;background:#fff;color:#087b69;font-size:7px;font-weight:750}
+.avx-home-wa-composer{display:flex;align-items:center;justify-content:space-between;margin:0 8px 8px;padding:7px 9px;border-radius:20px;background:#fff;color:#99a8a0;font-size:6px}
+.avx-home-wa-composer b{color:#087b69;font-size:10px}
+.avx-home-campaign-link{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:27px}
+.avx-home-campaign-link a{display:inline-flex;align-items:center;gap:7px;color:#b9c9ff;font-size:10px;font-weight:850}
+.avx-home-campaign-link>span{color:#7f8eb7;font-size:8px}
+@media(max-width:900px){.avx-home-campaign-grid{grid-template-columns:1fr}.avx-home-email-sheet{max-width:530px}.avx-home-email-art{min-height:225px}.avx-home-wa-stage{min-height:345px}}
+@media(max-width:760px){.avx-home-campaign-showcase{padding:62px 0 67px}.avx-home-campaign-heading{margin-bottom:24px;text-align:left}.avx-home-campaign-heading h2{font-size:35px}.avx-home-campaign-heading p{font-size:12px}.avx-home-campaign-grid{gap:12px}.avx-home-campaign-card{padding:11px;border-radius:13px}.avx-home-campaign-card-head>span{font-size:7px}.avx-home-email-sheet{padding:13px}.avx-home-email-art{min-height:185px;padding:16px}.avx-home-email-art>strong{font-size:24px}.avx-home-email-orbit{right:16px;top:40px;width:68px;height:68px}.avx-home-email-orbit span{font-size:39px}.avx-home-wa-stage{min-height:330px}.avx-home-campaign-link{align-items:flex-start;flex-direction:column;gap:7px;margin-top:18px}}
+
+
+/* Home campaign showcase — make Email and WhatsApp tangible product experiences. */
+.avx-home-campaign-showcase{position:relative;isolation:isolate;overflow:hidden;padding:92px 0 96px;background:radial-gradient(ellipse at 18% 45%,rgba(82,59,185,.18),transparent 42%),radial-gradient(ellipse at 82% 65%,rgba(13,91,255,.16),transparent 40%),linear-gradient(180deg,#070a25,#090d2d 55%,#060820)}
+.avx-home-campaign-showcase:before{content:"";position:absolute;z-index:-1;inset:0;background-image:linear-gradient(rgba(151,166,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(151,166,255,.035) 1px,transparent 1px);background-size:54px 54px;mask-image:linear-gradient(180deg,transparent,#000 18%,#000 82%,transparent)}
+.avx-home-campaign-heading{max-width:720px;margin:0 auto 38px;text-align:center}
+.avx-home-campaign-heading h2{margin:16px 0 12px;color:#f7f8ff;font-size:clamp(32px,4.5vw,51px);line-height:1.04;font-weight:800;letter-spacing:-.065em}
+.avx-home-campaign-heading h2 span{background:linear-gradient(95deg,#9eb8ff,#8e72ff 48%,#f08be8);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.avx-home-campaign-heading p{max-width:620px;margin:0 auto;color:#aab5d5;font-size:13px;line-height:1.8}
+.avx-home-campaign-grid{display:grid;grid-template-columns:1.07fr .93fr;align-items:stretch;gap:18px}
+.avx-home-campaign-card{min-width:0;padding:17px;border:1px solid rgba(151,166,255,.22);border-radius:17px;background:linear-gradient(145deg,rgba(22,29,75,.92),rgba(10,15,47,.96));box-shadow:0 25px 70px rgba(0,0,0,.25),inset 0 1px rgba(255,255,255,.055)}
+.avx-home-campaign-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;color:#e9edff}
+.avx-home-campaign-card-head>span{display:inline-flex;align-items:center;gap:8px;font-size:9px;font-weight:850;letter-spacing:.12em}
+.avx-home-campaign-card-head>span svg{color:#9db7ff}
+.avx-home-campaign-card-head small{color:#8190ba;font-size:7px;font-weight:750;letter-spacing:.12em}
+.avx-home-email-frame{overflow:hidden;border:1px solid #dce4f2;border-radius:11px;background:#e8edf6;box-shadow:0 20px 40px rgba(0,0,0,.2)}
+.avx-home-email-browser{display:flex;height:30px;align-items:center;gap:12px;padding:0 11px;border-bottom:1px solid #dbe2ee;background:#f9fbff;color:#8492aa}
+.avx-home-email-browser>span{display:flex;gap:4px}
+.avx-home-email-browser i{width:6px;height:6px;border-radius:50%;background:#f18b82}
+.avx-home-email-browser i:nth-child(2){background:#eac66c}.avx-home-email-browser i:nth-child(3){background:#65c68d}
+.avx-home-email-browser b{margin:auto;color:#77859d;font-size:7px;font-weight:650}
+.avx-home-email-browser small{font-size:6px}
+.avx-home-email-sheet{max-width:470px;margin:0 auto;padding:17px 22px 15px;background:#fff;color:#263550}
+.avx-home-email-brand{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:12px;border-bottom:1px solid #eef1f6}
+.avx-home-email-brand b{color:#111b3d;font-size:15px;font-weight:900;letter-spacing:-.06em}
+.avx-home-email-brand b span{color:#f0a03d}
+.avx-home-email-brand small{color:#91a0b5;font-size:6px;font-weight:800;letter-spacing:.11em}
+.avx-home-email-art{position:relative;isolation:isolate;overflow:hidden;min-height:205px;margin-top:13px;padding:23px 22px;border-radius:8px;background:radial-gradient(circle at 82% 20%,rgba(172,145,255,.88),transparent 27%),linear-gradient(115deg,#101b4b 0%,#234fbd 52%,#7960d8 100%);color:#fff}
+.avx-home-email-art:after{content:"";position:absolute;z-index:-1;right:-48px;bottom:-92px;width:260px;height:260px;border:1px solid rgba(255,255,255,.24);border-radius:50%;box-shadow:0 0 0 24px rgba(255,255,255,.035),0 0 0 52px rgba(255,255,255,.025)}
+.avx-home-email-art>small{display:block;color:#cad8ff;font-size:6px;font-weight:850;letter-spacing:.18em}
+.avx-home-email-art>strong{display:block;margin-top:15px;color:#fff;font-size:clamp(21px,2.4vw,29px);line-height:1.03;letter-spacing:-.055em}
+.avx-home-email-art>strong em{color:#c9b5ff;font-style:normal}
+.avx-home-email-art>p{max-width:230px;margin:10px 0 0;color:#dce5ff;font-size:8px;line-height:1.6}
+.avx-home-email-orbit{position:absolute;right:29px;top:45px;display:grid;width:88px;height:88px;place-items:center;border:1px solid rgba(255,255,255,.38);border-radius:28px;background:linear-gradient(145deg,rgba(255,255,255,.26),rgba(255,255,255,.035));box-shadow:0 0 32px rgba(191,173,255,.4);transform:rotate(-13deg);backdrop-filter:blur(8px)}
+.avx-home-email-orbit span{color:#fff;font-size:49px;font-weight:900;font-style:italic;text-shadow:0 0 25px rgba(255,255,255,.75)}
+.avx-home-email-orbit i,.avx-home-email-orbit b{position:absolute;width:8px;height:8px;border-radius:50%;background:#f4a3ef;box-shadow:0 0 12px #f4a3ef}
+.avx-home-email-orbit i{top:9px;right:15px}.avx-home-email-orbit b{bottom:13px;left:12px;background:#83e4ff;box-shadow:0 0 12px #83e4ff}
+.avx-home-email-body{margin:14px 0 0;color:#65728b!important;font-size:8px;line-height:1.7}
+.avx-home-email-cta{display:inline-flex;align-items:center;gap:6px;margin-top:12px;padding:8px 12px;border-radius:5px;background:#155eef;color:#fff;font-size:7px;font-weight:850}
+.avx-home-email-foot{display:block;margin-top:15px;padding-top:10px;border-top:1px solid #edf0f5;color:#9aa5b8;font-size:6px;text-align:center}
+.avx-home-campaign-tags{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px}
+.avx-home-campaign-tags span{padding:6px 9px;border:1px solid rgba(151,166,255,.18);border-radius:30px;background:rgba(255,255,255,.045);color:#aab8db;font-size:7px;font-weight:650}
+.avx-home-wa-stage{display:grid;min-height:380px;place-items:center;overflow:hidden;border:1px solid rgba(150,170,238,.16);border-radius:11px;background:radial-gradient(circle at 50% 32%,rgba(94,125,230,.2),transparent 56%),linear-gradient(145deg,#0c143b,#111a42)}
+.avx-home-wa-phone{width:min(270px,86%);overflow:hidden;border:7px solid #171d3f;border-radius:25px;background:#e9f1e9;box-shadow:0 20px 42px rgba(0,0,0,.42),0 0 0 1px rgba(255,255,255,.2)}
+.avx-home-wa-status{display:flex;height:21px;align-items:center;justify-content:space-between;padding:0 12px;background:#e9f1e9;color:#263a36;font-size:7px;font-weight:800}
+.avx-home-wa-header{display:flex;align-items:center;gap:8px;padding:9px 11px;background:#087b69;color:#fff}
+.avx-home-wa-avatar{display:grid;width:26px;height:26px;place-items:center;border-radius:50%;background:linear-gradient(135deg,#6f8eff,#b77cff);color:#fff;font-size:14px;font-weight:900}
+.avx-home-wa-header>span:nth-child(2){display:grid;min-width:0;flex:1;gap:2px}
+.avx-home-wa-header b{font-size:8px}.avx-home-wa-header small{color:#d2f0e8;font-size:6px}
+.avx-home-wa-date{width:max-content;margin:10px auto;padding:4px 8px;border-radius:8px;background:rgba(255,255,255,.82);color:#829188;font-size:5px;font-weight:850;letter-spacing:.1em}
+.avx-home-wa-message{width:88%;margin:0 auto;padding:7px;border-radius:9px 9px 9px 2px;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.08)}
+.avx-home-wa-art{position:relative;isolation:isolate;overflow:hidden;min-height:135px;padding:13px;border-radius:6px;background:radial-gradient(circle at 82% 28%,rgba(196,142,255,.65),transparent 28%),linear-gradient(135deg,#101b4b,#2152b7 60%,#7255cc);color:#fff}
+.avx-home-wa-art:after{content:"";position:absolute;z-index:-1;right:-38px;bottom:-65px;width:150px;height:150px;border:1px solid rgba(255,255,255,.32);border-radius:50%;box-shadow:0 0 0 18px rgba(255,255,255,.04),0 0 0 38px rgba(255,255,255,.025)}
+.avx-home-wa-art>small{display:block;color:#c8d9ff;font-size:5px;font-weight:850;letter-spacing:.13em}
+.avx-home-wa-art>strong{display:block;margin-top:12px;color:#fff;font-size:19px;line-height:1;letter-spacing:-.05em}
+.avx-home-wa-art>strong em{color:#d6a9ff;font-style:normal}
+.avx-home-wa-art>span{position:absolute;right:15px;top:40px;display:flex;gap:5px}
+.avx-home-wa-art>span i{width:18px;height:18px;border:1px solid rgba(255,255,255,.48);border-radius:6px;background:rgba(255,255,255,.14);transform:rotate(18deg)}
+.avx-home-wa-art>span i:nth-child(2){transform:translateY(13px) rotate(-12deg)}
+.avx-home-wa-art>span i:nth-child(3){transform:translateY(-5px) rotate(30deg)}
+.avx-home-wa-art>b{position:absolute;right:10px;bottom:8px;color:rgba(255,255,255,.7);font-size:5px;letter-spacing:.13em}
+.avx-home-wa-message>p{margin:8px 2px 5px;color:#50645d!important;font-size:7px;line-height:1.55}
+.avx-home-wa-message>small{display:block;color:#90a19a;font-size:5px;text-align:right}
+.avx-home-wa-message>small span{color:#16a78a}
+.avx-home-wa-actions{display:grid;width:88%;gap:5px;margin:5px auto 10px}
+.avx-home-wa-actions span{display:flex;min-height:24px;align-items:center;justify-content:center;gap:5px;border:1px solid #d7e8e3;border-radius:6px;background:#fff;color:#087b69;font-size:7px;font-weight:750}
+.avx-home-wa-composer{display:flex;align-items:center;justify-content:space-between;margin:0 8px 8px;padding:7px 9px;border-radius:20px;background:#fff;color:#99a8a0;font-size:6px}
+.avx-home-wa-composer b{color:#087b69;font-size:10px}
+.avx-home-campaign-link{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:27px}
+.avx-home-campaign-link a{display:inline-flex;align-items:center;gap:7px;color:#b9c9ff;font-size:10px;font-weight:850}
+.avx-home-campaign-link>span{color:#7f8eb7;font-size:8px}
+@media(max-width:900px){.avx-home-campaign-grid{grid-template-columns:1fr}.avx-home-email-sheet{max-width:530px}.avx-home-email-art{min-height:225px}.avx-home-wa-stage{min-height:345px}}
+@media(max-width:760px){.avx-home-campaign-showcase{padding:62px 0 67px}.avx-home-campaign-heading{margin-bottom:24px;text-align:left}.avx-home-campaign-heading h2{font-size:35px}.avx-home-campaign-heading p{font-size:12px}.avx-home-campaign-grid{gap:12px}.avx-home-campaign-card{padding:11px;border-radius:13px}.avx-home-campaign-card-head>span{font-size:7px}.avx-home-email-sheet{padding:13px}.avx-home-email-art{min-height:185px;padding:16px}.avx-home-email-art>strong{font-size:24px}.avx-home-email-orbit{right:16px;top:40px;width:68px;height:68px}.avx-home-email-orbit span{font-size:39px}.avx-home-wa-stage{min-height:330px}.avx-home-campaign-link{align-items:flex-start;flex-direction:column;gap:7px;margin-top:18px}}
