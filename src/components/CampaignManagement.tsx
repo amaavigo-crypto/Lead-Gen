@@ -112,7 +112,6 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   const [campaignDirectoryStatus, setCampaignDirectoryStatus] = useState('ALL');
   const [campaignDirectorySort, setCampaignDirectorySort] = useState<'activity' | 'sent' | 'replies' | 'name'>('activity');
   const [campaignDirectoryPage, setCampaignDirectoryPage] = useState(1);
-  const [activeCreateStep, setActiveCreateStep] = useState<'basics' | 'audience' | 'mapping' | 'content' | 'delivery' | 'review'>('basics');
   const campaignDirectoryPageSize = 10;
   const [campaignLeads, setCampaignLeads] = useState<CampaignLead[]>([]);
   const [campaignRuns, setCampaignRuns] = useState<CampaignRun[]>([]);
@@ -238,7 +237,6 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   };
 
   const openCreateCampaignModal = async (preferredTemplateId?: string) => {
-    setActiveCreateStep('basics');
     setCampaignMode('PREDEFINED');
     setIsCreateModalOpen(true);
     const dbTpls = await fetchTemplatesDirectlyFromDb();
@@ -2293,19 +2291,6 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
 
             {/* Modal Scrollable Content */}
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              <nav aria-label="Campaign setup steps" className="sticky top-0 z-20 -mx-2 flex items-center gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-sm backdrop-blur">
-                {([
-                  ['basics', '1', 'Basics'], ['audience', '2', 'Audience'], ['mapping', '3', 'Validate'],
-                  ['content', '4', 'Content'], ['delivery', '5', 'Delivery'], ['review', '6', 'Review'],
-                ] as const).map(([step, number, label]) => (
-                  <button key={step} type="button" onClick={() => {
-                    setActiveCreateStep(step);
-                    document.getElementById('campaign-create-' + step)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  }} className={"shrink-0 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition " + (activeCreateStep === step ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800')}>
-                    <span className={"flex h-5 w-5 items-center justify-center rounded-full text-[10px] " + (activeCreateStep === step ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-500')}>{number}</span>{label}
-                  </button>
-                ))}
-              </nav>
               {/* Campaign Name */}
               <div id="campaign-create-basics" className="scroll-mt-20" />
               <div>
