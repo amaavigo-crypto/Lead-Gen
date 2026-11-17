@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { Activity, ArrowUpRight, Bot, CalendarClock, History, Lightbulb, Loader2, MessageSquareText, PanelLeftClose, PanelLeftOpen, Plus, X } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Activity, ArrowUpRight, File, History, Image, Loader2, MessageSquareText, Mic, MicOff, PanelLeftClose, PanelLeftOpen, Paperclip, Plus, X } from 'lucide-react';
 import { useAgent } from '../context/AgentContext';
+import type { AgentAttachmentInput } from '../context/AgentContext';
+import { useSpeechToText } from '../hooks/useSpeechToText';
 import type { ActiveTab } from './Navbar';
 
 interface DashboardAiHomeHeroProps {
@@ -22,9 +24,69 @@ export const DashboardAiHomeHero: React.FC<DashboardAiHomeHeroProps> = ({ userNa
   const notifications: Array<{ conversationId: string }> = Array.isArray((agent as any).notifications) ? (agent as any).notifications : [];
   const unreadNotificationCount: number = Number((agent as any).unreadNotificationCount) || 0;
   const [prompt, setPrompt] = useState('');
+  const [attachments, setAttachments] = useState<AgentAttachmentInput[]>([]);
+  const [attachmentError, setAttachmentError] = useState('');
   const [startingAgent, setStartingAgent] = useState(false);
   const [showChatHistory, setShowChatHistory] = useState(false);
   const [openingConversation, setOpeningConversation] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const MAX_FILES = 5;
+  const MAX_FILE_BYTES = 1.7 * 1024 * 1024;
+  const MAX_TOTAL_BYTES = 2.5 * 1024 * 1024;
+  const acceptedExtensions = new Set(['png','jpg','jpeg','webp','gif','pdf','csv','tsv','xls','xlsx','txt','md','json']);
+  const { isListening, error: dictationError, toggleListening, stopListening } = useSpeechToText((transcript) => {
+    setPrompt((current) => current.trim() ? current.trimEnd() + ' ' + transcript : transcript);
+  });
+
+  const readAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read ' + file.name));
+    reader.onerror = () => reject(new Error('Could not read ' + file.name));
+    reader.readAsDataURL(file);
+  });
+
+  const addFiles = async (list: FileList | null) => {
+    if (!list?.length) return;
+    setAttachmentError('');
+    const incoming = Array.from(list);
+    const available = MAX_FILES - attachments.length;
+    if (available <= 0) {
+      setAttachmentError('Attach up to five files per message.');
+      return;
+    }
+    const next: AgentAttachmentInput[] = [];
+    let totalBytes = attachments.reduce((sum, item) => sum + item.size, 0);
+    try {
+      for (const file of incoming.slice(0, available)) {
+        const extension = file.name.toLowerCase().split('.').pop() || '';
+        if (!acceptedExtensions.has(extension)) {
+          setAttachmentError(file.name + ' is not a supported file type.');
+          continue;
+        }
+        if (file.size > MAX_FILE_BYTES) {
+          setAttachmentError(file.name + ' is larger than 1.7 MB.');
+          continue;
+        }
+        if (totalBytes + file.size > MAX_TOTAL_BYTES) {
+          setAttachmentError('The combined attachment size must be 2.5 MB or smaller.');
+          break;
+        }
+        const dataUrl = await readAsDataUrl(file);
+        let id = '';
+        try { id = crypto.randomUUID(); } catch { id = 'att_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9); }
+        next.push({ id, name: file.name, mimeType: file.type || 'application/octet-stream', size: file.size, dataUrl });
+        totalBytes += file.size;
+      }
+      if (next.length) setAttachments((current) => [...current, ...next].slice(0, MAX_FILES));
+    } catch (error: any) {
+      setAttachmentError(error?.message || 'Could not read the selected file.');
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const removeAttachment = (id: string) => setAttachments((current) => current.filter((item) => item.id !== id));
+  const formatSize = (bytes: number) => bytes < 1024 * 1024 ? Math.max(1, Math.round(bytes / 1024)) + ' KB' : (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 
   const openConversation = async (conversationId: string) => {
     if (openingConversation) return;
@@ -51,7 +113,7 @@ export const DashboardAiHomeHero: React.FC<DashboardAiHomeHeroProps> = ({ userNa
     }
   };
 
-  const openAgentWithMessage = async (message?: string) => {
+  const openAgentWithMessage = async (message?: string, selectedAttachments: AgentAttachmentInput[] = []) => {
     if (!canUseAi || sending || startingAgent) return;
     clearError();
     setStartingAgent(true);
@@ -60,26 +122,25 @@ export const DashboardAiHomeHero: React.FC<DashboardAiHomeHeroProps> = ({ userNa
       setStartingAgent(false);
       return;
     }
-    if (message) setPrompt('');
+    if (message || selectedAttachments.length) {
+      setPrompt('');
+      setAttachments([]);
+      setAttachmentError('');
+    }
     setStartingAgent(false);
     onNavigate('agent');
-    if (message) {
-      // Reuse the exact conversation created above; do not create a second chat.
-      void sendMessage(message, 'agent', [], conversationId);
+    if (message || selectedAttachments.length) {
+      // Send to the exact conversation created above, including any selected files.
+      void sendMessage(message || '', 'agent', selectedAttachments, conversationId);
     }
   };
 
   const submit = async (event?: React.FormEvent<HTMLFormElement>, override?: string) => {
     event?.preventDefault();
     const message = String(override ?? prompt).trim();
-    if (!message || sending || startingAgent || !canUseAi) return;
-    await openAgentWithMessage(message);
-  };
-
-  const startFresh = async () => {
-    if (!canUseAi || sending || startingAgent) return;
-    setPrompt('');
-    await openAgentWithMessage();
+    if ((!message && !attachments.length) || sending || startingAgent || !canUseAi) return;
+    stopListening();
+    await openAgentWithMessage(message, attachments);
   };
 
   return (
@@ -134,10 +195,12 @@ export const DashboardAiHomeHero: React.FC<DashboardAiHomeHeroProps> = ({ userNa
             Ask your AI Agent to understand your workspace, uncover opportunities and help you get work done.
           </p>
 
+          {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2 rounded-xl border border-white/10 bg-white/[.04] p-2">{attachments.map((file) => <div key={file.id} className="flex max-w-full items-center gap-2 rounded-lg border border-white/10 bg-white/[.06] px-2.5 py-1.5 text-[10px] text-blue-50/90"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/10 text-blue-100">{file.mimeType.startsWith('image/') ? <Image className="h-3.5 w-3.5" /> : <File className="h-3.5 w-3.5" />}</span><span className="max-w-[180px] truncate">{file.name}</span><span className="shrink-0 text-[9px] text-blue-100/55">{formatSize(file.size)}</span><button type="button" onClick={() => setAttachments((current) => current.filter((item) => item.id !== file.id))} disabled={sending || startingAgent} aria-label={'Remove ' + file.name} className="rounded p-0.5 text-blue-100/60 hover:bg-white/10 hover:text-white"><X className="h-3 w-3" /></button></div>)}</div>}
+          {(attachmentError || dictationError) && <div role="status" className="mb-2 text-left text-[10px] text-rose-200">{attachmentError || dictationError}</div>}
           <form onSubmit={(event) => void submit(event)} className="dashboard-ai-prompt mt-6 rounded-2xl border border-white/15 bg-[#05051f]/95 p-3 text-left shadow-[0_18px_55px_rgba(0,0,0,.38)] backdrop-blur-xl sm:mt-8 sm:p-4">
             <textarea
               value={prompt}
-              disabled={!canUseAi || sending}
+              disabled={!canUseAi || sending || startingAgent}
               onChange={(event) => setPrompt(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit(); } }}
               placeholder="What would you like to accomplish today?"
@@ -147,17 +210,19 @@ export const DashboardAiHomeHero: React.FC<DashboardAiHomeHeroProps> = ({ userNa
               className="min-h-[62px] w-full resize-none border-0 bg-transparent px-1 py-1 text-[13px] leading-6 text-white outline-none placeholder:text-slate-400 focus:ring-0 sm:min-h-[74px] sm:text-[14px]"
             />
             <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <button type="button" onClick={() => void startFresh()} title="Start a new AI conversation" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/15 text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-40" disabled={!canUseAi || startingAgent || sending}><Plus className="h-4 w-4" /></button>
-                <button type="button" onClick={() => onNavigate('agent')} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/15 px-2.5 text-[10px] font-medium text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-40" disabled={!canUseAi}><Bot className="h-3.5 w-3.5" /> Tools</button>
-                <button type="button" onClick={() => setPrompt((value) => value ? value + ' Use the approved information and assets in my workspace as context.' : 'Use the approved information and assets in my workspace as context.')} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/15 px-2.5 text-[10px] font-medium text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-40" disabled={!canUseAi}><Lightbulb className="h-3.5 w-3.5" /> Add context</button>
-                <button type="button" onClick={() => void submit(undefined, 'Help me plan a task and schedule the next steps for my workspace. First ask me for any deadline or timing details you need.')} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/15 px-2.5 text-[10px] font-medium text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-40" disabled={!canUseAi}><CalendarClock className="h-3.5 w-3.5" /> Schedule task</button>
+              <div className="flex items-center gap-2">
+                <input ref={fileInputRef} type="file" multiple className="hidden" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.csv,.tsv,.xls,.xlsx,.txt,.md,.json" onChange={(event) => void addFiles(event.target.files)} />
+                <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach files" aria-label="Attach files" disabled={!canUseAi || sending || startingAgent || attachments.length >= MAX_FILES} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/15 text-blue-100/80 transition hover:bg-white/10 hover:text-white disabled:opacity-40"><Paperclip className="h-4 w-4" /></button>
               </div>
-              <button type="submit" disabled={!canUseAi || !prompt.trim() || sending || startingAgent} aria-label="Send prompt to AI Agent" className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#0848ef] text-white shadow-[0_4px_16px_rgba(8,72,239,.35)] transition hover:bg-[#2864ff] disabled:cursor-not-allowed disabled:opacity-45">
-                {sending || startingAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpRight className="h-4 w-4" />}
-              </button>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={toggleListening} title={isListening ? "Stop dictation" : "Dictate message"} aria-label={isListening ? "Stop dictation" : "Dictate message"} disabled={!canUseAi || sending || startingAgent} className={'inline-flex h-9 w-9 items-center justify-center rounded-full border transition disabled:cursor-not-allowed disabled:opacity-40 ' + (isListening ? 'border-blue-300/50 bg-blue-400/20 text-blue-100' : 'border-white/15 text-blue-100/80 hover:bg-white/10 hover:text-white')}>{isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}</button>
+                <button type="submit" disabled={!canUseAi || (!prompt.trim() && !attachments.length) || sending || startingAgent} aria-label="Send prompt to AI Agent" className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#0848ef] text-white shadow-[0_4px_16px_rgba(8,72,239,.35)] transition hover:bg-[#2864ff] disabled:cursor-not-allowed disabled:opacity-45">
+                  {sending || startingAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpRight className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
           </form>
+          {isListening && <div className="mt-2 text-left text-[10px] text-blue-100/70">Listening… Your speech will appear as editable text.</div>}
 
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
             <span className="mr-1 text-[9px] text-blue-100/55">Try asking</span>
