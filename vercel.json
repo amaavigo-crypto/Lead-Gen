@@ -6,7 +6,7 @@
   "fluid": true,
   "functions": {
     "api/**/*.ts": {
-      "includeFiles": "{src/{server,firebase}/**,dist/index.html}",
+      "includeFiles": "{api/_seo-page.bundle.js,src/{server,firebase}/**,dist/index.html}",
       "maxDuration": 300
     }
   },
@@ -51,15 +51,15 @@
     },
     {
       "source": "/robots.txt",
-      "destination": "/api/page?kind=robots"
+      "destination": "/api/[...path]?path=seo-page&kind=robots"
     },
     {
       "source": "/sitemap.xml",
-      "destination": "/api/page?kind=sitemap"
+      "destination": "/api/[...path]?path=seo-page&kind=sitemap"
     },
     {
       "source": "/(.*)",
-      "destination": "/api/page?p=/$1"
+      "destination": "/api/[...path]?path=seo-page&p=/$1"
     }
   ]
 }
