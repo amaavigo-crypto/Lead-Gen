@@ -3,7 +3,8 @@ import {
   Bot, CheckCircle2, Facebook, Instagram, Loader2, Mail, MessageCircle,
   MessagesSquare, Power, Save, Sparkles, ShieldCheck,
 } from 'lucide-react';
-import { ChatbotIntegrationPanel } from './ChatbotIntegrationPanel';
+import { ChannelResponseSettingsFields, DEFAULT_CHANNEL_RESPONSE_SETTINGS } from './ChannelResponseSettingsFields';
+import type { ChannelResponseSettings } from './ChannelResponseSettingsFields';
 
 type PersonaChannel = 'WHATSAPP' | 'EMAIL' | 'INSTAGRAM' | 'MESSENGER' | 'WEBSITE_CHAT';
 interface PersonaDraft {
@@ -24,6 +25,7 @@ interface PersonaRecord {
   enabled: boolean;
   active: PersonaDraft | null;
   draft: PersonaDraft | null;
+  responseSettings: ChannelResponseSettings | null;
   updatedAt?: string;
 }
 const CHANNELS: Array<{ id: PersonaChannel; label: string; description: string; icon: React.ReactNode }> = [
@@ -46,13 +48,14 @@ export const PersonasPanel: React.FC<{ tenantId: string; canEdit: boolean }> = (
   const [selectedChannel, setSelectedChannel] = useState<PersonaChannel>('WHATSAPP');
   const [records, setRecords] = useState<Partial<Record<PersonaChannel, PersonaRecord>>>({});
   const [form, setForm] = useState<PersonaDraft>(EMPTY_PERSONA);
+  const [responseSettings, setResponseSettings] = useState<ChannelResponseSettings>(DEFAULT_CHANNEL_RESPONSE_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const selectedMeta = CHANNELS.find((channel) => channel.id === selectedChannel) || CHANNELS[0];
-  const selectedRecord = records[selectedChannel] || { enabled: false, active: null, draft: null };
+  const selectedRecord = records[selectedChannel] || { enabled: false, active: null, draft: null, responseSettings: null };
   const hasPersona = Boolean(form.botName.trim() || form.role.trim() || form.customInstructions.trim());
 
   useEffect(() => {
@@ -75,6 +78,7 @@ export const PersonasPanel: React.FC<{ tenantId: string; canEdit: boolean }> = (
   useEffect(() => {
     const record = records[selectedChannel];
     setForm({ ...EMPTY_PERSONA, ...(record?.draft || record?.active || {}) });
+    setResponseSettings({ ...DEFAULT_CHANNEL_RESPONSE_SETTINGS, ...(record?.responseSettings || {}) });
     setNotice(null);
   }, [selectedChannel, records]);
 
@@ -99,6 +103,28 @@ export const PersonasPanel: React.FC<{ tenantId: string; canEdit: boolean }> = (
     }
   };
 
+  const saveResponseSettings = async () => {
+    setBusy('response-settings');
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: selectedChannel, action: 'SAVE_RESPONSE_SETTINGS', responseSettings }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'Could not save response behaviour.');
+      setRecords((current) => ({ ...current, [selectedChannel]: data.record }));
+      setNotice(selectedMeta.label + ' response behaviour saved. It will apply to new AI replies.');
+    } catch (err: any) {
+      setError(err?.message || 'Could not save response behaviour.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const showResponseSettings = selectedChannel !== 'EMAIL';
   const statusLabel = useMemo(() => selectedRecord.enabled ? 'Active' : selectedRecord.draft ? 'Draft saved · not active' : 'Optional · not configured', [selectedRecord.enabled, selectedRecord.draft]);
 
   const textareaField = (label: string, key: keyof PersonaDraft, placeholder: string, rows = 3) => (
@@ -192,12 +218,20 @@ export const PersonasPanel: React.FC<{ tenantId: string; canEdit: boolean }> = (
                 <div className="md:col-span-2">{textareaField('Additional custom instructions', 'customInstructions', 'Add any other tenant-specific instructions for this channel.', 4)}</div>
               </div>
 
-              {selectedChannel === 'WEBSITE_CHAT' && (
-                <div className="mt-5 border-t border-slate-100 pt-5">
-                  <div className="mb-3 flex items-center gap-2 text-xs font-bold text-slate-800"><ShieldCheck className="h-4 w-4 text-orange-600" /> Existing website chatbot response settings</div>
-                  <p className="mb-3 text-[11px] leading-relaxed text-slate-500">The existing response-length, message-bubble, tone, language and additional-instructions controls are retained below. Their saved values are preserved.</p>
-                  <ChatbotIntegrationPanel tenantId={tenantId} canEdit={canEdit} showConnectionDetails={false} showResponseSettings showIntegrationExample={false} heading="Website chatbot response behaviour" description="Keep your existing bubble format and response controls exactly as before, alongside the new persona." />
-                </div>
+              {showResponseSettings && (
+                <section className="mt-6 border-t border-slate-100 pt-5">
+                  <div className="mb-3">
+                    <h4 className="text-sm font-extrabold text-slate-900">Response behaviour</h4>
+                    <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Control how this channel writes and delivers new AI replies. These settings are saved separately from the persona.</p>
+                  </div>
+                  <ChannelResponseSettingsFields value={responseSettings} onChange={setResponseSettings} disabled={!canEdit || busy !== null} />
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[11px] text-slate-500">Bubble mode sends separate messages on WhatsApp, Instagram and Messenger. Website Chatbot renders each message in its own chat bubble.</p>
+                    <button type="button" disabled={!canEdit || busy !== null} onClick={saveResponseSettings} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2.5 text-xs font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
+                      {busy === 'response-settings' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save response behaviour
+                    </button>
+                  </div>
+                </section>
               )}
 
               <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">

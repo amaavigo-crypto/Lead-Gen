@@ -445,13 +445,16 @@ async function processInstagramMessageEvent(tenantId: string, accountId: string,
   const history = thread
     .slice(-8)
     .map((m) => ({ role: m.direction === 'OUTBOUND' ? 'assistant' as const : 'user' as const, content: String(m.text || '').slice(0, 1500) }));
-  const personaPrompt = await (await import('./personaService.js')).buildChannelPersonaPrompt(ctx, 'INSTAGRAM');
+  const personaService = await import('./personaService.js');
+  const personaPrompt = await personaService.buildChannelPersonaPrompt(ctx, 'INSTAGRAM');
+  const responseSettings = await personaService.getTenantChannelResponseSettings(ctx, 'INSTAGRAM');
+  const responseSettingsPrompt = personaService.buildChannelResponseSettingsPrompt(responseSettings, 'INSTAGRAM');
   const openai = new OpenAI({ apiKey });
   const completion = await openai.chat.completions.create({
     model: process.env.INSTAGRAM_AI_MODEL || 'gpt-4o-mini',
     temperature: 0.3,
     messages: [
-      { role: 'system', content: [buildAiFeedbackSystemGuard(), 'You are this workspace customer-support and lead-qualification assistant. Reply naturally and briefly to the Instagram DM. Use only the workspace knowledge below for factual claims. If knowledge does not answer the question, ask a concise clarifying question instead of inventing facts. Do not claim a booking or action has completed unless confirmed.\n\nResponse formatting: ' + AI_RESPONSE_FORMATTING_INSTRUCTIONS + '\n\nWorkspace knowledge:\n' + (knowledge || 'No published workspace knowledge is available. Ask a clarifying question and do not invent product details.'), personaPrompt].filter(Boolean).join('\n\n') },
+      { role: 'system', content: [buildAiFeedbackSystemGuard(), 'You are this workspace customer-support and lead-qualification assistant. Reply naturally and briefly to the Instagram DM. Use only the workspace knowledge below for factual claims. If knowledge does not answer the question, ask a concise clarifying question instead of inventing facts. Do not claim a booking or action has completed unless confirmed.\n\nResponse formatting: ' + AI_RESPONSE_FORMATTING_INSTRUCTIONS + '\n\nWorkspace knowledge:\n' + (knowledge || 'No published workspace knowledge is available. Ask a clarifying question and do not invent product details.'), personaPrompt, responseSettingsPrompt].filter(Boolean).join('\n\n') },
       ...history,
       { role: 'user', content: [aiFeedbackPromptSection, 'CUSTOMER MESSAGE:\n' + messageText.slice(0, 3000)].filter(Boolean).join('\n\n') },
     ],
@@ -463,9 +466,10 @@ async function processInstagramMessageEvent(tenantId: string, accountId: string,
     return;
   }
   if (mode === 'REVIEW') {
+    const reviewText = personaService.splitChannelReplyIntoBubbles(replyText, responseSettings?.bubbleMode || 'single').join('\n\n');
     await updateDoc(repo.conversationDoc(conversationId), {
       status: 'REVIEW',
-      draftReply: { draftId: 'igdraft_' + stableHash(externalMessageId), text: replyText, generatedAt: now, status: 'PENDING' },
+      draftReply: { draftId: 'igdraft_' + stableHash(externalMessageId), text: reviewText, generatedAt: now, status: 'PENDING' },
       updatedAt: now,
     });
     await updateDoc(repo.messageDoc(messageId), { aiProcessed: true });
@@ -478,18 +482,27 @@ async function processInstagramMessageEvent(tenantId: string, accountId: string,
     await updateDoc(eventRef, { status: 'suppressed_human_takeover', processedAt: new Date().toISOString(), conversationId });
     return;
   }
-  const sendResult = await sendInstagramMessage(ctx, senderId, replyText);
-  const outboundId = 'igout_' + stableHash(externalMessageId);
-  const sentAt = new Date().toISOString();
-  await setDoc(repo.messageDoc(outboundId), {
-    messageId: outboundId, externalMessageId: String(sendResult?.message_id || sendResult?.messageId || ''),
-    conversationId, channel: 'INSTAGRAM', senderType: 'AI', senderName: 'AI Assistant',
-    instagramUserId: senderId, text: replyText, direction: 'OUTBOUND', timestamp: sentAt,
-    sentAt, createdAt: sentAt, aiProcessed: true, aiGenerated: true, deliveryStatus: 'DELIVERED',
-  });
+  const bubbles = personaService.splitChannelReplyIntoBubbles(replyText, responseSettings?.bubbleMode || 'single');
+  const outboundIds: string[] = [];
+  let sentAt = new Date().toISOString();
+  for (let index = 0; index < bubbles.length; index++) {
+    const bubble = bubbles[index];
+    const sendResult = await sendInstagramMessage(ctx, senderId, bubble);
+    sentAt = new Date().toISOString();
+    const outboundId = index === 0 ? 'igout_' + stableHash(externalMessageId) : 'igout_' + stableHash(externalMessageId + ':' + index);
+    outboundIds.push(outboundId);
+    await setDoc(repo.messageDoc(outboundId), {
+      messageId: outboundId, externalMessageId: String(sendResult?.message_id || sendResult?.messageId || ''),
+      conversationId, channel: 'INSTAGRAM', senderType: 'AI', senderName: 'AI Assistant',
+      instagramUserId: senderId, text: bubble, direction: 'OUTBOUND', timestamp: sentAt,
+      sentAt, createdAt: sentAt, aiProcessed: true, aiGenerated: true, deliveryStatus: 'DELIVERED',
+      bubbleIndex: index + 1, bubbleCount: bubbles.length,
+    });
+  }
+  const outboundId = outboundIds[0];
   await updateDoc(repo.messageDoc(messageId), { aiReplied: true, repliedAt: sentAt, repliedByMessageId: outboundId, aiProcessed: true });
-  await updateDoc(repo.conversationDoc(conversationId), { lastMessageAt: sentAt, lastMessageText: replyText, updatedAt: sentAt });
-  await updateDoc(eventRef, { status: 'replied', processedAt: sentAt, conversationId, outboundMessageId: outboundId });
+  await updateDoc(repo.conversationDoc(conversationId), { lastMessageAt: sentAt, lastMessageText: bubbles[bubbles.length - 1] || replyText, updatedAt: sentAt });
+  await updateDoc(eventRef, { status: 'replied', processedAt: sentAt, conversationId, outboundMessageId: outboundId, outboundMessageIds: outboundIds });
 }
 
 export async function handleInstagramWebhook(req: any, res: any): Promise<boolean> {

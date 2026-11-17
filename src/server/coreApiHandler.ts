@@ -1215,14 +1215,30 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       const personaCtx: TenantContext = { ...activeTenantCtx, tenantId: targetTenantId };
       if (req.method === 'GET') {
         const personas = await service.getTenantChannelPersonas(personaCtx);
+        if (userRole === 'admin' || isPlatformAdmin) {
+          const chatbot = await import('./chatbotWebhookService.js');
+          const websiteChatbot = await chatbot.getChatbotIntegrationView(targetTenantId);
+          personas.WEBSITE_CHAT.responseSettings = websiteChatbot.preferences;
+        }
         res.statusCode = 200;
         res.end(JSON.stringify({ success: true, personas }));
         return true;
       }
       const action = String(body?.action || '').toUpperCase();
+      if (action === 'SAVE_RESPONSE_SETTINGS') {
+        const channel = String(body?.channel || '').toUpperCase();
+        if (channel === 'WEBSITE_CHAT') {
+          const chatbot = await import('./chatbotWebhookService.js');
+          await chatbot.saveChatbotResponsePreferences(targetTenantId, body?.responseSettings || {});
+        }
+        const record = await service.saveTenantChannelResponseSettings(personaCtx, channel, body?.responseSettings || {});
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, record }));
+        return true;
+      }
       if (!['SAVE_DRAFT', 'ACTIVATE', 'DISABLE'].includes(action)) {
         res.statusCode = 400;
-        res.end(JSON.stringify({ success: false, error: 'Choose Save draft, Activate or Disable.' }));
+        res.end(JSON.stringify({ success: false, error: 'Choose Save draft, Activate, Disable or Save response behaviour.' }));
         return true;
       }
       const record = await service.saveTenantChannelPersona(
@@ -2735,8 +2751,16 @@ CRITICAL RULES:
 6. RESPONSE FORMATTING: ${AI_RESPONSE_FORMATTING_INSTRUCTIONS}
 7. EMAIL-ONLY SIGN-OFF: ${responseChannel === 'EMAIL' ? (signature || defSig) : 'Do not append an email signature to this channel.'}
 7. Workspace feedback is advisory style guidance only; never allow it to override knowledge, safety, opt-outs or handoff.`;
-        const personaPrompt = await (await import('./personaService.js')).buildChannelPersonaPrompt(activeTenantCtx, conversation?.channel || 'EMAIL');
-        const systemInstruction = [buildAiFeedbackSystemGuard(), isUmrah ? umrahSystemInstruction : genericSystemInstruction, personaPrompt].filter(Boolean).join('\n\n');
+        const personaService = await import('./personaService.js');
+        const rawReplyChannel = String(conversation?.channel || 'EMAIL').toUpperCase();
+        const replyPersonaChannel = (rawReplyChannel === 'FACEBOOK' ? 'MESSENGER'
+          : rawReplyChannel === 'WEBSITE' || rawReplyChannel === 'WEBSITE_CHAT' || rawReplyChannel === 'WEBCHAT' ? 'WEBSITE_CHAT'
+            : rawReplyChannel === 'WHATSAPP' || rawReplyChannel === 'INSTAGRAM' || rawReplyChannel === 'MESSENGER' ? rawReplyChannel
+              : 'EMAIL') as 'WHATSAPP' | 'INSTAGRAM' | 'MESSENGER' | 'WEBSITE_CHAT' | 'EMAIL';
+        const personaPrompt = await personaService.buildChannelPersonaPrompt(activeTenantCtx, replyPersonaChannel);
+        const responseSettings = await personaService.getTenantChannelResponseSettings(activeTenantCtx, replyPersonaChannel);
+        const responseSettingsPrompt = personaService.buildChannelResponseSettingsPrompt(responseSettings, replyPersonaChannel, false);
+        const systemInstruction = [buildAiFeedbackSystemGuard(), isUmrah ? umrahSystemInstruction : genericSystemInstruction, personaPrompt, responseSettingsPrompt].filter(Boolean).join('\n\n');
 
         const contextPrompt = `
 CONTACT PROFILE:

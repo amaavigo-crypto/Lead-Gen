@@ -129,20 +129,8 @@ export interface InboundWhatsAppCrmEntities {
     repliedAt?: string;
     repliedByMessageId?: string;
   };
-  aiReplyMessage?: {
-    messageId: string;
-    conversationId: string;
-    channel: 'WHATSAPP';
-    direction: 'OUTBOUND';
-    senderType: 'AI';
-    senderName: string;
-    senderPhone: string;
-    text: string;
-    timestamp: string;
-    aiProcessed: boolean;
-    aiGenerated: boolean;
-    confidence: number;
-  };
+  aiReplyMessage?: any;
+  aiReplyMessages?: any[];
   allThreadMessages?: any[];
   activity: {
     activityId: string;
@@ -628,7 +616,10 @@ INSTRUCTIONS FOR WHATSAPP RESPONSE:
 3. Ground every answer strictly in the knowledge base. NEVER invent features, prices or guarantees. If the answer is not in the knowledge base, say you will connect them with a specialist from ${brand.companyName} and ask for the details needed.
 4. Sign off politely as:
 "${waSignoff}"`;
-      const personaPrompt = await (await import('./personaService.js')).buildChannelPersonaPrompt(getWACtx(), 'WHATSAPP');
+      const personaService = await import('./personaService.js');
+      const personaPrompt = await personaService.buildChannelPersonaPrompt(getWACtx(), 'WHATSAPP');
+      const responseSettings = await personaService.getTenantChannelResponseSettings(getWACtx(), 'WHATSAPP');
+      const responseSettingsPrompt = personaService.buildChannelResponseSettingsPrompt(responseSettings, 'WHATSAPP');
       const prompt = [isUmrah ? umrahPrompt : genericPrompt, aiFeedbackPromptSection].filter(Boolean).join('\n\n');
 
       const candidateModels = ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'];
@@ -637,7 +628,7 @@ INSTRUCTIONS FOR WHATSAPP RESPONSE:
           const completion = await openai.chat.completions.create({
             model: modelName,
             messages: [
-              { role: 'system', content: [buildAiFeedbackSystemGuard(), personaPrompt].filter(Boolean).join('\n\n') },
+              { role: 'system', content: [buildAiFeedbackSystemGuard(), personaPrompt, responseSettingsPrompt].filter(Boolean).join('\n\n') },
               { role: 'user', content: prompt },
             ],
             temperature: 0.3,
@@ -1043,6 +1034,13 @@ export async function processLiveInboundWhatsApp(
 
   const shouldSendAutoReply = channelMode === 'AUTO' && !aiResult.handoffTriggered;
   const shouldCreateDraft = channelMode === 'REVIEW' && !aiResult.handoffTriggered && Boolean(aiResult.replyText);
+  const whatsappPersonaService = await import('./personaService.js');
+  const whatsappResponseSettings = (shouldSendAutoReply || shouldCreateDraft)
+    ? await whatsappPersonaService.getTenantChannelResponseSettings(getWACtx(), 'WHATSAPP')
+    : null;
+  const replyBubbles = (shouldSendAutoReply || shouldCreateDraft)
+    ? whatsappPersonaService.splitChannelReplyIntoBubbles(aiResult.replyText, whatsappResponseSettings?.bubbleMode || 'single')
+    : [aiResult.replyText];
   const replyDecisionReason = aiResult.handoffTriggered
     ? (aiResult.handoffReason || keywordHandoffReason || 'Human Handoff active; AI reply intentionally suppressed.')
     : channelMode === 'OFF'
@@ -1052,6 +1050,7 @@ export async function processLiveInboundWhatsApp(
         : `New inbound customer message to ${targetNumber} - AI reply dispatched`;
 
   let aiReplyMessage: any = undefined;
+  let aiReplyMessages: any[] = [];
   const replyMsgId = `wa-reply-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
   if (shouldSendAutoReply) {
@@ -1059,15 +1058,15 @@ export async function processLiveInboundWhatsApp(
     (incomingMessage as any).repliedAt = nowIso;
     (incomingMessage as any).repliedByMessageId = replyMsgId;
 
-    aiReplyMessage = {
-      messageId: replyMsgId,
+    aiReplyMessages = replyBubbles.map((bubble, index) => ({
+      messageId: index === 0 ? replyMsgId : replyMsgId + '-' + (index + 1),
       conversationId,
       channel: 'WHATSAPP' as const,
       direction: 'OUTBOUND' as const,
       senderType: 'AI' as const,
       senderName: isUmrahBrand ? `Umrah360 AI (${targetNumberFormatted})` : `${brand.aiAgentName}`,
       senderPhone: targetNumber,
-      text: aiResult.replyText,
+      text: bubble,
       timestamp: nowIso,
       sentAt: nowIso,
       receivedAt: nowIso,
@@ -1075,9 +1074,12 @@ export async function processLiveInboundWhatsApp(
       aiProcessed: true,
       aiGenerated: true,
       confidence: 0.97,
-    };
-
-    thread.push(aiReplyMessage);
+      bubbleIndex: index + 1,
+      bubbleCount: replyBubbles.length,
+      deliveryStatus: 'PENDING',
+    }));
+    aiReplyMessage = aiReplyMessages[0];
+    thread.push(...aiReplyMessages);
 
     // Record in processed map
     processedWaRecordsMap.set(incomingMsgId, {
@@ -1120,9 +1122,29 @@ export async function processLiveInboundWhatsApp(
   };
 
   if (shouldSendAutoReply && aiReplyMessage && aiResult.handoffTriggered !== true) {
-    outboundDispatch = await sendLiveMetaWhatsAppMessage(senderPhone, aiResult.replyText);
-    aiReplyMessage.externalMessageId = outboundDispatch.externalMessageId;
-    aiReplyMessage.providerUsed = outboundDispatch.providerUsed;
+    const dispatchResults: Array<Awaited<ReturnType<typeof sendLiveMetaWhatsAppMessage>>> = [];
+    for (const bubble of replyBubbles) {
+      const dispatch = await sendLiveMetaWhatsAppMessage(senderPhone, bubble);
+      dispatchResults.push(dispatch);
+      if (!dispatch.success) break;
+    }
+    const firstDispatch = dispatchResults[0];
+    outboundDispatch = {
+      success: dispatchResults.length === replyBubbles.length && dispatchResults.every((item) => item.success),
+      externalMessageId: firstDispatch?.externalMessageId,
+      error: dispatchResults.find((item) => !item.success)?.error,
+      providerUsed: firstDispatch?.providerUsed || 'INTERNAL_CRM_LOG',
+    };
+    dispatchResults.forEach((dispatch, index) => {
+      if (aiReplyMessages[index]) {
+        aiReplyMessages[index].externalMessageId = dispatch.externalMessageId;
+        aiReplyMessages[index].providerUsed = dispatch.providerUsed;
+        aiReplyMessages[index].deliveryStatus = dispatch.success ? 'DELIVERED' : 'FAILED';
+      }
+    });
+    for (let index = dispatchResults.length; index < aiReplyMessages.length; index++) {
+      aiReplyMessages[index].deliveryStatus = 'NOT_SENT';
+    }
     await writeTenantAuditEvent(getWACtx(), {
       action: outboundDispatch.success ? (outboundDispatch.providerUsed === 'INTERNAL_CRM_LOG' ? 'AI_REPLY_LOGGED' : 'AI_REPLY_SENT') : 'AI_REPLY_SEND_FAILED',
       module: 'AI_ENGINE', severity: outboundDispatch.success ? 'INFO' : 'WARNING',
@@ -1195,7 +1217,7 @@ export async function processLiveInboundWhatsApp(
       lastMessageText: (shouldSendAutoReply && aiReplyMessage) ? aiResult.replyText.slice(0, 100) : payload.body.slice(0, 100),
       draftReply: shouldCreateDraft ? {
         draftId: `draft-wa-${Date.now()}`,
-        text: aiResult.replyText,
+        text: replyBubbles.join('\n\n') || aiResult.replyText,
         generatedAt: nowIso,
         status: 'PENDING',
       } : undefined,
@@ -1204,6 +1226,7 @@ export async function processLiveInboundWhatsApp(
     },
     incomingMessage,
     aiReplyMessage,
+    aiReplyMessages,
     allThreadMessages: [...thread],
     activity: {
       activityId: `act-wa-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1258,7 +1281,11 @@ export async function processLiveInboundWhatsApp(
       if (crmEntities.lead) writes.push(safeSetDoc(repo.leadDoc(crmEntities.lead.leadId), crmEntities.lead, { merge: true }));
       if (crmEntities.conversation) writes.push(safeSetDoc(repo.conversationDoc(crmEntities.conversation.conversationId), crmEntities.conversation, { merge: true }));
       if (crmEntities.incomingMessage) writes.push(safeSetDoc(repo.messageDoc(crmEntities.incomingMessage.messageId), crmEntities.incomingMessage, { merge: true }));
-      if (crmEntities.aiReplyMessage) writes.push(safeSetDoc(repo.messageDoc(crmEntities.aiReplyMessage.messageId), crmEntities.aiReplyMessage, { merge: true }));
+      if (Array.isArray(crmEntities.aiReplyMessages) && crmEntities.aiReplyMessages.length) {
+        for (const reply of crmEntities.aiReplyMessages) writes.push(safeSetDoc(repo.messageDoc(reply.messageId), reply, { merge: true }));
+      } else if (crmEntities.aiReplyMessage) {
+        writes.push(safeSetDoc(repo.messageDoc(crmEntities.aiReplyMessage.messageId), crmEntities.aiReplyMessage, { merge: true }));
+      }
       if (crmEntities.activity) writes.push(safeSetDoc(repo.leadActivityDoc(crmEntities.activity.activityId), crmEntities.activity, { merge: true }));
       await Promise.all(writes);
       if (crmEntities.incomingMessage?.direction === 'INBOUND' && crmEntities.conversation?.conversationId) {

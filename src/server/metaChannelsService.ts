@@ -1214,7 +1214,11 @@ async function processInbound(tenantId: string, event: InboundEvent, eventId: st
   const history = thread
     .slice(-8)
     .map((m) => ({ role: m.direction === 'OUTBOUND' ? ('assistant' as const) : ('user' as const), content: String(m.text || '').slice(0, 1500) }));
-  const personaPrompt = await (await import('./personaService.js')).buildChannelPersonaPrompt(ctx, event.channel);
+  const personaService = await import('./personaService.js');
+  const personaChannel = isWA ? 'WHATSAPP' : 'MESSENGER';
+  const personaPrompt = await personaService.buildChannelPersonaPrompt(ctx, personaChannel);
+  const responseSettings = await personaService.getTenantChannelResponseSettings(ctx, personaChannel);
+  const responseSettingsPrompt = personaService.buildChannelResponseSettingsPrompt(responseSettings, personaChannel);
   const openai = new OpenAI({ apiKey });
   const completion = await openai.chat.completions.create({
     model: process.env.META_CHANNELS_AI_MODEL || process.env.INSTAGRAM_AI_MODEL || 'gpt-4o-mini',
@@ -1222,7 +1226,7 @@ async function processInbound(tenantId: string, event: InboundEvent, eventId: st
     messages: [
       {
         role: 'system',
-        content: [buildAiFeedbackSystemGuard(), 'You are this workspace customer-support and lead-qualification assistant. Reply naturally and briefly to the ' + label + ' message. Use only the workspace knowledge below for factual claims. If knowledge does not answer the question, ask a concise clarifying question instead of inventing facts. Do not claim a booking or action has completed unless confirmed.\n\nResponse formatting: ' + AI_RESPONSE_FORMATTING_INSTRUCTIONS + '\n\nWorkspace knowledge:\n' + (knowledge || 'No published workspace knowledge is available. Ask a clarifying question and do not invent product details.'), personaPrompt].filter(Boolean).join('\n\n'),
+        content: [buildAiFeedbackSystemGuard(), 'You are this workspace customer-support and lead-qualification assistant. Reply naturally and briefly to the ' + label + ' message. Use only the workspace knowledge below for factual claims. If knowledge does not answer the question, ask a concise clarifying question instead of inventing facts. Do not claim a booking or action has completed unless confirmed.\n\nResponse formatting: ' + AI_RESPONSE_FORMATTING_INSTRUCTIONS + '\n\nWorkspace knowledge:\n' + (knowledge || 'No published workspace knowledge is available. Ask a clarifying question and do not invent product details.'), personaPrompt, responseSettingsPrompt].filter(Boolean).join('\n\n'),
       },
       ...history,
       { role: 'user', content: (aiFeedbackPromptSection ? aiFeedbackPromptSection + '\n\n' : '') + 'CUSTOMER MESSAGE:\n' + event.text.slice(0, 3000) },
@@ -1236,9 +1240,10 @@ async function processInbound(tenantId: string, event: InboundEvent, eventId: st
   }
 
   if (mode === 'REVIEW') {
+    const reviewText = personaService.splitChannelReplyIntoBubbles(replyText, responseSettings?.bubbleMode || 'single').join('\n\n');
     await updateDoc(repo.conversationDoc(conversationId), {
       status: 'REVIEW',
-      draftReply: { draftId: `${prefix}draft_${hash24(event.externalMessageId)}`, text: replyText, generatedAt: now, status: 'PENDING' },
+      draftReply: { draftId: `${prefix}draft_${hash24(event.externalMessageId)}`, text: reviewText, generatedAt: now, status: 'PENDING' },
       updatedAt: now,
     });
     await updateDoc(repo.messageDoc(messageId), { aiProcessed: true });
@@ -1253,17 +1258,28 @@ async function processInbound(tenantId: string, event: InboundEvent, eventId: st
     return;
   }
 
-  const sent = await sendMetaText(ctx, isWA ? 'whatsapp' : 'messenger', event.senderId, replyText);
-  const outboundId = `${prefix}out_${hash24(event.externalMessageId)}`;
-  const sentAt = new Date().toISOString();
-  await setDoc(repo.messageDoc(outboundId), {
-    messageId: outboundId, externalMessageId: sent.messageId, conversationId, channel: event.channel,
-    senderType: 'AI', senderName: 'AI Assistant', text: replyText, direction: 'OUTBOUND',
-    timestamp: sentAt, sentAt, createdAt: sentAt, aiProcessed: true, aiGenerated: true, deliveryStatus: 'DELIVERED',
-  });
+  const bubbles = personaService.splitChannelReplyIntoBubbles(replyText, responseSettings?.bubbleMode || 'single');
+  const outboundIds: string[] = [];
+  let sentAt = new Date().toISOString();
+  for (let index = 0; index < bubbles.length; index++) {
+    const bubble = bubbles[index];
+    const sent = await sendMetaText(ctx, isWA ? 'whatsapp' : 'messenger', event.senderId, bubble);
+    sentAt = new Date().toISOString();
+    const outboundId = index === 0
+      ? `${prefix}out_${hash24(event.externalMessageId)}`
+      : `${prefix}out_${hash24(event.externalMessageId + ':' + index)}`;
+    outboundIds.push(outboundId);
+    await setDoc(repo.messageDoc(outboundId), {
+      messageId: outboundId, externalMessageId: sent.messageId, conversationId, channel: event.channel,
+      senderType: 'AI', senderName: 'AI Assistant', text: bubble, direction: 'OUTBOUND',
+      timestamp: sentAt, sentAt, createdAt: sentAt, aiProcessed: true, aiGenerated: true,
+      deliveryStatus: 'DELIVERED', bubbleIndex: index + 1, bubbleCount: bubbles.length,
+    });
+  }
+  const outboundId = outboundIds[0];
   await updateDoc(repo.messageDoc(messageId), { aiReplied: true, repliedAt: sentAt, repliedByMessageId: outboundId, aiProcessed: true });
-  await updateDoc(repo.conversationDoc(conversationId), { lastMessageAt: sentAt, lastMessageText: replyText, updatedAt: sentAt });
-  await updateDoc(eventRef, { status: 'replied', processedAt: sentAt, conversationId, outboundMessageId: outboundId });
+  await updateDoc(repo.conversationDoc(conversationId), { lastMessageAt: sentAt, lastMessageText: bubbles[bubbles.length - 1] || replyText, updatedAt: sentAt });
+  await updateDoc(eventRef, { status: 'replied', processedAt: sentAt, conversationId, outboundMessageId: outboundId, outboundMessageIds: outboundIds });
 }
 
 function waText(message: any): { text: string; hasText: boolean } {
