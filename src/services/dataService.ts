@@ -87,6 +87,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     FACEBOOK: 'AUTO',
     LINKEDIN: 'REVIEW',
     WEBSITE: 'AUTO',
+    SMS: 'REVIEW',
   },
   sendingAccounts: [
     { id: 'acc-1', email: 'sales@umrah360.in', name: 'Umrah360 Sales', isDefault: true },

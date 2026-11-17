@@ -24,6 +24,7 @@ import type { TenantContext } from '../types/tenant.js';
 import { tenantRepo } from './tenantRepo.js';
 import { writeTenantAuditEvent } from './auditLogger.js';
 import { sendLiveEmail, getSmtpConfig } from './smtpService.js';
+import { sendSmsReply } from './smsService.js';
 import { appendOutboundMessageToThread, getAllThreadMessages } from './inboundPipeline.js';
 import { generateOpenAICompletion, getOpenAIApiKey } from './openaiClient.js';
 import { isEmailSuppressed, checkTenantQuota } from './usageService.js';
@@ -136,6 +137,7 @@ export const DEFAULT_FOLLOWUP_CONFIG: AutoFollowUpGlobalConfig = {
     FACEBOOK: { enabled: true, defaultDelayValue: 1, defaultDelayUnit: 'day', maxFollowUps: 3 },
     EMAIL: { enabled: true, defaultDelayValue: 2, defaultDelayUnit: 'day', maxFollowUps: 3 },
     WEBSITE: { enabled: true, defaultDelayValue: 1, defaultDelayUnit: 'hour', maxFollowUps: 3 },
+    SMS: { enabled: false, defaultDelayValue: 1, defaultDelayUnit: 'day', maxFollowUps: 2 },
     LINKEDIN: { enabled: true, defaultDelayValue: 1, defaultDelayUnit: 'day', maxFollowUps: 3 },
   },
   businessHours: { enabled: false, days: [1, 2, 3, 4, 5, 6], start: '09:00', end: '20:00' },
@@ -143,7 +145,7 @@ export const DEFAULT_FOLLOWUP_CONFIG: AutoFollowUpGlobalConfig = {
 };
 
 const INELIGIBLE_STATUSES: LeadStatus[] = ['CLOSED_WON', 'CLOSED_LOST', 'NOT_INTERESTED', 'UNSUBSCRIBED'];
-const AUTO_SEND_CHANNELS = ['EMAIL', 'WEBSITE', 'WHATSAPP', 'FACEBOOK', 'INSTAGRAM'];
+const AUTO_SEND_CHANNELS = ['EMAIL', 'WEBSITE', 'WHATSAPP', 'FACEBOOK', 'INSTAGRAM', 'SMS'];
 
 /**
  * True when a confirmed demo should END automated follow-ups. Controlled by STOP_FOLLOWUPS_WHEN_DEMO_BOOKED
@@ -539,6 +541,7 @@ export async function scheduleOneTimeAiFollowUp(
   const contactSnap = lead.contactId ? await getDoc(repo.contactDoc(lead.contactId)) : null;
   const contact: any = contactSnap?.exists() ? contactSnap.data() : {};
   const recipientId = String(conversation.externalConversationId ||
+    (channel === 'SMS' ? conversation.customerPhone || contact.phone || '' : '') ||
     (channel === 'WHATSAPP' ? contact.whatsappId || contact.whatsappUserId || contact.phone || '' : '') ||
     (channel === 'INSTAGRAM' ? contact.instagramUserId || '' : '') ||
     (channel === 'FACEBOOK' ? contact.facebookUserId || '' : '')).trim();
@@ -548,6 +551,9 @@ export async function scheduleOneTimeAiFollowUp(
   }
   if (['WHATSAPP', 'FACEBOOK', 'INSTAGRAM'].includes(channel) && !recipientId) {
     throw new Error('The conversation is missing its channel recipient ID. Open the original conversation and try again.');
+  }
+  if (channel === 'SMS' && !/^\+[1-9]\d{6,14}$/.test(recipientId.replace(/[\s().-]/g, ''))) {
+    throw new Error('This SMS conversation needs a valid international phone number before scheduling a follow-up.');
   }
 
   const previousJobs = await loadJobsByField(ctx, 'leadId', leadId);
@@ -1458,12 +1464,23 @@ async function processOneJob(
       const contactSnap = conversation.contactId ? await getDoc(tenantRepo(ctx).contactDoc(conversation.contactId)) : null;
       const contact: any = contactSnap?.exists() ? contactSnap.data() : {};
       const recipientId = String(job.recipientId || conversation.externalConversationId ||
+        (channel === 'SMS' ? conversation.customerPhone || contact.phone || '' : '') ||
         (channel === 'WHATSAPP' ? contact.whatsappId || contact.whatsappUserId || contact.phone || '' : '') ||
         (channel === 'INSTAGRAM' ? contact.instagramUserId || '' : '') ||
         (channel === 'FACEBOOK' ? contact.facebookUserId || '' : '')).trim();
       if (!recipientId) return humanReview('No recipient ID is available for ' + channel + '.');
       let externalMessageId = '';
-      if (channel === 'WHATSAPP' || channel === 'FACEBOOK') {
+      if (channel === 'SMS') {
+        const sms = await sendSmsReply(ctx, {
+          to: recipientId,
+          text: evalResult.generatedMessage,
+          conversationId: conversation.conversationId,
+          contactId: conversation.contactId,
+          senderType: 'AI',
+          requireMarketingConsent: true,
+        });
+        externalMessageId = String(sms.providerMessageId || sms.messageId || '');
+      } else if (channel === 'WHATSAPP' || channel === 'FACEBOOK') {
         const meta = await import('./metaChannelsService.js');
         const sent = await meta.sendMetaText(ctx, channel === 'WHATSAPP' ? 'whatsapp' : 'messenger', recipientId, evalResult.generatedMessage);
         externalMessageId = sent.messageId;
@@ -1517,6 +1534,7 @@ async function processOneJob(
     senderName: 'AI Auto Follow-Up',
     ...(emailChannel ? { senderEmail: fromAddr || undefined } : {}),
     ...(sendRes.messageId && !emailChannel ? { externalMessageId: sendRes.messageId } : {}),
+    ...(channel === 'SMS' && sendRes.messageId ? { providerMessageId: sendRes.messageId } : {}),
     text: evalResult.generatedMessage,
     timestamp: nowIso,
     sentAt: nowIso,

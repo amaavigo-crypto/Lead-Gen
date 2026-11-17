@@ -18,6 +18,7 @@ export interface FeatureDef {
 export const FEATURES: FeatureDef[] = [
   { key: 'ai_agent', label: 'AI Agent Workspace', description: 'Context-aware AI workspace and registered agent tools', tab: 'agent', defaultEnabled: true },
   { key: 'campaigns', label: 'Outbound campaigns', description: 'Cold outreach campaigns and batch sending', tab: 'campaigns', defaultEnabled: true },
+  { key: 'sms_marketing', label: 'SMS Marketing', description: 'Provider-connected SMS campaigns, two-way inbox messaging and delivery tracking', tab: 'sms-marketing', defaultEnabled: true },
   { key: 'campaign_reports', label: 'AI Campaign Reporting', description: 'Campaign performance reports, comparisons, AI recommendations and branded PDF exports', tab: 'campaign-reports', defaultEnabled: true },
   { key: 'scheduling', label: 'Demo scheduling', description: 'Calendar availability and demo booking', tab: 'scheduling', defaultEnabled: true },
   { key: 'knowledge_base', label: 'Knowledge base', description: 'Documents the AI answers from', tab: 'knowledge', defaultEnabled: true },

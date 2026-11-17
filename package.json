@@ -20,7 +20,9 @@
     "test:mongo": "tsx scripts/selftest-mongo-layer.ts",
     "test:client-db": "tsx scripts/selftest-client-db.ts",
     "migrate:mongo": "tsx scripts/migrate-firestore-to-mongo.ts",
-    "mongo:indexes": "tsx scripts/mongo-ensure-indexes.ts"
+    "mongo:indexes": "tsx scripts/mongo-ensure-indexes.ts",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=esm --packages=external --outfile=server.bundle.js",
+    "start:prod": "node server.bundle.js"
   },
   "dependencies": {
     "@codemirror/lang-html": "^6.4.12",
@@ -38,6 +40,7 @@
     "firebase-admin": "^14.5.0",
     "helmet": "^8.3.0",
     "imapflow": "^2.0.5",
+    "libphonenumber-js": "^1.13.16",
     "lucide-react": "^0.546.0",
     "mailparser": "^3.9.28",
     "mongodb": "^6.22.0",
@@ -50,6 +53,7 @@
     "resend": "^6.32.0",
     "stripe": "^23.0.0",
     "tsx": "^4.21.0",
+    "twilio": "^5.13.1",
     "vite": "^6.2.3",
     "xlsx": "^0.18.5",
     "zod": "^4.6.5"
@@ -69,6 +73,6 @@
     "vite": "^6.2.3"
   },
   "engines": {
-    "node": "22.x"
+    "node": ">=22"
   }
 }

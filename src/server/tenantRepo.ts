@@ -54,6 +54,19 @@ export function tenantRepo(ctx: TenantContext) {
         ? doc(db, `${tenantDocPath}/conversations/${conversationId}/messages`, messageId)
         : doc(db, `${tenantDocPath}/messages`, messageId),
 
+    smsCampaigns: () => collection(db, tenantDocPath + '/sms_campaigns'),
+    smsCampaignDoc: (id: string) => doc(db, tenantDocPath + '/sms_campaigns', id),
+    smsCampaignRecipients: () => collection(db, tenantDocPath + '/sms_campaign_recipients'),
+    smsCampaignRecipientDoc: (id: string) => doc(db, tenantDocPath + '/sms_campaign_recipients', id),
+    smsMessages: () => collection(db, tenantDocPath + '/sms_messages'),
+    smsMessageDoc: (id: string) => doc(db, tenantDocPath + '/sms_messages', id),
+    smsTemplates: () => collection(db, tenantDocPath + '/sms_templates'),
+    smsTemplateDoc: (id: string) => doc(db, tenantDocPath + '/sms_templates', id),
+    smsConsent: () => collection(db, tenantDocPath + '/sms_consent'),
+    smsConsentDoc: (id: string) => doc(db, tenantDocPath + '/sms_consent', id),
+    smsWebhookEvents: () => collection(db, tenantDocPath + '/sms_webhook_events'),
+    smsWebhookEventDoc: (id: string) => doc(db, tenantDocPath + '/sms_webhook_events', id),
+
     campaigns: () => collection(db, `${tenantDocPath}/campaigns`),
     campaignDoc: (id: string) => doc(db, `${tenantDocPath}/campaigns`, id),
 
@@ -202,6 +215,10 @@ export function globalDomainRoutesCol(): CollectionReference<DocumentData> {
 
 export function globalDomainRouteDoc(domain: string): DocumentReference<DocumentData> {
   return doc(db, 'domain_routes', domain.toLowerCase().trim());
+}
+
+export function globalSmsWebhookRouteDoc(token: string): DocumentReference<DocumentData> {
+  return doc(db, 'sms_webhook_routes', token);
 }
 
 export function globalEmailRoutesCol(): CollectionReference<DocumentData> {

@@ -59,6 +59,7 @@ import { collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, query, 
 // thsi is a test Screens loaded on demand (own JS files). Login, navigation and the inbox stay in the main bundle.
 const DashboardView = lazyNamed(() => import('./components/DashboardView'), 'DashboardView');
 const CampaignManagement = lazyNamed(() => import('./components/CampaignManagement'), 'CampaignManagement');
+const SMSMarketingView = lazyNamed(() => import('./components/SMSMarketingView'), 'SMSMarketingView');
 const CampaignReports = lazyNamed(() => import('./components/CampaignReports'), 'CampaignReports');
 const TemplateStudio = lazyNamed(() => import('./components/TemplateStudio'), 'TemplateStudio');
 const CrmPipeline = lazyNamed(() => import('./components/CrmPipeline'), 'CrmPipeline');
@@ -200,7 +201,7 @@ function toAppUser(u: any): AppUser {
       ? u.allowedModules
       : role === 'SALES'
       ? ['crm', 'inbox']
-      : ['inbox', 'campaigns', 'campaign-reports', 'email-design-studio', 'crm', 'scheduling', 'knowledge', 'settings'],
+      : ['inbox', 'campaigns', 'sms-marketing', 'campaign-reports', 'email-design-studio', 'crm', 'scheduling', 'knowledge', 'settings'],
     isActive: u.isActive !== false && u.active !== false,
     createdAt: u.createdAt || new Date().toISOString(),
     updatedAt: u.updatedAt || u.createdAt || new Date().toISOString(),
@@ -225,6 +226,7 @@ const ALL_TABS: readonly ActiveTab[] = [
   'workspace',
   'inbox',
   'campaigns',
+  'sms-marketing',
   'email-design-studio',
   'crm',
   'scheduling',
@@ -1153,7 +1155,6 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   to: recipientEmail,
-                  ...(opts?.aiDraftApproval ? { aiDraftApproval: true, channel: conv.channel, conversationId, draftId: opts.draftId } : {}),
                   subject: aiMsg.emailMeta?.subject || `Re: ${lastMsg.emailMeta?.subject || `${bn().companyName} Platform`}`,
                   text: aiResult.responseText,
                   applyWorkspaceDesign: true,
@@ -1266,9 +1267,35 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
     if (!conv) return false;
     const editedDraft = senderType === 'AGENT' && conv.draftReply?.status === 'EDITING' ? conv.draftReply : undefined;
     const isSocialChannel = conv.channel === 'INSTAGRAM' || conv.channel === 'WHATSAPP' || conv.channel === 'FACEBOOK';
+    let sentSmsMeta: any = null;
 
     const threadMsgs = messages.filter((m) => m.conversationId === conversationId);
     const lastIncoming = [...threadMsgs].reverse().find((m) => m.senderType === 'CUSTOMER' || m.senderType === 'PROSPECT');
+    if (conv.channel === 'SMS' && !opts?.skipSend && (senderType === 'AGENT' || senderType === 'AI')) {
+      const contactRec = contacts.find((c) => c.contactId === conv.contactId);
+      const recipientPhone = (conv as any).customerPhone || conv.externalConversationId || contactRec?.phone || '';
+      if (!recipientPhone) {
+        window.alert('This SMS conversation does not have a recipient phone number.');
+        return false;
+      }
+      try {
+        const smsResponse = await fetch('/api/sms/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: recipientPhone, text, conversationId, senderType }),
+        });
+        const smsData = await smsResponse.json().catch(() => ({}));
+        if (!smsResponse.ok || !smsData.success) {
+          window.alert(smsData.error || 'SMS could not be sent.');
+          return false;
+        }
+        sentSmsMeta = { providerMessageId: smsData.providerMessageId, smsStatus: smsData.status };
+      } catch (error: any) {
+        window.alert(error?.message || 'SMS could not be sent (network error).');
+        return false;
+      }
+    }
+
     if (isSocialChannel && !opts?.skipSend && (senderType === 'AGENT' || senderType === 'AI')) {
       const contactRec = contacts.find((c) => c.contactId === conv.contactId);
       const channelName = conv.channel === 'INSTAGRAM' ? 'Instagram' : conv.channel === 'WHATSAPP' ? 'WhatsApp' : 'Messenger';
@@ -1382,8 +1409,8 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
 
     const newMsg: Message = {
       messageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      gmailMessageId: isSocialChannel ? undefined : sentGmailMessageId,
-      gmailThreadId: isSocialChannel ? undefined : gmailThreadId,
+      gmailMessageId: (conv.channel === 'EMAIL' || conv.channel === 'WEBSITE') ? sentGmailMessageId : undefined,
+      gmailThreadId: (conv.channel === 'EMAIL' || conv.channel === 'WEBSITE') ? gmailThreadId : undefined,
       conversationId,
       channel: conv.channel === 'WEBSITE' ? 'EMAIL' : conv.channel,
       direction,
@@ -1398,11 +1425,12 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
       text,
       aiReplied: false,
       timestamp: nowIso,
+      ...(sentSmsMeta || {}),
       sentAt: nowIso,
       receivedAt: nowIso,
       createdAt: nowIso,
       emailMeta:
-        conv.channel === 'EMAIL' || conv.channel === 'WEBSITE' || Boolean(recipientEmail)
+        conv.channel === 'EMAIL' || conv.channel === 'WEBSITE'
           ? {
               subject: lastIncoming?.emailMeta?.subject
                 ? (lastIncoming.emailMeta.subject.toLowerCase().startsWith('re:') ? lastIncoming.emailMeta.subject : `Re: ${lastIncoming.emailMeta.subject}`)
@@ -1948,8 +1976,24 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
     const coldMsgText =
       customBody ||
       (bn().playbook !== 'umrah360'
-        ? `Hi ${prospect.firstName},\n\nI noticed you are leading operations at ${prospect.companyName}. ${bn().companyName}${bn().tagline ? ` is ${bn().tagline}` : ' may be able to help'}.\n\nWould you be open to a quick walkthrough?\n\nRegards,\n${bn().teamName}`
-        : `Hi ${prospect.firstName},\n\nI noticed you are leading operations at ${prospect.companyName}. We work with top Umrah operators across India to automate their dynamic package costing, Makkah/Madinah room allotments, and sub-agent B2B voucher distribution.\n\nUmrah360 gives your agency an automated B2B portal with live supplier costs and compliant invoicing.\n\nWould you be open to exploring how this could streamline your upcoming season?\n\nRegards,\nUmrah360 Growth Team`);
+        ? `Hi ${prospect.firstName},
+
+I noticed you are leading operations at ${prospect.companyName}. ${bn().companyName}${bn().tagline ? ` is ${bn().tagline}` : ' may be able to help'}.
+
+Would you be open to a quick walkthrough?
+
+Regards,
+${bn().teamName}`
+        : `Hi ${prospect.firstName},
+
+I noticed you are leading operations at ${prospect.companyName}. We work with top Umrah operators across India to automate their dynamic package costing, Makkah/Madinah room allotments, and sub-agent B2B voucher distribution.
+
+Umrah360 gives your agency an automated B2B portal with live supplier costs and compliant invoicing.
+
+Would you be open to exploring how this could streamline your upcoming season?
+
+Regards,
+Umrah360 Growth Team`);
 
     const newConversation: Conversation = {
       conversationId,
@@ -2679,6 +2723,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
     currentUser.accessLevel === 'ALL' ||
     currentUser.role === 'ADMIN' ||
     (currentUser.allowedModules || []).includes(activeTab) ||
+    (activeTab === 'sms-marketing' && (currentUser.allowedModules || []).includes('campaigns')) ||
     (activeTab === 'email-design-studio' && (currentUser.allowedModules || []).includes('settings')) ||
     activeTab === 'dashboard' ||
     activeTab === 'database' ||
@@ -2828,6 +2873,10 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
                 tenantId={currentTenantId}
                 timezone={currentTenant?.timezone || 'Asia/Kolkata'}
               />
+            )}
+
+            {activeTab === 'sms-marketing' && (
+              <SMSMarketingView tenantId={currentTenantId} contacts={contacts} leads={leads} />
             )}
 
             {activeTab === 'crm' && (

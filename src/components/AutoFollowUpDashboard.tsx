@@ -21,6 +21,7 @@ import {
   Play,
   FileText,
   Calendar,
+  Smartphone,
 } from 'lucide-react';
 import { Channel, Lead, Conversation, Message } from '../types';
 
@@ -77,6 +78,10 @@ export const AutoFollowUpDashboard: React.FC<AutoFollowUpDashboardProps> = ({
   const [websiteDelayVal, setWebsiteDelayVal] = useState<number>(1);
   const [websiteDelayUnit, setWebsiteDelayUnit] = useState<'minute' | 'hour' | 'day'>('hour');
 
+  const [smsEnabled, setSmsEnabled] = useState<boolean>(false);
+  const [smsDelayVal, setSmsDelayVal] = useState<number>(1);
+  const [smsDelayUnit, setSmsDelayUnit] = useState<'minute' | 'hour' | 'day'>('day');
+
   const [maxFollowUps, setMaxFollowUps] = useState<number>(3);
 
   const [isSavingConfig, setIsSavingConfig] = useState<boolean>(false);
@@ -113,6 +118,11 @@ export const AutoFollowUpDashboard: React.FC<AutoFollowUpDashboardProps> = ({
               setWebsiteDelayVal(cfg.channels.WEBSITE.defaultDelayValue || 1);
               setWebsiteDelayUnit(cfg.channels.WEBSITE.defaultDelayUnit || 'hour');
             }
+            if (cfg.channels?.SMS) {
+              setSmsEnabled(Boolean(cfg.channels.SMS.enabled));
+              setSmsDelayVal(cfg.channels.SMS.defaultDelayValue || 1);
+              setSmsDelayUnit(cfg.channels.SMS.defaultDelayUnit || 'day');
+            }
           }
         }
       }
@@ -142,6 +152,7 @@ export const AutoFollowUpDashboard: React.FC<AutoFollowUpDashboardProps> = ({
             FACEBOOK: { enabled: true, defaultDelayValue: facebookDelayVal, defaultDelayUnit: facebookDelayUnit, maxFollowUps },
             EMAIL: { enabled: true, defaultDelayValue: emailDelayVal, defaultDelayUnit: emailDelayUnit, maxFollowUps },
             WEBSITE: { enabled: true, defaultDelayValue: websiteDelayVal, defaultDelayUnit: websiteDelayUnit, maxFollowUps },
+            SMS: { enabled: smsEnabled, defaultDelayValue: smsDelayVal, defaultDelayUnit: smsDelayUnit, maxFollowUps },
           },
         }),
       });
@@ -195,6 +206,8 @@ export const AutoFollowUpDashboard: React.FC<AutoFollowUpDashboardProps> = ({
 
   const getChannelBadge = (ch: Channel | string) => {
     switch (ch) {
+      case 'SMS':
+        return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300"><Smartphone className="w-3 h-3 mr-1" /> SMS</span>;
       case 'WHATSAPP':
         return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"><MessageCircle className="w-3 h-3 mr-1" /> WhatsApp</span>;
       case 'EMAIL':
@@ -334,6 +347,7 @@ export const AutoFollowUpDashboard: React.FC<AutoFollowUpDashboardProps> = ({
               >
                 <option value="ALL">All Channels</option>
                 <option value="WHATSAPP">WhatsApp</option>
+                <option value="SMS">SMS</option>
                 <option value="EMAIL">Email</option>
                 <option value="INSTAGRAM">Instagram</option>
                 <option value="FACEBOOK">Facebook</option>
@@ -634,6 +648,29 @@ export const AutoFollowUpDashboard: React.FC<AutoFollowUpDashboardProps> = ({
                   onChange={(e) => setWebsiteDelayUnit(e.target.value as any)}
                   className="text-xs p-2 bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:border-orange-500"
                 >
+                  <option value="minute">Minutes</option>
+                  <option value="hour">Hours</option>
+                  <option value="day">Days</option>
+                </select>
+              </div>
+            </div>
+
+            {/* SMS */}
+            <div className="p-4 rounded-xl border border-violet-200 bg-violet-50/40">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="w-5 h-5 text-violet-600" />
+                  <h3 className="font-bold text-sm text-slate-900">SMS Timing</h3>
+                </div>
+                <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                  <input type="checkbox" checked={smsEnabled} onChange={(e) => setSmsEnabled(e.target.checked)} />
+                  Enable SMS follow-ups
+                </label>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">SMS follow-ups are off by default. Enable only after connecting a provider and recording valid SMS marketing consent.</p>
+              <div className="flex items-center gap-2">
+                <input type="number" min="1" value={smsDelayVal} onChange={(e) => setSmsDelayVal(parseInt(e.target.value, 10) || 1)} disabled={!smsEnabled} className="w-20 text-xs p-2 bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:border-orange-500 disabled:opacity-50" />
+                <select value={smsDelayUnit} onChange={(e) => setSmsDelayUnit(e.target.value as any)} disabled={!smsEnabled} className="text-xs p-2 bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:border-orange-500 disabled:opacity-50">
                   <option value="minute">Minutes</option>
                   <option value="hour">Hours</option>
                   <option value="day">Days</option>

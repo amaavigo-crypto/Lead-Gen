@@ -2,6 +2,7 @@ export type ActiveTab =
   | 'dashboard'
   | 'inbox'
   | 'campaigns'
+  | 'sms-marketing'
   | 'email-design-studio'
   | 'crm'
   | 'scheduling'
@@ -11,7 +12,8 @@ export type ActiveTab =
   | 'settings'
   | 'auto-followup'
   | 'database'
-  | 'campaign-reports';
+  | 'campaign-reports'
+  | 'agent';
 
 export type AuditModule =
   | 'CAMPAIGNS'
@@ -54,9 +56,9 @@ export interface AuditLog {
   metadata?: Record<string, any>;
 }
 
-export type Channel = 'WEBSITE' | 'WHATSAPP' | 'INSTAGRAM' | 'FACEBOOK' | 'LINKEDIN' | 'EMAIL';
+export type Channel = 'WEBSITE' | 'WHATSAPP' | 'INSTAGRAM' | 'FACEBOOK' | 'LINKEDIN' | 'EMAIL' | 'SMS';
 
-export type LeadSource = 'WEBSITE' | 'WHATSAPP' | 'INSTAGRAM' | 'FACEBOOK' | 'LINKEDIN' | 'EMAIL' | 'APOLLO' | 'MANUAL' | 'OUTBOUND';
+export type LeadSource = 'WEBSITE' | 'WHATSAPP' | 'INSTAGRAM' | 'FACEBOOK' | 'LINKEDIN' | 'EMAIL' | 'SMS' | 'APOLLO' | 'MANUAL' | 'OUTBOUND';
 
 export type LeadType = 'INBOUND' | 'OUTBOUND';
 
@@ -484,6 +486,8 @@ export interface Conversation {
   /** Per-submission channel drafts for website form confirmations; WEBSITE remains the parent conversation channel. */
   websiteFormConfirmationDrafts?: Array<{ submissionId: string; status: 'PENDING' | 'APPROVED' | 'COMPLETED'; channels: Array<{ channel: 'EMAIL' | 'WHATSAPP'; recordId: string; messageId: string; subject?: string; text: string; status: string }> }>;
   customerEmail?: string;
+  customerPhone?: string;
+  smsSenderNumber?: string;
   memory?: ConversationMemory;
   startedAt: string;
   lastMessageAt: string;
@@ -548,6 +552,8 @@ export interface Message {
   deliveryStatus?: 'DELIVERED' | 'FAILED' | 'PENDING' | 'QUEUED' | string;
   emailDeliveredAt?: string;
   whatsappMessageId?: string;
+  providerMessageId?: string;
+  smsStatus?: string;
   websiteFormSubmissionId?: string;
   isWebsiteFormConfirmation?: boolean;
 }

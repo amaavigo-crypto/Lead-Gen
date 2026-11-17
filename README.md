@@ -28,7 +28,7 @@ Connect a mailbox under **Settings → Inbound mailbox**:
 All three use the **same** background poller and `processLiveInboundEmail` path: AI replies, CRM, Unified Inbox, demo scheduling, and auto follow-up behave the same.
 
 - Long-running server: `npm start` polls every ~30s.
-- Vercel / serverless: cron hits `/api/inbound-mail/cron` every 5 minutes (set `CRON_SECRET`).
+- Serverless hosting: use an external scheduler every 5 minutes for campaign processing, inbound-mail polling, and AI follow-ups (set `CRON_SECRET`). Vercel Cron is intentionally not used. See [deployment and scheduling](./docs/DEPLOYMENT_AND_SCHEDULING.md).
 
 ## Stack
 

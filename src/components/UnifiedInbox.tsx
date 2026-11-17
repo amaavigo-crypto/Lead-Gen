@@ -432,6 +432,8 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
   const renderChannelIcon = (channel: Channel, size = 4) => {
     const cls = `w-${size} h-${size}`;
     switch (channel) {
+      case 'SMS':
+        return <Smartphone className={cls + ' text-violet-500'} />;
       case 'WHATSAPP':
         return <MessageCircle className={`${cls} text-emerald-500`} />;
       case 'EMAIL':
@@ -449,6 +451,8 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
 
   const getChannelColor = (channel: Channel) => {
     switch (channel) {
+      case 'SMS':
+        return 'bg-violet-50 text-violet-800 border-violet-200';
       case 'WHATSAPP':
         return 'bg-emerald-50 text-emerald-800 border-emerald-200';
       case 'EMAIL':
@@ -490,6 +494,7 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
     FACEBOOK: conversations.filter((conv) => matchesChannel(conv, 'FACEBOOK')).length,
     INSTAGRAM: conversations.filter((conv) => matchesChannel(conv, 'INSTAGRAM')).length,
     LINKEDIN: conversations.filter((conv) => matchesChannel(conv, 'LINKEDIN')).length,
+    SMS: conversations.filter((conv) => matchesChannel(conv, 'SMS')).length,
   };
 
   // Filter conversations
@@ -712,6 +717,7 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
                 <select value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)} aria-label="Filter conversations by channel">
                   <option value="ALL">All channels</option>
                   <option value="EMAIL">Email</option>
+                  <option value="SMS">SMS</option>
                   <option value="WHATSAPP">WhatsApp</option>
                   <option value="WEBSITE">Website</option>
                   <option value="INSTAGRAM">Instagram</option>
@@ -1036,6 +1042,11 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
                             minute: '2-digit',
                           })}
                         </span>
+                        {msg.channel === 'SMS' && !isIncoming && msg.smsStatus && (
+                          <span className={msg.smsStatus === 'DELIVERED' ? 'font-semibold text-emerald-500' : msg.smsStatus === 'FAILED' ? 'font-semibold text-rose-500' : 'text-slate-400'}>
+                            {msg.smsStatus === 'DELIVERED' ? 'Delivered' : msg.smsStatus === 'FAILED' ? 'Failed' : 'Sent'}
+                          </span>
+                        )}
                       </div>
 
                       {/* Bubble */}

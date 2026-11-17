@@ -155,6 +155,11 @@ import { encryptSecret, decryptSecret } from './cryptoUtils.js';
 import { handleAgentApi } from './agentService.js';
 import { getTenantCurrentUsage, getTenantCurrentDailyEmailCount, getTenantUsageForDateRange, recordTenantUsage, recordAiCompletionUsage, checkTenantQuota, repriceTenantAiUsageEvents } from './usageService.js';
 import {
+  connectSmsProvider, getSmsSettings, refreshSmsCapabilities, disconnectSmsProvider,
+  sendSmsReply, routeSmsWebhook, createSmsCampaign, getSmsCampaigns,
+  runSmsCampaignWorkerCycle, recordSmsConsent, getSmsAnalytics, getSmsTemplates, saveSmsTemplate,
+} from './smsService.js';
+import {
   routeWebsiteLeadWebhook,
   routeWhatsAppWebhook,
   routeResendWebhook,
@@ -650,11 +655,45 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     const ig = await import('./instagramIntegrationService.js');
     return await ig.handleInstagramWebhook(req, res);
   }
+  const smsWebhookMatch = url.match(new RegExp('^/api/webhooks/sms/([^/?]+)/(inbound|status)$'));
+  if (smsWebhookMatch) {
+    return await routeSmsWebhook(req, res, smsWebhookMatch[1], smsWebhookMatch[2] === 'inbound' ? 'inbound' : 'status');
+  }
   if (url === '/api/webhooks/email/resend') {
     return await routeResendWebhook(req, res);
   }
 
   // =========================================================================
+  // SMS Marketing APIs use only the verified tenant context established above.
+  if (url.startsWith('/api/sms/')) {
+    try {
+      let result: any;
+      if (url === '/api/sms/settings' && req.method === 'GET') result = await getSmsSettings(activeTenantCtx);
+      else if (url === '/api/sms/connect' && req.method === 'POST') result = await connectSmsProvider(activeTenantCtx, body || {});
+      else if (url === '/api/sms/capabilities' && req.method === 'POST') result = await refreshSmsCapabilities(activeTenantCtx, body || {});
+      else if (url === '/api/sms/disconnect' && req.method === 'POST') result = await disconnectSmsProvider(activeTenantCtx);
+      else if (url === '/api/sms/send' && req.method === 'POST') result = await sendSmsReply(activeTenantCtx, body || {});
+      else if (url === '/api/sms/consent' && req.method === 'POST') result = await recordSmsConsent(activeTenantCtx, body || {});
+      else if (url === '/api/sms/templates' && req.method === 'GET') result = { templates: await getSmsTemplates(activeTenantCtx) };
+      else if (url === '/api/sms/templates' && req.method === 'POST') result = await saveSmsTemplate(activeTenantCtx, body || {});
+      else if (url === '/api/sms/campaigns' && req.method === 'GET') result = { campaigns: await getSmsCampaigns(activeTenantCtx) };
+      else if (url === '/api/sms/campaigns' && req.method === 'POST') result = await createSmsCampaign(activeTenantCtx, body || {});
+      else if (url === '/api/sms/analytics' && req.method === 'GET') result = await getSmsAnalytics(activeTenantCtx);
+      else {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ error: 'SMS endpoint not found.' }));
+        return true;
+      }
+      res.statusCode = 200;
+      res.end(JSON.stringify(result));
+    } catch (error: any) {
+      const message = String(error?.message || 'SMS operation failed.');
+      res.statusCode = /consent|opted out|valid E\.164|under 1,500|requires|must be/i.test(message) ? 400 : 502;
+      res.end(JSON.stringify({ success: false, error: message }));
+    }
+    return true;
+  }
+
   // MULTI-TENANT AUTH & USER ROUTING (Phase P1 / P6)
   // =========================================================================
   if (url === '/api/auth/me' && req.method === 'GET') {
@@ -1269,7 +1308,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
         const snap = await getDocs(collection(db, 'platform_feedback_submissions'));
         const submissions = snap.docs
           .map((entry) => ({ ...(entry.data() as Record<string, any>), id: entry.id }))
-          .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+          .sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
           .slice(0, 1000);
         res.statusCode = 200;
         res.end(JSON.stringify({ success: true, submissions }));
@@ -3028,6 +3067,7 @@ ${signature || defSig}`;
       INSTAGRAM: 'Write a natural, concise Instagram direct message. Keep it conversational and avoid email-style greetings, subject lines, and signatures.',
       FACEBOOK: 'Write a natural, concise Facebook Messenger reply. Keep it conversational and avoid email-style greetings, subject lines, and signatures.',
       LINKEDIN: 'Write a professional, concise LinkedIn message with a helpful business tone. Avoid email-style subject lines and lengthy signatures.',
+      SMS: 'Write a concise plain-text SMS. Keep it brief, natural, and within the message segment budget. Do not use markdown or an email signature.',
       WEBSITE: 'Write a friendly website-chat response. Answer directly, keep it easy to scan, and avoid email-style greetings, subject lines, and signatures.',
     };
 
@@ -4568,12 +4608,17 @@ ${signature || defSig}`;
         for (const t of snap.docs) {
           const data: any = t.data();
           if (data?.status === 'suspended') continue;
-          setCampaignActiveContext({ tenantId: t.id, uid: 'system-cron', email: '', role: 'admin' });
-          results.push({ tenantId: t.id, ...(await processActiveRunningCampaignsBatch(500)) });
+          const ctx: TenantContext = { tenantId: t.id, uid: 'system-cron', email: '', role: 'admin' };
+          setCampaignActiveContext(ctx);
+          const email = await processActiveRunningCampaignsBatch(500);
+          const sms = await runSmsCampaignWorkerCycle(ctx);
+          results.push({ tenantId: t.id, email, sms });
         }
       } else {
         setCampaignActiveContext(callerCtx!);
-        results.push({ tenantId: callerCtx!.tenantId, ...(await processActiveRunningCampaignsBatch(500)) });
+        const email = await processActiveRunningCampaignsBatch(500);
+        const sms = await runSmsCampaignWorkerCycle(callerCtx!);
+        results.push({ tenantId: callerCtx!.tenantId, email, sms });
       }
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/json');

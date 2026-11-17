@@ -153,11 +153,19 @@ const safeBackgroundPoll = async () => {
   }
 };
 
-// Start the tenant-specific mailbox poller. It only reads mailboxes registered to their own workspace.
-// No shared environment-backed IMAP mailbox is polled.
-startTenantMailboxPoller();
-setTimeout(safeBackgroundPoll, 2000);
-setInterval(safeBackgroundPoll, 30_000);
+// Keep worker execution configurable across hosting platforms.
+// - Always-on Node host with in-process workers: leave BACKGROUND_WORKERS_ENABLED unset/true.
+// - External scheduler: set BACKGROUND_WORKERS_ENABLED=false and call the secured worker endpoints
+//   documented in docs/DEPLOYMENT_AND_SCHEDULING.md. This avoids running both worker mechanisms.
+const backgroundWorkersEnabled = process.env.BACKGROUND_WORKERS_ENABLED !== 'false';
+if (backgroundWorkersEnabled) {
+  // The poller is tenant-scoped; no shared environment-backed IMAP mailbox is polled.
+  startTenantMailboxPoller();
+  setTimeout(safeBackgroundPoll, 2000);
+  setInterval(safeBackgroundPoll, 30_000);
+} else {
+  console.log('[Background workers] Disabled; the external scheduler must invoke the secured worker endpoints.');
+}
 
 // API route middleware
 app.use('/api', async (req, res, next) => {
