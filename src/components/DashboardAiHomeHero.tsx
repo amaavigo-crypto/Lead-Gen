@@ -1,8 +1,9 @@
 import React, { useRef, useState } from 'react';
-import { Activity, ArrowUpRight, File, History, Image, Loader2, MessageSquareText, Mic, MicOff, PanelLeftClose, PanelLeftOpen, Paperclip, Plus, X } from 'lucide-react';
+import { Activity, ArrowUpRight, File, History, Image, Loader2, MessageSquareText, Mic, PanelLeftClose, PanelLeftOpen, Paperclip, Plus, X } from 'lucide-react';
 import { useAgent } from '../context/AgentContext';
 import type { AgentAttachmentInput } from '../context/AgentContext';
 import { useSpeechToText } from '../hooks/useSpeechToText';
+import { VoiceRecordingControls } from './VoiceRecordingControls';
 import type { ActiveTab } from './Navbar';
 
 interface DashboardAiHomeHeroProps {
@@ -34,7 +35,7 @@ export const DashboardAiHomeHero: React.FC<DashboardAiHomeHeroProps> = ({ userNa
   const MAX_FILE_BYTES = 1.7 * 1024 * 1024;
   const MAX_TOTAL_BYTES = 2.5 * 1024 * 1024;
   const acceptedExtensions = new Set(['png','jpg','jpeg','webp','gif','pdf','csv','tsv','xls','xlsx','txt','md','json']);
-  const { isListening, error: dictationError, toggleListening, stopListening } = useSpeechToText((transcript) => {
+  const { isListening, interimTranscript, error: dictationError, toggleListening, stopListening } = useSpeechToText((transcript) => {
     setPrompt((current) => current.trim() ? current.trimEnd() + ' ' + transcript : transcript);
   });
 
@@ -202,8 +203,8 @@ export const DashboardAiHomeHero: React.FC<DashboardAiHomeHeroProps> = ({ userNa
               value={prompt}
               disabled={!canUseAi || sending || startingAgent}
               onChange={(event) => setPrompt(event.target.value)}
-              onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit(); } }}
-              placeholder="What would you like to accomplish today?"
+              onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); if (!isListening) void submit(); } }}
+              placeholder={isListening ? "Listening… speak naturally" : "What would you like to accomplish today?"}
               rows={2}
               maxLength={4000}
               aria-label="Ask your AI Agent"
@@ -214,15 +215,17 @@ export const DashboardAiHomeHero: React.FC<DashboardAiHomeHeroProps> = ({ userNa
                 <input ref={fileInputRef} type="file" multiple className="hidden" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.csv,.tsv,.xls,.xlsx,.txt,.md,.json" onChange={(event) => void addFiles(event.target.files)} />
                 <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach files" aria-label="Attach files" disabled={!canUseAi || sending || startingAgent || attachments.length >= MAX_FILES} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/15 text-blue-100/80 transition hover:bg-white/10 hover:text-white disabled:opacity-40"><Paperclip className="h-4 w-4" /></button>
               </div>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={toggleListening} title={isListening ? "Stop dictation" : "Dictate message"} aria-label={isListening ? "Stop dictation" : "Dictate message"} disabled={!canUseAi || sending || startingAgent} className={'inline-flex h-9 w-9 items-center justify-center rounded-full border transition disabled:cursor-not-allowed disabled:opacity-40 ' + (isListening ? 'border-blue-300/50 bg-blue-400/20 text-blue-100' : 'border-white/15 text-blue-100/80 hover:bg-white/10 hover:text-white')}>{isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}</button>
-                <button type="submit" disabled={!canUseAi || (!prompt.trim() && !attachments.length) || sending || startingAgent} aria-label="Send prompt to AI Agent" className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#0848ef] text-white shadow-[0_4px_16px_rgba(8,72,239,.35)] transition hover:bg-[#2864ff] disabled:cursor-not-allowed disabled:opacity-45">
-                  {sending || startingAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpRight className="h-4 w-4" />}
-                </button>
-              </div>
+              {isListening
+                ? <VoiceRecordingControls variant="dark" interimTranscript={interimTranscript} onStop={stopListening} />
+                : <div className="flex items-center gap-2">
+                    <button type="button" onClick={toggleListening} title="Dictate message" aria-label="Start dictation" disabled={!canUseAi || sending || startingAgent} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 text-blue-100/80 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"><Mic className="h-4 w-4" /></button>
+                    <button type="submit" disabled={!canUseAi || (!prompt.trim() && !attachments.length) || sending || startingAgent} aria-label="Send prompt to AI Agent" className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#0848ef] text-white shadow-[0_4px_16px_rgba(8,72,239,.35)] transition hover:bg-[#2864ff] disabled:cursor-not-allowed disabled:opacity-45">
+                      {sending || startingAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpRight className="h-4 w-4" />}
+                    </button>
+                  </div>}
             </div>
           </form>
-          {isListening && <div className="mt-2 text-left text-[10px] text-blue-100/70">Listening… Your speech will appear as editable text.</div>}
+
 
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
             <span className="mr-1 text-[9px] text-blue-100/55">Try asking</span>

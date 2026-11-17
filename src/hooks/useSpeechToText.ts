@@ -31,6 +31,7 @@ export function useSpeechToText(onTranscript: (transcript: string) => void) {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const onTranscriptRef = useRef(onTranscript);
   const [isListening, setIsListening] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -77,15 +78,23 @@ export function useSpeechToText(onTranscript: (transcript: string) => void) {
 
     recognition.lang = typeof navigator !== 'undefined' ? navigator.language || 'en-US' : 'en-US';
     recognition.continuous = true;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.onresult = (event) => {
       const finalParts: string[] = [];
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const interimParts: string[] = [];
+      for (let index = 0; index < event.results.length; index += 1) {
         const result = event.results[index];
-        if (result?.isFinal && result[0]?.transcript) finalParts.push(result[0].transcript.trim());
+        const transcript = result?.[0]?.transcript?.trim();
+        if (!transcript) continue;
+        if (result.isFinal) {
+          if (index >= event.resultIndex) finalParts.push(transcript);
+        } else {
+          interimParts.push(transcript);
+        }
       }
-      const transcript = finalParts.filter(Boolean).join(' ').trim();
-      if (transcript) onTranscriptRef.current(transcript);
+      setInterimTranscript(interimParts.join(' ').trim());
+      const finalTranscript = finalParts.join(' ').trim();
+      if (finalTranscript) onTranscriptRef.current(finalTranscript);
     };
     recognition.onerror = (event) => {
       const messages: Record<string, string> = {
@@ -96,10 +105,12 @@ export function useSpeechToText(onTranscript: (transcript: string) => void) {
       };
       setError(messages[event.error || ''] || 'Voice dictation stopped unexpectedly. Please try again.');
       if (recognitionRef.current === recognition) recognitionRef.current = null;
+      setInterimTranscript('');
       setIsListening(false);
     };
     recognition.onend = () => {
       if (recognitionRef.current === recognition) recognitionRef.current = null;
+      setInterimTranscript('');
       setIsListening(false);
     };
 
@@ -124,5 +135,5 @@ export function useSpeechToText(onTranscript: (transcript: string) => void) {
     }
   }, []);
 
-  return { isListening, error, toggleListening, stopListening };
+  return { isListening, interimTranscript, error, toggleListening, stopListening };
 }

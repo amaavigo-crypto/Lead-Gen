@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Activity, ArrowUpRight, Bot, Check, Database, File, FileDown, FileText, History, Image, Loader2, Mic, MicOff, PanelLeftClose, PanelLeftOpen, Paperclip, Plus, Send, Settings2, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { Activity, ArrowUpRight, Bot, Check, Database, File, FileDown, FileText, History, Image, Loader2, Mic, PanelLeftClose, PanelLeftOpen, Paperclip, Plus, Send, Settings2, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { useAgent, AgentAutonomy, AgentMessage, AgentArtifact, AgentAttachmentInput } from '../context/AgentContext';
 import { useSpeechToText } from '../hooks/useSpeechToText';
+import { VoiceRecordingControls } from './VoiceRecordingControls';
 import type { AppUser } from '../types';
 import { buildCampaignReportPdfDocument } from './CampaignReports';
 import type { CampaignReport } from './CampaignReports';
@@ -288,7 +289,7 @@ function ChatComposer({ moduleContext, compact }: { moduleContext: string; compa
   const [attachments, setAttachments] = useState<AgentAttachmentInput[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { isListening, error: dictationError, toggleListening, stopListening } = useSpeechToText((transcript) => {
+  const { isListening, interimTranscript, error: dictationError, toggleListening, stopListening } = useSpeechToText((transcript) => {
     setValue((current) => current.trim() ? current.trimEnd() + ' ' + transcript : transcript);
   });
   const MAX_FILES = 5;
@@ -361,11 +362,15 @@ function ChatComposer({ moduleContext, compact }: { moduleContext: string; compa
     <div className="agent-home-composer-frame flex items-end gap-2 rounded-2xl border border-orange-200 bg-white p-2 shadow-[0_0_24px_rgba(239,116,26,0.07)] focus-within:border-orange-400">
       <input ref={fileInputRef} type="file" multiple className="hidden" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.csv,.tsv,.xls,.xlsx,.txt,.md,.json" onChange={(event) => void addFiles(event.target.files)} />
       <button type="button" disabled={sending || attachments.length >= MAX_FILES} onClick={() => fileInputRef.current?.click()} className="agent-home-attach mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 disabled:opacity-40" title="Attach files" aria-label="Attach files"><Paperclip className="h-4 w-4" /></button>
-      <textarea value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }} rows={compact ? 2 : 2} placeholder="Message your AI Agent…" className="agent-home-composer-input max-h-32 min-h-[48px] flex-1 resize-y bg-transparent px-2 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-600" />
-      <button type="button" onClick={toggleListening} disabled={sending} className={'mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-35 ' + (isListening ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700')} title={isListening ? "Stop dictation" : "Dictate message"} aria-label={isListening ? "Stop dictation" : "Dictate message"}>{isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}</button>
-      <button type="button" disabled={(!value.trim() && !attachments.length) || sending} onClick={submit} className="agent-home-send mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-35" title="Send message" aria-label="Send message"><Send className="h-4 w-4" /></button>
+      <textarea value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isListening) submit(); } }} rows={compact ? 2 : 2} placeholder={isListening ? "Listening… speak naturally" : "Message your AI Agent…"} className="agent-home-composer-input max-h-32 min-h-[48px] flex-1 resize-y bg-transparent px-2 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-600" />
+      {isListening
+        ? <VoiceRecordingControls variant="light" interimTranscript={interimTranscript} onStop={stopListening} />
+        : <>
+            <button type="button" onClick={toggleListening} disabled={sending} className="mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 disabled:cursor-not-allowed disabled:opacity-35" title="Dictate message" aria-label="Start dictation"><Mic className="h-4 w-4" /></button>
+            <button type="button" disabled={(!value.trim() && !attachments.length) || sending} onClick={submit} className="agent-home-send mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-35" title="Send message" aria-label="Send message"><Send className="h-4 w-4" /></button>
+          </>}
     </div>
-    {(dictationError || isListening) && <div className={'mt-2 text-[10px] ' + (dictationError ? 'text-rose-600' : 'text-orange-700')}>{dictationError || 'Listening… Your speech will appear as editable text.'}</div>}
+    {dictationError && <div className="mt-2 text-[10px] text-rose-600">{dictationError}</div>}
     <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-slate-500"><span>Enter to send · Shift + Enter for a new line</span><span className="text-right">Images · PDFs · Spreadsheets · Text · JSON</span></div>
   </div>;
 }
