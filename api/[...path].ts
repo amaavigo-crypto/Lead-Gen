@@ -106,6 +106,31 @@ export default async function handler(req: IncomingMessage & { body?: any }, res
     return res.end();
   }
 
+  // Detect SEO page rewrites before reading Vercel's catch-all `path` parameter.
+  // The public-page rewrite carries p=/<route>; robots.txt and sitemap.xml carry kind=robots|sitemap.
+  // Vercel can reserve/overwrite the dynamic `path` key with the requested route (for example "login"),
+  // so these SEO markers must be handled independently of that key.
+  if (req.url) {
+    try {
+      const rewrittenUrl = new URL(req.url, 'http://localhost');
+      const query = (req as any).query || {};
+      const rawPagePath = rewrittenUrl.searchParams.get('p') ?? query.p;
+      const pagePath = Array.isArray(rawPagePath) ? rawPagePath[0] : rawPagePath;
+      const rawSeoKind = rewrittenUrl.searchParams.get('kind') ?? query.kind;
+      const seoKind = Array.isArray(rawSeoKind) ? rawSeoKind[0] : rawSeoKind;
+      const isSeoHtmlRequest = typeof pagePath === 'string' && pagePath.startsWith('/');
+      const isSeoAssetRequest = seoKind === 'robots' || seoKind === 'sitemap';
+
+      if (isSeoHtmlRequest || isSeoAssetRequest) {
+        const seoQuery = new URLSearchParams(rewrittenUrl.searchParams);
+        seoQuery.delete('path');
+        if (isSeoHtmlRequest && !seoQuery.has('p')) seoQuery.set('p', pagePath);
+        if (isSeoAssetRequest && !seoQuery.has('kind')) seoQuery.set('kind', seoKind);
+        req.url = `/api/seo-page${seoQuery.toString() ? `?${seoQuery.toString()}` : ''}`;
+      }
+    } catch {}
+  }
+
   // Normalize URL in case Vercel rewrote to catch-all query parameter
   if (req.url) {
     try {
