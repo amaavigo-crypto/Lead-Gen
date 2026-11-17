@@ -202,21 +202,21 @@ export const LeadScoringView: React.FC<LeadScoringViewProps> = ({ tenantId, canM
 
   return (
     <div className="marketing-studio-shell lead-scoring-module mx-auto max-w-[1440px]">
-      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+      <div className="marketing-studio-header lead-scoring-header">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-orange-600">
+          <div className="lead-scoring-eyebrow flex items-center gap-2 uppercase">
             <span className="h-2 w-2 rounded-full bg-orange-500" />
             Sales workspace
             <span className="text-slate-300">/</span>
             Lead Scoring
           </div>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">AI Lead Scoring</h1>
-          <p className="mt-1 max-w-2xl text-sm text-slate-500">
+          <h1>AI Lead Scoring</h1>
+          <p className="max-w-2xl">
             Configure how your workspace qualifies leads. AI evaluates profile details and conversation evidence against the criteria you approve.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className={'inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ' + (config.enabled
+          <span className={'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-semibold ' + (config.enabled
             ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
             : 'border-slate-200 bg-white text-slate-500')}>
             <span className={'h-2 w-2 rounded-full ' + (config.enabled ? 'bg-emerald-500' : 'bg-slate-400')} />
@@ -224,7 +224,7 @@ export const LeadScoringView: React.FC<LeadScoringViewProps> = ({ tenantId, canM
           </span>
           <button
             onClick={onBack}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
           >
             <ArrowLeft className="h-4 w-4" /> Back to CRM
           </button>
@@ -232,7 +232,7 @@ export const LeadScoringView: React.FC<LeadScoringViewProps> = ({ tenantId, canM
             <button
               onClick={save}
               disabled={saving}
-              className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 font-semibold text-white shadow-xs transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Save className="h-4 w-4" /> {saving ? 'Saving…' : 'Save configuration'}
             </button>
