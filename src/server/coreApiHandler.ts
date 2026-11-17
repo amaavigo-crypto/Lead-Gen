@@ -60,6 +60,16 @@ import {
 } from './campaignService.js';
 import { processWebsiteLeadSubmission } from './websiteLeadService.js';
 import {
+  BusinessCardDuplicateError,
+  convertBusinessCardContactToLead,
+  deleteBusinessCardContact,
+  extractBusinessCard,
+  getBusinessCardScan,
+  listBusinessCardContacts,
+  saveBusinessCardContact,
+  updateBusinessCardContact,
+} from './businessCardService.js';
+import {
   createLeadDatabase,
   deleteLeadDatabase,
   getCampaignDatabaseSnapshot,
@@ -3827,6 +3837,121 @@ ${signature || defSig}`;
     } catch (err: any) {
       res.statusCode = 400;
       res.end(JSON.stringify({ success: false, error: err?.message || 'Could not delete email design.' }));
+    }
+    return true;
+  }
+
+  // Business Card Reader. All reads and writes are scoped to the authenticated workspace.
+  if (url === '/api/business-cards' && req.method === 'GET') {
+    try {
+      const params = new URL(rawUrl || '/', 'http://localhost').searchParams;
+      const contacts = await listBusinessCardContacts(activeTenantCtx, params.get('q') || '');
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, contacts }));
+    } catch (err: any) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: err?.message || 'Could not load business card contacts.' }));
+    }
+    return true;
+  }
+
+  if (url === '/api/business-cards/extract' && req.method === 'POST') {
+    try {
+      const scan = await extractBusinessCard(activeTenantCtx, {
+        fileName: String(body?.fileName || 'business-card'),
+        mimeType: String(body?.mimeType || ''),
+        dataUrl: String(body?.dataUrl || ''),
+      });
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, ...scan }));
+    } catch (err: any) {
+      res.statusCode = 422;
+      res.end(JSON.stringify({ error: err?.message || 'Could not read this business card.' }));
+    }
+    return true;
+  }
+
+  if (url === '/api/business-cards/save' && req.method === 'POST') {
+    try {
+      const contact = await saveBusinessCardContact(activeTenantCtx, {
+        scanId: String(body?.scanId || ''),
+        fields: body?.fields || {},
+        allowDuplicate: body?.allowDuplicate === true,
+      });
+      res.statusCode = 201;
+      res.end(JSON.stringify({ success: true, contact }));
+    } catch (err: any) {
+      if (err instanceof BusinessCardDuplicateError) {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ error: err.message, duplicates: err.duplicates }));
+      } else {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: err?.message || 'Could not save this business card contact.' }));
+      }
+    }
+    return true;
+  }
+
+  const businessCardScanMatch = url.match(/^\/api\/business-cards\/scans\/([a-zA-Z0-9_-]+)$/);
+  if (businessCardScanMatch && req.method === 'GET') {
+    try {
+      const scan = await getBusinessCardScan(activeTenantCtx, businessCardScanMatch[1]);
+      if (!scan) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ error: 'Business card scan not found.' }));
+      } else {
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, scan }));
+      }
+    } catch (err: any) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: err?.message || 'Could not open the original business card.' }));
+    }
+    return true;
+  }
+
+  const businessCardConvertMatch = url.match(/^\/api\/business-cards\/contacts\/([a-zA-Z0-9_-]+)\/convert-to-lead$/);
+  if (businessCardConvertMatch && req.method === 'POST') {
+    try {
+      const result = await convertBusinessCardContactToLead(activeTenantCtx, businessCardConvertMatch[1]);
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, ...result }));
+    } catch (err: any) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: err?.message || 'Could not convert this contact to a CRM lead.' }));
+    }
+    return true;
+  }
+
+  const businessCardContactMatch = url.match(/^\/api\/business-cards\/contacts\/([a-zA-Z0-9_-]+)$/);
+  if (businessCardContactMatch && req.method === 'PATCH') {
+    try {
+      const contact = await updateBusinessCardContact(activeTenantCtx, businessCardContactMatch[1], {
+        fields: body?.fields || {},
+        allowDuplicate: body?.allowDuplicate === true,
+      });
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, contact }));
+    } catch (err: any) {
+      if (err instanceof BusinessCardDuplicateError) {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ error: err.message, duplicates: err.duplicates }));
+      } else {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: err?.message || 'Could not update this contact.' }));
+      }
+    }
+    return true;
+  }
+
+  if (businessCardContactMatch && req.method === 'DELETE') {
+    try {
+      await deleteBusinessCardContact(activeTenantCtx, businessCardContactMatch[1]);
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true }));
+    } catch (err: any) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: err?.message || 'Could not delete this contact.' }));
     }
     return true;
   }

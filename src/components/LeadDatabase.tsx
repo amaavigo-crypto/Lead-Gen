@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BusinessCardReader } from './BusinessCardReader';
 import {
   AlertCircle, ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, ChevronLeft,
   Clock3, Database as DatabaseIcon, Download, FileCheck2, FileSpreadsheet, Filter,
   History, Info, Loader2, Pencil, Plus, RefreshCw, Search, Settings2, ShieldCheck,
-  Trash2, Upload, Users, X, Zap,
+  Trash2, Upload, Users, X, Zap, ScanLine,
 } from 'lucide-react';
 
 type DatabaseSummary = {
@@ -124,7 +125,8 @@ const StatCard: React.FC<{ label: string; value: string; helper: string; icon: R
   );
 
 export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }) => {
-  const [activeSection, setActiveSection] = useState<'databases' | 'all-leads'>('databases');
+  const [activeSection, setActiveSection] = useState<'databases' | 'all-leads' | 'business-cards'>('databases');
+  const [autoOpenBusinessCardScanner, setAutoOpenBusinessCardScanner] = useState(false);
   const [selectedDatabase, setSelectedDatabase] = useState<DatabaseSummary | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<'leads' | 'imports' | 'settings' | 'usage'>('leads');
   const [databases, setDatabases] = useState<DatabaseSummary[]>([]);
@@ -430,7 +432,7 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
   const latestImportCount = databases.filter((database) => database.updatedAt && Date.now() - new Date(database.updatedAt).getTime() < 7 * 86400000).length;
   const totalLeads = databases.reduce((sum, database) => sum + Number(database.totalLeads || 0), 0);
   const emailReady = databases.reduce((sum, database) => sum + Number(database.emailEligibleCount || 0), 0);
-  const pageTitle = selectedDatabase && activeSection === 'databases' ? selectedDatabase.name : activeSection === 'all-leads' ? 'All leads' : 'Lead Database';
+  const pageTitle = activeSection === 'business-cards' ? 'Business Card Reader' : selectedDatabase && activeSection === 'databases' ? selectedDatabase.name : activeSection === 'all-leads' ? 'All leads' : 'Lead Database';
 
   const searchBar = (
     <div className="lead-db-search">
@@ -449,17 +451,20 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
             {selectedDatabase && activeSection === 'databases' && <button className="lead-db-icon-button" onClick={() => { setSelectedDatabase(null); setSearch(''); setWorkspaceTab('leads'); }} title="Back to databases"><ArrowLeft size={17} /></button>}
             <div>
               <h1>{pageTitle}</h1>
-              <p>{selectedDatabase && activeSection === 'databases' ? (selectedDatabase.description || 'Reusable lead collection for your campaign workflows.') : activeSection === 'all-leads' ? 'A searchable view of every saved lead across your workspace databases.' : 'Organise reusable lead lists, validate imports and select clean audiences for campaigns.'}</p>
+              <p>{activeSection === 'business-cards' ? 'Scan physical business cards, review AI-extracted details and save contacts to your workspace.' : selectedDatabase && activeSection === 'databases' ? (selectedDatabase.description || 'Reusable lead collection for your campaign workflows.') : activeSection === 'all-leads' ? 'A searchable view of every saved lead across your workspace databases.' : 'Organise reusable lead lists, validate imports and select clean audiences for campaigns.'}</p>
             </div>
           </div>
         </div>
         <div className="lead-db-heading-actions">
-          <button className="lead-db-button lead-db-button--secondary" onClick={refresh} disabled={isRefreshing}>{isRefreshing ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />} Refresh</button>
+          {activeSection !== 'business-cards' && <button className="lead-db-button lead-db-button--secondary" onClick={refresh} disabled={isRefreshing}>{isRefreshing ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />} Refresh</button>}
           {selectedDatabase && activeSection === 'databases' ? <>
             <button className="lead-db-button lead-db-button--secondary" onClick={() => downloadAllLeads(selectedDatabase.databaseId, search)}><Download size={16} /> Export</button>
             <button className="lead-db-button lead-db-button--primary" onClick={() => openImport(selectedDatabase)}><Upload size={16} /> Import leads</button>
-          </> : activeSection === 'databases' ? <button className="lead-db-button lead-db-button--primary" onClick={() => setCreateOpen(true)}><Plus size={17} /> Create database</button> :
-            <button className="lead-db-button lead-db-button--secondary" onClick={() => downloadAllLeads(undefined, search)}><Download size={16} /> Export leads</button>}
+          </> : activeSection === 'databases' ? <>
+            <button className="lead-db-button lead-db-button--secondary" onClick={() => { setActiveSection('business-cards'); setAutoOpenBusinessCardScanner(true); }}><ScanLine size={16} /> Scan business card</button>
+            <button className="lead-db-button lead-db-button--primary" onClick={() => setCreateOpen(true)}><Plus size={17} /> Create database</button>
+          </> : activeSection === 'all-leads' ?
+            <button className="lead-db-button lead-db-button--secondary" onClick={() => downloadAllLeads(undefined, search)}><Download size={16} /> Export leads</button> : null}
         </div>
       </div>
 
@@ -475,8 +480,9 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
         </div>
         <div className="lead-db-toolbar">
           <div className="lead-db-view-tabs">
-            <button className="is-active" onClick={() => { setActiveSection('databases'); setSelectedDatabase(null); }}><DatabaseIcon size={15} /> Databases</button>
+            <button className={activeSection === 'databases' ? 'is-active' : ''} onClick={() => { setActiveSection('databases'); setSelectedDatabase(null); }}><DatabaseIcon size={15} /> Databases</button>
             <button onClick={() => { setActiveSection('all-leads'); setSelectedDatabase(null); setSearch(''); setDatabaseFilter(''); }}><Users size={15} /> All leads</button>
+            <button className={activeSection === 'business-cards' ? 'is-active' : ''} onClick={() => { setActiveSection('business-cards'); setSelectedDatabase(null); setSearch(''); }}><ScanLine size={15} /> Business cards</button>
           </div>
           <span className="lead-db-muted-label">{databases.length} collections</span>
         </div>
@@ -520,7 +526,8 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
         <div className="lead-db-toolbar">
           <div className="lead-db-view-tabs">
             <button onClick={() => { setActiveSection('databases'); setSelectedDatabase(null); setSearch(''); }}><DatabaseIcon size={15} /> Databases</button>
-            <button className="is-active"><Users size={15} /> All leads</button>
+            <button className={activeSection === 'all-leads' ? 'is-active' : ''} onClick={() => { setActiveSection('all-leads'); setSelectedDatabase(null); }}><Users size={15} /> All leads</button>
+            <button className={activeSection === 'business-cards' ? 'is-active' : ''} onClick={() => { setActiveSection('business-cards'); setSelectedDatabase(null); setSearch(''); }}><ScanLine size={15} /> Business cards</button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="lead-db-search lead-db-search--compact">{searchBar.props.children}</div>
@@ -532,6 +539,21 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
           <LeadTable leads={leads} allLeads loading={isLoading} />
           <Pagination nextCursor={nextCursor} loading={isLoadingMore} onMore={() => loadEntries(true)} />
         </div>
+      </>}
+
+      {activeSection === 'business-cards' && <>
+        <div className="lead-db-toolbar">
+          <div className="lead-db-view-tabs">
+            <button onClick={() => { setActiveSection('databases'); setSelectedDatabase(null); setAutoOpenBusinessCardScanner(false); }}><DatabaseIcon size={15} /> Databases</button>
+            <button onClick={() => { setActiveSection('all-leads'); setSelectedDatabase(null); setAutoOpenBusinessCardScanner(false); }}><Users size={15} /> All leads</button>
+            <button className="is-active"><ScanLine size={15} /> Business cards</button>
+          </div>
+        </div>
+        <BusinessCardReader
+          tenantId={tenantId}
+          autoOpenScanner={autoOpenBusinessCardScanner}
+          onAutoOpenHandled={() => setAutoOpenBusinessCardScanner(false)}
+        />
       </>}
 
       {selectedDatabase && activeSection === 'databases' && <>

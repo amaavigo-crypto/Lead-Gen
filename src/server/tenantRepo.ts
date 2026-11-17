@@ -68,6 +68,12 @@ export function tenantRepo(ctx: TenantContext) {
     leadDatabaseImports: () => collection(db, `${tenantDocPath}/lead_database_imports`),
     leadDatabaseImportDoc: (id: string) => doc(db, `${tenantDocPath}/lead_database_imports`, id),
 
+    // Dedicated tenant-scoped Business Card Reader collections.
+    businessCardContacts: () => collection(db, `${tenantDocPath}/business_card_contacts`),
+    businessCardContactDoc: (id: string) => doc(db, `${tenantDocPath}/business_card_contacts`, id),
+    businessCardScans: () => collection(db, `${tenantDocPath}/business_card_scans`),
+    businessCardScanDoc: (id: string) => doc(db, `${tenantDocPath}/business_card_scans`, id),
+
     campaignRuns: () => collection(db, `${tenantDocPath}/campaign_runs`),
     campaignRunDoc: (id: string) => doc(db, `${tenantDocPath}/campaign_runs`, id),
 
