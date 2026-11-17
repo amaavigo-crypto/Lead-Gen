@@ -6,7 +6,7 @@
   "fluid": true,
   "functions": {
     "api/**/*.ts": {
-      "includeFiles": "src/{server,firebase}/**",
+      "includeFiles": "{src/{server,firebase}/**,dist/index.html}",
       "maxDuration": 300
     }
   },
@@ -50,8 +50,16 @@
       "destination": "/api/[...path]"
     },
     {
+      "source": "/robots.txt",
+      "destination": "/api/page?kind=robots"
+    },
+    {
+      "source": "/sitemap.xml",
+      "destination": "/api/page?kind=sitemap"
+    },
+    {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "destination": "/api/page?p=/$1"
     }
   ]
 }

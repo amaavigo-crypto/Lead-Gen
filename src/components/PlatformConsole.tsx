@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { LegalEditor } from './LegalEditor';
+const SeoSettingsEditor = React.lazy(() => import('./SeoSettingsEditor'));
 import {
   Building2,
   Plus,
@@ -146,7 +147,7 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [view, setView] = useState<'workspaces' | 'feedback' | 'plans' | 'legal'>('workspaces');
+  const [view, setView] = useState<'workspaces' | 'feedback' | 'plans' | 'legal' | 'seo'>('workspaces');
   const [feedbackItems, setFeedbackItems] = useState<FeedbackSubmission[]>([]);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
@@ -301,13 +302,13 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-5">
         <div className="inline-flex rounded-lg bg-slate-200/60 p-1 text-sm font-semibold">
-          {(['workspaces', 'feedback', 'plans', 'legal'] as const).map((v) => (
+          {(['workspaces', 'feedback', 'plans', 'legal', 'seo'] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
               className={`px-4 py-1.5 rounded-md capitalize ${view === v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
             >
-              {v === 'feedback' ? 'Ideas & Bugs' : v}
+              {v === 'feedback' ? 'Ideas & Bugs' : v === 'seo' ? 'Website SEO' : v}
               {v === 'feedback' && feedbackItems.some((item) => item.status === 'NEW') && <span className="ml-1.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-bold text-rose-700">{feedbackItems.filter((item) => item.status === 'NEW').length}</span>}
             </button>
           ))}
@@ -323,6 +324,14 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
       {view === 'legal' && (
         <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
           <LegalEditor />
+        </main>
+      )}
+
+      {view === 'seo' && (
+        <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+          <React.Suspense fallback={<div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading Website SEO…</div>}>
+            <SeoSettingsEditor />
+          </React.Suspense>
         </main>
       )}
 

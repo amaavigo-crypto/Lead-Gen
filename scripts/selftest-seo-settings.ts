@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import { SEO_PAGES, EMPTY_SEO_SETTINGS, normaliseSeoSettings, resolveSeo, SeoSettingsValidationError } from '../src/shared/seoSettings.js';
+import { renderSeoHtml, robotsTxt } from '../src/server/seoPage.js';
+
+assert.equal(new Set(SEO_PAGES.map((page) => page.path)).size, SEO_PAGES.length, 'SEO paths must be unique');
+assert.ok(SEO_PAGES.some((page) => page.path === '/'), 'home page must be registered');
+assert.equal(resolveSeo(EMPTY_SEO_SETTINGS, '/')?.noindex, false);
+const cleaned = normaliseSeoSettings({ '/': { title: '  Custom title  ', noindex: true }, '/not-a-page': { title: 'Ignored' } });
+assert.equal(cleaned['/'].title, 'Custom title');
+assert.equal(cleaned['/'].noindex, true);
+assert.equal(cleaned['/not-a-page'], undefined);
+assert.throws(() => normaliseSeoSettings({ '/': { ogImage: 'javascript:alert(1)' } }), SeoSettingsValidationError);
+assert.throws(() => normaliseSeoSettings({ '/': { canonicalPath: 'bad-path' } }), SeoSettingsValidationError);
+const seo = resolveSeo(cleaned, '/')!;
+const html = renderSeoHtml('<!doctype html><html><head><title>Old</title><meta name="description" content="old" /></head><body></body></html>', '/', 'https://example.com', seo);
+assert.ok(html.includes('<title>Custom title</title>'));
+assert.ok(html.includes('name="robots" content="noindex, nofollow"'));
+assert.ok(html.includes('rel="canonical" href="https://example.com/"'));
+assert.ok(html.includes('application/ld+json'));
+assert.ok(!html.includes('<title>Old</title>'));
+assert.ok(robotsTxt('https://example.com').includes('Sitemap: https://example.com/sitemap.xml'));
+console.log('All website SEO checks passed.');

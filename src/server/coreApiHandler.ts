@@ -298,6 +298,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   // =========================================================================
   const isPublicPath =
     url === '/api/health' ||
+    (req.method === 'GET' && url === '/api/site-seo') ||
     (req.method === 'GET' && url === '/api/public/plans') ||
     // Public asset raw/view streaming for email clients
     (req.method === 'GET' && /^\/api\/assets\/[^/]+\/view$/.test(url)) ||
@@ -715,6 +716,49 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       })
     );
     return true;
+  }
+
+  // =========================================================================
+  // WEBSITE SEO: published settings are public; all management actions are platform-admin only.
+  // =========================================================================
+  if (url === '/api/site-seo' || url === '/api/platform/site-seo' || url.startsWith('/api/platform/site-seo/')) {
+    const seo = await import('./seoSettingsService.js');
+    const path = url.split('?')[0];
+    const send = (status: number, payload: unknown) => {
+      res.statusCode = status;
+      res.end(JSON.stringify(payload));
+      return true;
+    };
+    try {
+      if (path === '/api/site-seo') {
+        if (req.method !== 'GET') return send(405, { error: 'Method not allowed' });
+        res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=300');
+        return send(200, (await seo.getPublishedSeoSettings()).seo);
+      }
+      if (!isPlatformAdmin) return send(403, { error: 'Platform admin only' });
+      if (!isFirebaseConfigured || !db) return send(503, { error: 'Database is not configured' });
+      const by = userEmail || userUid;
+      if (path === '/api/platform/site-seo' && req.method === 'GET') {
+        return send(200, await seo.getSeoSettingsAdminView());
+      }
+      const action = path.startsWith('/api/platform/site-seo/') ? path.slice('/api/platform/site-seo/'.length) : '';
+      if (!['draft', 'discard', 'publish', 'versions', 'restore'].includes(action)) return send(404, { error: 'Not found' });
+      if (action === 'versions' && req.method === 'GET') {
+        return send(200, { versions: await seo.listSeoVersions() });
+      }
+      if (req.method !== 'POST') return send(405, { error: 'Method not allowed' });
+      if (action === 'draft') return send(200, await seo.saveSeoDraft(body && body.seo, by));
+      if (action === 'discard') return send(200, await seo.discardSeoDraft());
+      if (action === 'publish') return send(200, await seo.publishSeoSettings(by, body && body.seo));
+      if (action === 'restore') return send(200, await seo.restoreSeoVersion(Number(body?.version), by));
+      return send(404, { error: 'Not found' });
+    } catch (err: any) {
+      if (err instanceof (await import('./../shared/seoSettings.js')).SeoSettingsValidationError) {
+        return send(400, { error: err.message });
+      }
+      console.error('[Website SEO] request failed:', err);
+      return send(500, { error: 'Could not process website SEO settings' });
+    }
   }
 
   // =========================================================================

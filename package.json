@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build && esbuild src/server/coreApiHandler.ts --bundle --platform=node --format=esm --outfile=api/core-server.bundle.js --banner:js=\"import { createRequire as __cr } from 'module'; import { fileURLToPath as __fu } from 'url'; import { dirname as __dn } from 'path'; const require = __cr(import.meta.url); const __filename = __fu(import.meta.url); const __dirname = __dn(__filename);\" --external:imapflow --external:mailparser --external:nodemailer --external:mongodb",
+    "build": "vite build && esbuild src/server/coreApiHandler.ts --bundle --platform=node --format=esm --outfile=api/core-server.bundle.js --banner:js=\"import { createRequire as __cr } from 'module'; import { fileURLToPath as __fu } from 'url'; import { dirname as __dn } from 'path'; const require = __cr(import.meta.url); const __filename = __fu(import.meta.url); const __dirname = __dn(__filename);\" --external:imapflow --external:mailparser --external:nodemailer --external:mongodb && esbuild src/server/seoPage.ts --bundle --platform=node --format=esm --outfile=api/_seo-page.bundle.js --banner:js=\"import { createRequire as __cr } from 'module'; import { fileURLToPath as __fu } from 'url'; import { dirname as __dn } from 'path'; const require = __cr(import.meta.url); const __filename = __fu(import.meta.url); const __dirname = __dn(__filename);\" --external:imapflow --external:mailparser --external:nodemailer --external:mongodb",
     "start": "tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
@@ -20,7 +20,8 @@
     "test:mongo": "tsx scripts/selftest-mongo-layer.ts",
     "test:client-db": "tsx scripts/selftest-client-db.ts",
     "migrate:mongo": "tsx scripts/migrate-firestore-to-mongo.ts",
-    "mongo:indexes": "tsx scripts/mongo-ensure-indexes.ts"
+    "mongo:indexes": "tsx scripts/mongo-ensure-indexes.ts",
+    "test:seo": "tsx scripts/selftest-seo-settings.ts"
   },
   "dependencies": {
     "@codemirror/lang-html": "^6.4.12",

@@ -174,16 +174,37 @@ app.use('/api', async (req, res, next) => {
   }
 });
 
-// Serve frontend static assets from dist
+// Serve frontend assets directly; every page route goes through the SEO renderer.
 const distPath = path.join(__dirname, 'dist');
-app.use(express.static(distPath));
+app.use(express.static(distPath, { index: false }));
 
-// SPA catch-all fallback
-app.get('*', (req, res) => {
-  if (req.url.startsWith('/api')) {
-    return res.status(404).json({ error: 'API route not found' });
+import fs from 'fs';
+import { renderSeoPage, robotsTxt, sitemapXml, siteOrigin } from './src/server/seoPage.js';
+
+let appTemplate: string | null = null;
+const loadAppTemplate = (): string => {
+  if (appTemplate) return appTemplate;
+  const file = path.join(distPath, 'index.html');
+  if (!fs.existsSync(file)) throw new Error('dist/index.html not found. Run npm run build first.');
+  appTemplate = fs.readFileSync(file, 'utf8');
+  return appTemplate;
+};
+
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send(robotsTxt(siteOrigin(req.headers)));
+});
+app.get('/sitemap.xml', async (req, res) => {
+  res.type('application/xml').send(await sitemapXml(siteOrigin(req.headers)));
+});
+
+app.get('*', async (req, res) => {
+  if (req.url.startsWith('/api')) return res.status(404).json({ error: 'API route not found' });
+  try {
+    res.type('html').send(await renderSeoPage(loadAppTemplate(), req.path, siteOrigin(req.headers)));
+  } catch (err: any) {
+    console.error('[Server] Could not render the app page:', err);
+    res.status(500).send('Service temporarily unavailable');
   }
-  res.sendFile(path.join(distPath, 'index.html'));
 });
 
 app.listen(PORT, '0.0.0.0', () => {
