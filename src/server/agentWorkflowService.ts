@@ -850,6 +850,10 @@ export async function restartExistingAgentCampaign(
     output: { needsClarification: true, campaignId: selected.campaignId, campaignName: selected.name, status, pendingCount: pending, failedCount: failed, message: 'This campaign still has pending recipients. Retrying failures now would also resume pending delivery. Would you like to resume all pending work, or wait until pending work finishes before retrying failures?' },
     artifact: { type: 'campaign_control_choice' },
   };
+  if (action !== 'retry_failed' && pending === 0 && failed > 0) return {
+    output: { needsClarification: true, campaignId: selected.campaignId, campaignName: selected.name, status, pendingCount: pending, failedCount: failed, message: 'There is no pending delivery left, but some recipients failed. Would you like me to retry only those failed recipients, or leave the campaign unchanged?' },
+    artifact: { type: 'campaign_control_choice' },
+  };
   if (action === 'retry_failed' && failed === 0) return {
     output: { success: true, noFailedRecipients: true, campaignId: selected.campaignId, campaignName: selected.name, status, message: 'There are no failed recipients to retry. No campaign state was changed.' },
   };
