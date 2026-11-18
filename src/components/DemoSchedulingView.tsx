@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useBrand } from '../context/BrandContext';
+import { ModuleShell, ModuleStatGrid } from './ModulePage';
 import type { TenantBrand } from '../shared/brand';
 import { DAY_NAMES, brandTzLabel, brandWorkingDaysLabel, brandWorkingWindowLabel, fmtHour, workingHoursForDay, timezoneLabelFor } from '../shared/brand';
 import {
@@ -849,25 +850,30 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
   };
 
   return (
-    <div data-umrah360-module="scheduling" className="demo-scheduling-workspace ai-suite-module">
-      <header className="schedule-page-header">
-        <div className="schedule-heading">
-          <div className="schedule-heading-icon"><CalendarDays className="h-5 w-5" /></div>
-          <div><div className="schedule-eyebrow">AI &amp; AUTOMATION</div><h1>Demo Scheduling Agent</h1><p>Qualify demo requests, manage availability and book meetings from one workspace.</p></div>
-        </div>
-        <div className="schedule-header-actions">
+    <ModuleShell
+      moduleId="scheduling"
+      className="ai-suite-module"
+      icon={CalendarDays}
+      title="Demo Scheduling Agent"
+      subtitle="Qualify demo requests, manage availability and book meetings from one workspace."
+      actions={<>
           <div className={'schedule-calendar-connection ' + (calendarConnected ? 'is-connected' : 'is-disconnected')}><span className="schedule-connection-dot" /><span>{calendarConnected ? (calendarProvider === 'microsoft' ? 'Microsoft Teams connected' : 'Google Meet connected') : 'Calendar not connected'}</span></div>
           <button type="button" className="schedule-primary-button" onClick={() => { const nextSlot = calendarSlots.find((slot) => slot.startIso && Date.parse(slot.startIso) > Date.now()); if (nextSlot) chooseSlot(nextSlot); else setActiveView('CALENDAR'); }} disabled={!calendarConnected || (isLoadingSlots && calendarSlots.length === 0)}><CalendarDays className="h-4 w-4" /> Book Demo</button>
-        </div>
-      </header>
-
-      <section className="schedule-stats-grid" aria-label="Meeting overview">
-        <button type="button" className="schedule-stat-card" onClick={() => { setActiveView('CALENDAR'); setCalendarMode('DAY'); setCalendarAnchorDate(todayKey); }}><span className="schedule-stat-icon violet"><CalendarDays className="h-4 w-4" /></span><span className="schedule-stat-copy"><span>Today's meetings</span><strong>{bookingStats.today}</strong></span><span className="schedule-stat-foot">Scheduled for today</span></button>
-        <button type="button" className="schedule-stat-card" onClick={() => { setActiveView('CALENDAR'); setCalendarMode('WEEK'); goToToday(); }}><span className="schedule-stat-icon blue"><Calendar className="h-4 w-4" /></span><span className="schedule-stat-copy"><span>This week</span><strong>{bookingStats.thisWeek}</strong></span><span className="schedule-stat-foot">Upcoming this week</span></button>
-        <button type="button" className="schedule-stat-card" onClick={() => { setActiveView('BOOKINGS'); setBookingStatusFilter('UPCOMING'); }}><span className="schedule-stat-icon green"><CheckCircle2 className="h-4 w-4" /></span><span className="schedule-stat-copy"><span>Upcoming</span><strong>{bookingStats.upcoming}</strong></span><span className="schedule-stat-foot">Booked or rescheduled</span></button>
-        <button type="button" className="schedule-stat-card" onClick={() => { setActiveView('BOOKINGS'); setBookingStatusFilter('COMPLETED'); }}><span className="schedule-stat-icon teal"><ClipboardList className="h-4 w-4" /></span><span className="schedule-stat-copy"><span>Completed</span><strong>{bookingStats.completed}</strong></span><span className="schedule-stat-foot">Past completed meetings</span></button>
-        <button type="button" className="schedule-stat-card" onClick={() => { setActiveView('BOOKINGS'); setBookingStatusFilter('CANCELLED'); }}><span className="schedule-stat-icon rose"><XCircle className="h-4 w-4" /></span><span className="schedule-stat-copy"><span>Cancelled</span><strong>{bookingStats.cancelled}</strong></span><span className="schedule-stat-foot">Cancelled bookings</span></button>
-      </section>
+        </>}
+      eyebrow="AI & Automation"
+    >
+    <div className="demo-scheduling-workspace mp-inner">
+      <ModuleStatGrid
+        label="Meeting overview"
+        stats={[
+          { label: "Today's meetings", value: bookingStats.today, icon: CalendarDays, tile: 'bg-violet-50 text-violet-600', note: 'Scheduled for today', onClick: () => { setActiveView('CALENDAR'); setCalendarMode('DAY'); setCalendarAnchorDate(todayKey); } },
+          { label: 'This week', value: bookingStats.thisWeek, icon: Calendar, tile: 'bg-sky-50 text-sky-600', note: 'Upcoming this week', onClick: () => { setActiveView('CALENDAR'); setCalendarMode('WEEK'); goToToday(); } },
+          { label: 'Upcoming', value: bookingStats.upcoming, icon: CheckCircle2, tile: 'bg-emerald-50 text-emerald-600', note: 'Booked or rescheduled', onClick: () => { setActiveView('BOOKINGS'); setBookingStatusFilter('UPCOMING'); } },
+          { label: 'Completed', value: bookingStats.completed, icon: ClipboardList, tile: 'bg-teal-50 text-teal-600', note: 'Past completed meetings', onClick: () => { setActiveView('BOOKINGS'); setBookingStatusFilter('COMPLETED'); } },
+          { label: 'Cancelled', value: bookingStats.cancelled, icon: XCircle, tile: 'bg-rose-50 text-rose-600', note: 'Cancelled bookings', onClick: () => { setActiveView('BOOKINGS'); setBookingStatusFilter('CANCELLED'); } },
+        ]}
+      />
+      <div className="h-6" />
 
       <nav className="schedule-workspace-tabs" aria-label="Scheduling sections">
         {([
@@ -1129,5 +1135,6 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
         </div>
       )}
     </div>
+    </ModuleShell>
   );
 };

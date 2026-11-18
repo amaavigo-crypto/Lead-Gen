@@ -3,6 +3,7 @@ import { Image as ImageIcon, LayoutTemplate, Mail, MessageCircle } from 'lucide-
 import { EmailDesignStudio } from './EmailDesignStudio';
 import { WhatsAppTemplatesPanel } from './WhatsAppTemplatesPanel';
 import { CompanyAssetsPanel } from './CompanyAssetsPanel';
+import { ModuleShell, ModuleCard, ModuleChips } from './ModulePage';
 
 export type TemplateStudioSection = 'conversation' | 'campaign' | 'website-thankyou' | 'whatsapp' | 'assets';
 
@@ -63,37 +64,27 @@ export const TemplateStudio: React.FC<Props> = ({
   };
 
   return (
-    <div className="marketing-studio-shell space-y-4">
-      <div className="marketing-studio-header">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-600">Amaavigo Workspace</div>
-            <h1 className="mt-1 text-xl font-extrabold tracking-tight text-slate-900">Template Studio</h1>
-            <p className="mt-1 text-xs text-slate-500">Create and manage branded communication templates from one workspace.</p>
-          </div>
-        </div>
-        <div className="marketing-studio-tabs" role="tablist" aria-label="Template workspace sections">
-          {SECTIONS.map((item) => {
-            const active = section === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => changeSection(item.id)}
-                className={'marketing-studio-tab ' + (active ? 'is-active' : '')}
-              >
-                <span className={'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ' + (active ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600')}>{item.icon}</span>
-                <span className="min-w-0">
-                  <span className={'block text-xs font-bold ' + (active ? 'text-orange-900' : 'text-slate-800')}>{item.label}</span>
-                  <span className="mt-0.5 block text-[10px] leading-relaxed text-slate-500">{item.description}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+    <ModuleShell
+      moduleId="template-studio"
+      icon={LayoutTemplate}
+      title="Template Studio"
+      badge="Marketing"
+      subtitle="Create and manage branded communication templates from one workspace."
+      eyebrow="Marketing / Template studio"
+    >
+    <div className="mp-inner space-y-6">
+      <ModuleCard
+        title={SECTIONS.find((item) => item.id === section)?.label || 'Templates'}
+        description={SECTIONS.find((item) => item.id === section)?.description}
+        chips={
+          <ModuleChips
+            label="Template workspace sections"
+            active={section}
+            onChange={(id) => changeSection(id as TemplateStudioSection)}
+            chips={SECTIONS.map((item) => ({ id: item.id, label: item.label, icon: item.icon }))}
+          />
+        }
+      />
 
       {visitedSections.has('conversation') && <div className={section === 'conversation' ? 'block' : 'hidden'} aria-hidden={section !== 'conversation'}>
         <EmailDesignStudio tenantId={tenantId} purpose="conversation" initialTemplateId={pendingTemplateId} />
@@ -111,5 +102,6 @@ export const TemplateStudio: React.FC<Props> = ({
         <CompanyAssetsPanel />
       </div>}
     </div>
+    </ModuleShell>
   );
 };

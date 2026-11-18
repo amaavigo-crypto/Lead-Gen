@@ -158,7 +158,7 @@ export const BrandSettingsPanel: React.FC<{ tenantId: string; canEdit: boolean }
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-5 pb-8">
+    <div className="company-profile-panel w-full space-y-5 pb-4">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-orange-600"><Building2 className="w-5 h-5" /><span className="text-[10px] font-bold uppercase tracking-[0.18em]">Workspace setup</span></div>

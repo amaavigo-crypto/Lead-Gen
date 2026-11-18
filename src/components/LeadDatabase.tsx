@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BusinessCardReader } from './BusinessCardReader';
+import { ModuleShell, ModuleStatGrid } from './ModulePage';
 import {
   AlertCircle, ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, ChevronLeft,
   Clock3, Database as DatabaseIcon, Download, FileCheck2, FileSpreadsheet, Filter,
@@ -443,19 +444,14 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
   );
 
   return (
-    <div data-umrah360-module="database" className="lead-database-shell marketing-studio-shell max-w-[1440px] mx-auto">
-      <div className="lead-db-page-heading">
-        <div className="min-w-0">
-          <div className="lead-db-eyebrow">WORKSPACE / DATA MANAGEMENT</div>
-          <div className="flex items-center gap-3">
-            {selectedDatabase && activeSection === 'databases' && <button className="lead-db-icon-button" onClick={() => { setSelectedDatabase(null); setSearch(''); setWorkspaceTab('leads'); }} title="Back to databases"><ArrowLeft size={17} /></button>}
-            <div>
-              <h1>{pageTitle}</h1>
-              <p>{activeSection === 'business-cards' ? 'Scan physical business cards, review AI-extracted details and save contacts to your workspace.' : selectedDatabase && activeSection === 'databases' ? (selectedDatabase.description || 'Reusable lead collection for your campaign workflows.') : activeSection === 'all-leads' ? 'A searchable view of every saved lead across your workspace databases.' : 'Organise reusable lead lists, validate imports and select clean audiences for campaigns.'}</p>
-            </div>
-          </div>
-        </div>
-        <div className="lead-db-heading-actions">
+    <ModuleShell
+      moduleId="database"
+      icon={DatabaseIcon}
+      title="Lead Database"
+      subtitle="Organise reusable lead lists, validate imports and select clean audiences for campaigns."
+      actions={<>
+        {selectedDatabase && activeSection === 'databases' && <button className="lead-db-icon-button" onClick={() => { setSelectedDatabase(null); setSearch(''); setWorkspaceTab('leads'); }} title="Back to databases"><ArrowLeft size={17} /></button>}
+
           {activeSection !== 'business-cards' && <button className="lead-db-button lead-db-button--secondary" onClick={refresh} disabled={isRefreshing}>{isRefreshing ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />} Refresh</button>}
           {selectedDatabase && activeSection === 'databases' ? <>
             <button className="lead-db-button lead-db-button--secondary" onClick={() => downloadAllLeads(selectedDatabase.databaseId, search)}><Download size={16} /> Export</button>
@@ -465,19 +461,26 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
             <button className="lead-db-button lead-db-button--primary" onClick={() => setCreateOpen(true)}><Plus size={17} /> Create database</button>
           </> : activeSection === 'all-leads' ?
             <button className="lead-db-button lead-db-button--secondary" onClick={() => downloadAllLeads(undefined, search)}><Download size={16} /> Export leads</button> : null}
-        </div>
-      </div>
 
+      </>}
+      eyebrow="Workspace / Data management"
+      heading={pageTitle}
+      copy={activeSection === 'business-cards' ? 'Scan physical business cards, review AI-extracted details and save contacts to your workspace.' : selectedDatabase && activeSection === 'databases' ? (selectedDatabase.description || 'Reusable lead collection for your campaign workflows.') : activeSection === 'all-leads' ? 'A searchable view of every saved lead across your workspace databases.' : 'Organise reusable lead lists, validate imports and select clean audiences for campaigns.'}
+    >
+    <div className="lead-database-shell mp-inner space-y-6">
       {error && <div className="lead-db-alert lead-db-alert--error"><AlertCircle size={17} /><span>{error}</span><button onClick={() => setError(null)}><X size={15} /></button></div>}
       {feedback && <div className="lead-db-alert lead-db-alert--success"><CheckCircle2 size={17} /><span>{feedback}</span><button onClick={() => setFeedback(null)}><X size={15} /></button></div>}
 
       {!selectedDatabase && activeSection === 'databases' && <>
-        <div className="lead-db-stats-grid">
-          <StatCard label="Saved databases" value={formatNumber(databases.length)} helper="Reusable lead collections" icon={DatabaseIcon} tone="orange" />
-          <StatCard label="Total leads" value={formatNumber(totalLeads)} helper="Across all saved databases" icon={Users} tone="blue" />
-          <StatCard label="Email-ready leads" value={formatNumber(emailReady)} helper="Valid email addresses" icon={FileCheck2} tone="green" />
-          <StatCard label="Recently updated" value={formatNumber(latestImportCount)} helper="Databases updated in 7 days" icon={Clock3} tone="blue" />
-        </div>
+        <ModuleStatGrid
+          label="Database overview"
+          stats={[
+            { label: 'Saved databases', value: formatNumber(databases.length), icon: DatabaseIcon, tile: 'bg-orange-50 text-orange-600', note: 'Reusable lead collections' },
+            { label: 'Total leads', value: formatNumber(totalLeads), icon: Users, tile: 'bg-sky-50 text-sky-600', note: 'Across all saved databases' },
+            { label: 'Email-ready leads', value: formatNumber(emailReady), icon: FileCheck2, tile: 'bg-emerald-50 text-emerald-600', note: 'Valid email addresses' },
+            { label: 'Recently updated', value: formatNumber(latestImportCount), icon: Clock3, tile: 'bg-sky-50 text-sky-600', note: 'Databases updated in 7 days' },
+          ]}
+        />
         <div className="lead-db-toolbar">
           <div className="lead-db-view-tabs">
             <button className={activeSection === 'databases' ? 'is-active' : ''} onClick={() => { setActiveSection('databases'); setSelectedDatabase(null); }}><DatabaseIcon size={15} /> Databases</button>
@@ -703,6 +706,7 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
         </div>}
       </Modal>}
     </div>
+    </ModuleShell>
   );
 };
 

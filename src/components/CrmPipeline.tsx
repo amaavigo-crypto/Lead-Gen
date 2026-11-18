@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useBrand } from '../context/BrandContext';
+import { ModuleShell, ModuleStatGrid } from './ModulePage';
 import {
   Users,
   Search,
@@ -959,29 +960,13 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
   };
 
   return (
-    <div className="crm-workspace w-full min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
-      {/* Sticky Header & Filter Container */}
-      <div className="crm-sticky-header sticky -top-4 sm:-top-5 z-30 bg-slate-50/95 backdrop-blur-xs pt-3 pb-2 border-b border-slate-200/60 shadow-xs -mx-3 sm:-mx-5 px-3 sm:px-5">
-        {/* 1. TeleCRM Top Header Bar */}
-        <div className="crm-header-card bg-white border-b border-slate-200/95 shadow-2xs">
-          <div className="crm-page-header max-w-[1700px] mx-auto px-4 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-            {/* CRM page identity */}
-            <div className="crm-page-copy flex min-w-0 items-center gap-3">
-              <div className="crm-page-icon w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
-                <Users className="w-5 h-5" />
-              </div>
-              <div className="min-w-0">
-                <span className="crm-page-eyebrow">WORKSPACE / CUSTOMER MANAGEMENT</span>
-                <div className="crm-page-title-row flex items-center gap-2">
-                  <h1>CRM</h1>
-                  <span className="crm-lead-count">{processedLeads.length.toLocaleString()} matching leads</span>
-                </div>
-                <p>Manage leads, track pipeline progress, and coordinate every customer follow-up in one place.</p>
-              </div>
-            </div>
-
-            {/* Existing CRM actions, presented in the shared workspace order */}
-            <div className="crm-header-actions flex items-center space-x-2 self-stretch md:self-auto flex-wrap gap-y-2">
+    <ModuleShell
+      moduleId="crm"
+      icon={Users}
+      title="CRM"
+      badge={processedLeads.length.toLocaleString() + ' matching leads'}
+      subtitle="Manage leads, track pipeline progress, and coordinate every customer follow-up in one place."
+      actions={<>
               <button
                 onClick={() => {
                   setAddLeadMode('SINGLE');
@@ -1011,68 +996,105 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                 <Download className="w-3.5 h-3.5" />
                 <span>Export</span>
               </button>
-            </div>
-          </div>
+            </>}
+      eyebrow="Workspace / Customer management"
+    >
+    <div className="crm-workspace mp-inner">
+      <ModuleStatGrid
+        label="Lead summary"
+        stats={[
+          { label: 'Total leads', value: crmSummary.total.toLocaleString(), icon: Users, tile: 'bg-sky-50 text-sky-600', note: 'All active enquiries' },
+          { label: 'New leads', value: crmSummary.fresh.toLocaleString(), icon: Zap, tile: 'bg-violet-50 text-violet-600', note: 'Awaiting first action' },
+          { label: 'Follow-ups', value: crmSummary.followUps.toLocaleString(), icon: Clock, tile: 'bg-amber-50 text-amber-600', note: 'Scheduled or due' },
+          { label: 'Hot leads', value: crmSummary.hot.toLocaleString(), icon: Flame, tile: 'bg-rose-50 text-rose-600', note: 'Based on workspace score rules' },
+          { label: 'Demo booked', value: crmSummary.demos.toLocaleString(), icon: Calendar, tile: 'bg-emerald-50 text-emerald-600', note: 'Consultations confirmed' },
+        ]}
+      />
+      <div className="h-6" />
 
-          <div className="crm-summary-grid max-w-[1700px] mx-auto px-4 pb-4">
-            <div className="crm-summary-card crm-summary-card--total">
-              <span className="crm-summary-icon"><Users className="w-4 h-4" /></span>
-              <div className="crm-summary-copy"><span>Total leads</span><strong>{crmSummary.total.toLocaleString()}</strong></div>
-              <span className="crm-summary-foot">All active enquiries</span>
+      {/* 4. TeleCRM Bulk Action Float Bar */}
+      {selectedLeadIds.size > 0 && (
+        <div className="crm-bulk-actions max-w-[1700px] w-full mx-auto px-4 mt-3">
+          <div className="crm-bulk-actions-bar bg-slate-900 text-white rounded-xl p-2.5 px-4 shadow-lg flex items-center justify-between flex-wrap gap-2 animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center space-x-3">
+              <span className="px-2 py-0.5 bg-orange-500 text-white font-extrabold text-xs rounded-md">
+                {selectedLeadIds.size} Selected
+              </span>
+              <span className="text-xs text-slate-300 font-medium">Apply bulk action to selected leads:</span>
             </div>
-            <div className="crm-summary-card crm-summary-card--new">
-              <span className="crm-summary-icon"><Zap className="w-4 h-4" /></span>
-              <div className="crm-summary-copy"><span>New leads</span><strong>{crmSummary.fresh.toLocaleString()}</strong></div>
-              <span className="crm-summary-foot">Awaiting first action</span>
-            </div>
-            <div className="crm-summary-card crm-summary-card--followup">
-              <span className="crm-summary-icon"><Clock className="w-4 h-4" /></span>
-              <div className="crm-summary-copy"><span>Follow-ups</span><strong>{crmSummary.followUps.toLocaleString()}</strong></div>
-              <span className="crm-summary-foot">Scheduled or due</span>
-            </div>
-            <div className="crm-summary-card crm-summary-card--hot">
-              <span className="crm-summary-icon"><Flame className="w-4 h-4" /></span>
-              <div className="crm-summary-copy"><span>Hot leads</span><strong>{crmSummary.hot.toLocaleString()}</strong></div>
-              <span className="crm-summary-foot">Based on workspace score rules</span>
-            </div>
-            <div className="crm-summary-card crm-summary-card--demo">
-              <span className="crm-summary-icon"><Calendar className="w-4 h-4" /></span>
-              <div className="crm-summary-copy"><span>Demo booked</span><strong>{crmSummary.demos.toLocaleString()}</strong></div>
-              <span className="crm-summary-foot">Consultations confirmed</span>
-            </div>
-          </div>
-
-          {/* 2. Pipeline stages — filter the table without leaving the page. */}
-          <div className="crm-stage-strip max-w-[1700px] mx-auto px-4 pt-3 pb-3 flex items-center space-x-2 overflow-x-auto no-scrollbar border-t border-slate-100">
-            {TELECRM_STAGES.map((st) => {
-              const isSelected = stageTab === st.key;
-              const count = stageCounts[st.key] || 0;
-              return (
-                <button
-                  key={st.key}
-                  onClick={() => setStageTab(st.key)}
-                  aria-pressed={isSelected}
-                  className={`crm-stage-tab flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all border ${
-                    isSelected
-                      ? `${st.bg} ${st.text} ${st.border} shadow-2xs ring-1 ring-orange-500/30 font-extrabold`
-                      : 'bg-white hover:bg-slate-50 text-slate-600 border-slate-200'
-                  }`}
+            <div className="flex items-center space-x-2">
+              <div className="relative">
+                <select
+                  onChange={(e) => {
+                    if (e.target.value) handleBulkAssignCaller(e.target.value);
+                  }}
+                  className="bg-slate-800 border border-slate-700 text-white text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
+                  defaultValue=""
                 >
-                  <span className={`w-2 h-2 rounded-full ${st.dot}`} />
-                  <span>{CRM_STAGE_LABELS[st.key] || st.label}</span>
-                  <span
-                    className={`px-1.5 py-0.2 rounded-md text-[11px] font-mono tabular-nums ${
-                      isSelected ? 'bg-white/80 shadow-2xs' : 'bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
+                  <option value="" disabled>
+                    Assign Telecaller...
+                  </option>
+                  {telecallers.map((c) => (
+                    <option key={c.id} value={c.name}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="relative">
+                <select
+                  onChange={(e) => {
+                    if (e.target.value) handleBulkChangeStatus(e.target.value as any);
+                  }}
+                  className="bg-slate-800 border border-slate-700 text-white text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
+                  defaultValue=""
+                >
+                  <option value="" disabled>
+                    Change Status...
+                  </option>
+                  {TELECRM_STAGES.filter((s) => s.key !== 'ALL').map((s) => (
+                    <option key={s.key} value={s.key}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                onClick={handleExportCsv}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg border border-slate-700 flex items-center space-x-1"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export ({selectedLeadIds.size})</span>
+              </button>
+
+              <button
+                onClick={() => setSelectedLeadIds(new Set())}
+                className="text-xs text-slate-400 hover:text-white px-2 py-1"
+              >
+                Deselect All
+              </button>
+            </div>
           </div>
         </div>
+      )}
 
+      {/* 5. The Pure TeleCRM Leads Table */}
+      <div className="crm-table-wrap max-w-[1700px] mx-auto px-4 mt-3">
+        <div className="crm-table-panel bg-white border border-slate-200/90 rounded-xl shadow-2xs overflow-hidden">
+          <div className="crm-table-heading flex items-center justify-between gap-3">
+            <div>
+              <span className="crm-eyebrow">LEADS DIRECTORY</span>
+              <h2>All leads <span>{processedLeads.length.toLocaleString()}</span></h2>
+              <p>{stageTab === 'ALL' ? 'Every enquiry in your workspace, in one searchable view.' : 'Showing leads in the selected pipeline stage.'}</p>
+            </div>
+            <div className="crm-table-heading-meta">
+              <span><i className="crm-live-dot" /> Live workspace data</span>
+              <span>25 rows per page</span>
+            </div>
+          </div>
+          <div className="crm-card-controls">
         {/* 3. TeleCRM Advanced Filter & Search Toolbar */}
         <div className="crm-filter-wrap max-w-[1700px] mx-auto px-4 mt-3">
           <div className="crm-filter-toolbar bg-white border border-slate-200/90 rounded-xl p-3 shadow-2xs flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
@@ -1201,89 +1223,36 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
             </div>
           </div>
         </div>
-      </div>
 
-      {/* 4. TeleCRM Bulk Action Float Bar */}
-      {selectedLeadIds.size > 0 && (
-        <div className="crm-bulk-actions max-w-[1700px] w-full mx-auto px-4 mt-3">
-          <div className="crm-bulk-actions-bar bg-slate-900 text-white rounded-xl p-2.5 px-4 shadow-lg flex items-center justify-between flex-wrap gap-2 animate-in fade-in slide-in-from-top-2">
-            <div className="flex items-center space-x-3">
-              <span className="px-2 py-0.5 bg-orange-500 text-white font-extrabold text-xs rounded-md">
-                {selectedLeadIds.size} Selected
-              </span>
-              <span className="text-xs text-slate-300 font-medium">Apply bulk action to selected leads:</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="relative">
-                <select
-                  onChange={(e) => {
-                    if (e.target.value) handleBulkAssignCaller(e.target.value);
-                  }}
-                  className="bg-slate-800 border border-slate-700 text-white text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
-                  defaultValue=""
+          {/* 2. Pipeline stages — filter the table without leaving the page. */}
+          <div className="crm-stage-strip max-w-[1700px] mx-auto px-4 pt-3 pb-3 flex items-center space-x-2 overflow-x-auto no-scrollbar border-t border-slate-100">
+            {TELECRM_STAGES.map((st) => {
+              const isSelected = stageTab === st.key;
+              const count = stageCounts[st.key] || 0;
+              return (
+                <button
+                  key={st.key}
+                  onClick={() => setStageTab(st.key)}
+                  aria-pressed={isSelected}
+                  className={`crm-stage-tab flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all border ${
+                    isSelected
+                      ? `${st.bg} ${st.text} ${st.border} shadow-2xs ring-1 ring-orange-500/30 font-extrabold`
+                      : 'bg-white hover:bg-slate-50 text-slate-600 border-slate-200'
+                  }`}
                 >
-                  <option value="" disabled>
-                    Assign Telecaller...
-                  </option>
-                  {telecallers.map((c) => (
-                    <option key={c.id} value={c.name}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="relative">
-                <select
-                  onChange={(e) => {
-                    if (e.target.value) handleBulkChangeStatus(e.target.value as any);
-                  }}
-                  className="bg-slate-800 border border-slate-700 text-white text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
-                  defaultValue=""
-                >
-                  <option value="" disabled>
-                    Change Status...
-                  </option>
-                  {TELECRM_STAGES.filter((s) => s.key !== 'ALL').map((s) => (
-                    <option key={s.key} value={s.key}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <button
-                onClick={handleExportCsv}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg border border-slate-700 flex items-center space-x-1"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Export ({selectedLeadIds.size})</span>
-              </button>
-
-              <button
-                onClick={() => setSelectedLeadIds(new Set())}
-                className="text-xs text-slate-400 hover:text-white px-2 py-1"
-              >
-                Deselect All
-              </button>
-            </div>
+                  <span className={`w-2 h-2 rounded-full ${st.dot}`} />
+                  <span>{CRM_STAGE_LABELS[st.key] || st.label}</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-md text-[11px] font-mono tabular-nums ${
+                      isSelected ? 'bg-white/80 shadow-2xs' : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-        </div>
-      )}
-
-      {/* 5. The Pure TeleCRM Leads Table */}
-      <div className="crm-table-wrap max-w-[1700px] mx-auto px-4 mt-3">
-        <div className="crm-table-panel bg-white border border-slate-200/90 rounded-xl shadow-2xs overflow-hidden">
-          <div className="crm-table-heading flex items-center justify-between gap-3">
-            <div>
-              <span className="crm-eyebrow">LEADS DIRECTORY</span>
-              <h2>All leads <span>{processedLeads.length.toLocaleString()}</span></h2>
-              <p>{stageTab === 'ALL' ? 'Every enquiry in your workspace, in one searchable view.' : 'Showing leads in the selected pipeline stage.'}</p>
-            </div>
-            <div className="crm-table-heading-meta">
-              <span><i className="crm-live-dot" /> Live workspace data</span>
-              <span>25 rows per page</span>
-            </div>
           </div>
           <div className="crm-table-scroll overflow-x-auto">
             <table className="crm-leads-table w-full text-left border-collapse">
@@ -2579,5 +2548,6 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
         </div>
       )}
     </div>
+    </ModuleShell>
   );
 };

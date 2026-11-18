@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Sparkles, Plus, Trash2, Save, RefreshCw, AlertCircle, CheckCircle2, Flame, Users, Loader2, WandSparkles, ArrowLeft } from 'lucide-react';
 import type { Lead } from '../types';
+import { ModuleShell, ModuleStatGrid } from './ModulePage';
 
 type Parameter = {
   id: string;
@@ -201,27 +202,14 @@ export const LeadScoringView: React.FC<LeadScoringViewProps> = ({ tenantId, canM
   }
 
   return (
-    <div className="marketing-studio-shell lead-scoring-module mx-auto max-w-[1440px]">
-      <div className="marketing-studio-header lead-scoring-header">
-        <div className="min-w-0">
-          <div className="lead-scoring-eyebrow flex items-center gap-2 uppercase">
-            <span className="h-2 w-2 rounded-full bg-orange-500" />
-            Sales workspace
-            <span className="text-slate-300">/</span>
-            Lead Scoring
-          </div>
-          <h1>AI Lead Scoring</h1>
-          <p className="max-w-2xl">
-            Configure how your workspace qualifies leads. AI evaluates profile details and conversation evidence against the criteria you approve.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-semibold ' + (config.enabled
-            ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
-            : 'border-slate-200 bg-white text-slate-500')}>
-            <span className={'h-2 w-2 rounded-full ' + (config.enabled ? 'bg-emerald-500' : 'bg-slate-400')} />
-            {config.enabled ? 'Scoring enabled' : 'Scoring disabled'}
-          </span>
+    <ModuleShell
+      moduleId="lead-scoring"
+      className="lead-scoring-module"
+      icon={Flame}
+      title="AI Lead Scoring"
+      badge={config.enabled ? 'Scoring enabled' : 'Scoring disabled'}
+      subtitle="Configure how your workspace qualifies leads. AI evaluates profile details and conversation evidence against the criteria you approve."
+      actions={<>
           <button
             onClick={onBack}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
@@ -237,9 +225,10 @@ export const LeadScoringView: React.FC<LeadScoringViewProps> = ({ tenantId, canM
               <Save className="h-4 w-4" /> {saving ? 'Saving…' : 'Save configuration'}
             </button>
           )}
-        </div>
-      </div>
-
+        </>}
+      eyebrow="Sales workspace / Lead scoring"
+    >
+    <div className="mp-inner space-y-6">
       {notice && (
         <div className={'flex items-start gap-2 rounded-xl border px-4 py-3 text-xs ' + (
           notice.type === 'error'
@@ -255,33 +244,17 @@ export const LeadScoringView: React.FC<LeadScoringViewProps> = ({ tenantId, canM
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {[
-          { label: 'Total CRM leads', value: leads.length, helper: 'In this workspace', icon: Users, tone: 'orange' },
-          { label: 'Scored', value: scoredLeads.length, helper: 'Evaluated by AI', icon: CheckCircle2, tone: 'blue' },
-          { label: 'Hot', value: hotCount, helper: 'High-priority leads', icon: Flame, tone: 'green' },
-          { label: 'Warm', value: warmCount, helper: 'Potential opportunities', icon: Sparkles, tone: 'amber' },
-          { label: 'Cold', value: coldCount, helper: 'Below warm threshold', icon: AlertCircle, tone: 'slate' },
-          { label: 'Unscored', value: pendingCount, helper: 'Awaiting evidence', icon: AlertCircle, tone: 'slate' },
-        ].map((item) => (
-          <div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-slate-500">{item.label}</span>
-              <span className={'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ' + (
-                item.tone === 'green' ? 'bg-emerald-50 text-emerald-600'
-                  : item.tone === 'amber' ? 'bg-amber-50 text-amber-600'
-                    : item.tone === 'blue' ? 'bg-sky-50 text-sky-600'
-                      : item.tone === 'slate' ? 'bg-slate-100 text-slate-500'
-                        : 'bg-orange-50 text-orange-600'
-              )}>
-                <item.icon className="h-4 w-4" />
-              </span>
-            </div>
-            <div className="mt-3 text-2xl font-bold tabular-nums text-slate-950">{item.value.toLocaleString()}</div>
-            <div className="mt-1 text-[11px] text-slate-400">{item.helper}</div>
-          </div>
-        ))}
-      </div>
+      <ModuleStatGrid
+        label="Lead scoring summary"
+        stats={[
+          { label: 'Total CRM leads', value: leads.length.toLocaleString(), icon: Users, tile: 'bg-orange-50 text-orange-600', note: 'In this workspace' },
+          { label: 'Scored', value: scoredLeads.length.toLocaleString(), icon: CheckCircle2, tile: 'bg-sky-50 text-sky-600', note: 'Evaluated by AI' },
+          { label: 'Hot', value: hotCount.toLocaleString(), icon: Flame, tile: 'bg-emerald-50 text-emerald-600', note: 'High-priority leads' },
+          { label: 'Warm', value: warmCount.toLocaleString(), icon: Sparkles, tile: 'bg-amber-50 text-amber-600', note: 'Potential opportunities' },
+          { label: 'Cold', value: coldCount.toLocaleString(), icon: AlertCircle, tile: 'bg-slate-100 text-slate-500', note: 'Below warm threshold' },
+          { label: 'Unscored', value: pendingCount.toLocaleString(), icon: AlertCircle, tile: 'bg-slate-100 text-slate-500', note: 'Awaiting evidence' },
+        ]}
+      />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,.75fr)]">
         <div className="space-y-5">
@@ -533,6 +506,7 @@ export const LeadScoringView: React.FC<LeadScoringViewProps> = ({ tenantId, canM
         </div>
       </div>
     </div>
+    </ModuleShell>
   );
 };
 

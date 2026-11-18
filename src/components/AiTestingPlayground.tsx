@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useBrand } from '../context/BrandContext';
+import { ModuleShell } from './ModulePage';
 import {
+  FlaskConical,
   Sparkles,
   Bot,
   ShieldCheck,
@@ -259,11 +261,16 @@ export const AiTestingPlayground: React.FC<AiTestingPlaygroundProps> = () => {
   const channelFeedback = feedbackItems.filter((item) => item.channel === selectedChannel);
 
   return (
-    <div data-umrah360-module="ai-testing" className="ai-testing-workspace">
-      <header className="ai-testing-page-header">
-        <div><div className="ai-testing-eyebrow">AI &amp; AUTOMATION / TEST ENVIRONMENT</div><h1>AI Testing</h1><p>Test and evaluate your AI agent with realistic customer scenarios before responses reach live conversations.</p></div>
-        <div className="ai-testing-sandbox-badge"><ShieldCheck className="h-4 w-4" /><span>Sandbox mode · no live messages sent</span></div>
-      </header>
+    <ModuleShell
+      moduleId="ai-testing"
+      icon={FlaskConical}
+      title="AI Testing"
+      subtitle="Test and evaluate your AI agent with realistic customer scenarios before responses reach live conversations."
+      actions={<div className="ai-testing-sandbox-badge"><ShieldCheck className="h-4 w-4" /><span>Sandbox mode · no live messages sent</span></div>}
+      eyebrow="AI & Automation / Test environment"
+      live={null}
+    >
+    <div className="ai-testing-workspace mp-inner">
       <div className="ai-testing-main-grid">
         <section className="ai-testing-card ai-testing-conversation-card">
           <div className="ai-testing-card-header">
@@ -346,5 +353,7 @@ export const AiTestingPlayground: React.FC<AiTestingPlaygroundProps> = () => {
           </section>
         </div>
       )}
-    </div>  );
+    </div>
+    </ModuleShell>
+  );
 };

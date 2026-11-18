@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useBrand } from '../context/BrandContext';
+import { ModuleShell, ModuleStatGrid } from './ModulePage';
 import {
   BookOpen,
   Search,
@@ -283,7 +284,33 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
   };
 
   return (
-    <div className="knowledge-base-shell marketing-studio-shell">
+    <ModuleShell
+      moduleId="knowledge-base"
+      icon={BookOpen}
+      title="Knowledge Base"
+      badge="Website & Manual Knowledge"
+      subtitle="Manage knowledge sourced from your company website or written manually. Published articles are available to the AI assistants through RAG."
+      actions={
+        <button
+          onClick={() => {
+            setEditingDoc({
+              title: '',
+              category: categories[0] || 'General',
+              content: '',
+              tags: tenantId === 'umrah360' ? ['umrah360', 'crm'] : [tenantId || 'general'],
+              status: 'PUBLISHED',
+            });
+            setIsModalOpen(true);
+          }}
+          className="knowledge-base-create-button"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>Create article</span>
+        </button>
+      }
+      eyebrow="Workspace / Knowledge base"
+    >
+    <div className="knowledge-base-shell mp-inner space-y-6">
       {/* Toast Notification */}
       {saveToast && (
         <div className="fixed top-20 right-6 z-50 bg-white border border-emerald-500 text-emerald-800 px-4 py-3 rounded-xl shadow-lg flex items-center space-x-3 text-xs animate-in fade-in slide-in-from-top-4">
@@ -292,43 +319,16 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
         </div>
       )}
 
-      {/* 1. HERO HEADER CARD (Matches Screenshot exactly) */}
-      <div className="knowledge-base-header">
-        <div>
-          <div className="flex items-center space-x-2.5 flex-wrap gap-y-1">
-            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-              Knowledge Base
-            </h1>
-            <span className="bg-orange-50 text-orange-700 border border-orange-200/80 rounded-full px-3 py-0.5 text-xs font-semibold inline-flex items-center">
-              Website & Manual Knowledge
-            </span>
-          </div>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1.5 font-medium max-w-3xl leading-relaxed">
-            Manage knowledge sourced from your company website or written manually. Published articles are available to the AI assistants through RAG.
-          </p>
-        </div>
-
-        {/* Action Buttons on Right */}
-        <div className="flex items-center space-x-3 shrink-0">
-          <button
-            onClick={() => {
-              setEditingDoc({
-                title: '',
-                category: categories[0] || 'General',
-                content: '',
-                tags: tenantId === 'umrah360' ? ['umrah360', 'crm'] : [tenantId || 'general'],
-                status: 'PUBLISHED',
-              });
-              setIsModalOpen(true);
-            }}
-            className="knowledge-base-create-button"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Create article</span>
-          </button>
-        </div>
-      </div>
-
+      <ModuleStatGrid
+        label="Knowledge base overview"
+        stats={[
+          { label: 'Articles', value: documents.length.toLocaleString(), icon: BookOpen, tile: 'bg-sky-50 text-sky-600', note: 'In this knowledge base' },
+          { label: 'Published', value: documents.filter((d) => d.status === 'PUBLISHED').length.toLocaleString(), icon: CheckCircle, tile: 'bg-emerald-50 text-emerald-600', note: 'Available to AI assistants' },
+          { label: 'In review', value: documents.filter((d) => d.status === 'REVIEW').length.toLocaleString(), icon: Clock, tile: 'bg-amber-50 text-amber-600', note: 'Waiting for approval' },
+          { label: 'Website sourced', value: documents.filter((d) => d.sourceType === 'WEBSITE').length.toLocaleString(), icon: Globe, tile: 'bg-violet-50 text-violet-600', note: 'Synced from your site' },
+          { label: 'Manual', value: documents.filter((d) => d.sourceType !== 'WEBSITE').length.toLocaleString(), icon: Edit2, tile: 'bg-slate-100 text-slate-600', note: 'Written by your team' },
+        ]}
+      />
 
       {canManageWebsiteScan && (
         <section className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs space-y-4">
@@ -746,6 +746,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
         </div>
       )}
     </div>
+    </ModuleShell>
   );
 };
 

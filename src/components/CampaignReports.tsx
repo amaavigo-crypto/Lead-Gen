@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BarChart3, FileDown, FileText, History, RefreshCw, Sparkles, Trash2, Users, MousePointerClick, Eye, MailCheck, Clock3 } from 'lucide-react';
 import { useBrand } from '../context/BrandContext';
+import { ModuleShell, ModuleStatGrid } from './ModulePage';
 import { authFetch } from '../services/authService';
 import type { Campaign } from '../types';
 
@@ -394,20 +395,28 @@ export const CampaignReports: React.FC<{ tenantId: string }> = ({ tenantId }) =>
   const displayBrand = brand.companyName || 'Your workspace';
 
   return (
-    <div className="campaign-reports-module space-y-5 font-sans">
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-orange-500" />
-            <h1 className="text-xl font-extrabold text-slate-900">AI Campaign Reporting</h1>
-          </div>
-          <p className="text-xs text-slate-500 mt-1">Individual campaign performance, cross-campaign comparisons and AI recommendations for {displayBrand}.</p>
-        </div>
+    <ModuleShell
+      moduleId="campaign-reports"
+      icon={BarChart3}
+      title="AI Campaign Reporting"
+      badge="Marketing"
+      subtitle={'Individual campaign performance, cross-campaign comparisons and AI recommendations for ' + displayBrand + '.'}
+      actions={
         <button onClick={() => void loadData()} disabled={loading} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50 disabled:opacity-50">
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh data
+          <RefreshCw className={'w-3.5 h-3.5 ' + (loading ? 'animate-spin' : '')} /> Refresh data
         </button>
-      </div>
-
+      }
+      eyebrow="Marketing / Campaign reports"
+    >
+    <div className="campaign-reports-module mp-inner space-y-6">
+      <ModuleStatGrid
+        label="Report overview"
+        stats={[
+          { label: 'Campaigns', value: campaigns.length.toLocaleString(), icon: BarChart3, tile: 'bg-sky-50 text-sky-600', note: 'Available to report on' },
+          { label: 'Selected', value: selectedIds.length.toLocaleString(), icon: MousePointerClick, tile: 'bg-violet-50 text-violet-600', note: 'Up to 10 per report' },
+          { label: 'Saved reports', value: history.length.toLocaleString(), icon: History, tile: 'bg-emerald-50 text-emerald-600', note: 'Historical snapshots' },
+        ]}
+      />
       {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>}
       {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{notice}</div>}
 
@@ -478,6 +487,7 @@ export const CampaignReports: React.FC<{ tenantId: string }> = ({ tenantId }) =>
         <ReportView report={report} onExport={exportPdf} />
       )}
     </div>
+    </ModuleShell>
   );
 };
 

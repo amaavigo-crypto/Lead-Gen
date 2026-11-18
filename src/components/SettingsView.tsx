@@ -32,6 +32,7 @@ import { PersonasPanel } from './PersonasPanel';
 import { BillingView } from './BillingView';
 import { ConnectedChannelsPanel } from './ConnectedChannelsPanel';
 import { normalizeChannelMode } from '../shared/channelModes';
+import { ModuleShell, ModuleCard, ModuleChips } from './ModulePage';
 
 const CompanyProfilePanel = React.lazy(() => import('./BrandSettingsPanel').then((module) => ({ default: module.BrandSettingsPanel })));
 const WorkspaceAuditLogs = React.lazy(() => import('./AuditLogsView').then((module) => ({ default: module.AuditLogsView })));
@@ -276,20 +277,13 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
   }, { AUTO: 0, REVIEW: 0, OFF: 0 });
 
   return (
-    <div className="workspace-module marketing-studio-shell w-full max-w-[1440px] mx-auto font-sans">
-      <header className="workspace-header marketing-studio-header rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-orange-600">
-              <Building2 className="h-5 w-5" />
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em]">Workspace management</span>
-            </div>
-            <h1 className="mt-1 text-xl font-extrabold text-slate-950 sm:text-2xl">Workspace</h1>
-            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-500">
-              Manage company identity, channels, AI operations, your team, billing and security.
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-col items-stretch gap-1 sm:items-end">
+    <ModuleShell
+      moduleId="workspace"
+      icon={Building2}
+      title="Workspace"
+      badge={workspaceName}
+      subtitle="Manage company identity, channels, AI operations, your team, billing and security."
+      actions={<div className="flex shrink-0 flex-col items-stretch gap-1 sm:items-end">
             {(activeSection === 'overview' || activeSection === 'ai' || activeSection === 'channels') && canEditEmail && (
               <button
                 type="button"
@@ -305,34 +299,23 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
             {saveError ? <span role="alert" className="text-[11px] text-rose-600">{saveError}</span> : (
               (activeSection === 'overview' || activeSection === 'ai' || activeSection === 'channels') && canEditEmail && <span className="text-[10px] text-slate-400">Save changes made in this Workspace area</span>
             )}
-          </div>
-        </div>
-      </header>
-
-      <nav aria-label="Workspace sections" className="workspace-navigation marketing-studio-tabs flex w-full min-w-0 gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        {sectionItems.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => changeSection(item.id)}
-            aria-current={activeSection === item.id ? 'page' : undefined}
-            title={item.description}
-            className={`workspace-navigation-tab marketing-studio-tab inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${activeSection === item.id ? 'is-active border-orange-200 bg-orange-50 text-orange-800 shadow-sm' : 'border-transparent text-slate-600 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900'}`}
-          >
-            <span className="workspace-navigation-icon">{item.icon}</span>
-            <span className="workspace-navigation-label whitespace-nowrap">{item.label}</span>
-          </button>
-        ))}
-      </nav>
-
-      <main className="workspace-content min-w-0 w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-          {activeSection !== 'company' && activeSection !== 'audit' && (
-            <div className="workspace-section-heading mb-5 flex flex-col gap-1 border-b border-slate-100 pb-4">
-              <h2 className="text-lg font-extrabold text-slate-950">{activeSectionMeta.label}</h2>
-              <p className="text-xs text-slate-500">{activeSectionMeta.description}</p>
-            </div>
-          )}
-
+          </div>}
+      eyebrow="Workspace management"
+    >
+    <div className="workspace-module mp-inner">
+      <ModuleCard
+        flush={false}
+        title={activeSection !== 'company' && activeSection !== 'audit' ? activeSectionMeta.label : undefined}
+        description={activeSection !== 'company' && activeSection !== 'audit' ? activeSectionMeta.description : undefined}
+        chips={
+          <ModuleChips
+            label="Workspace sections"
+            active={activeSection}
+            onChange={(id) => changeSection(id as WorkspaceSection)}
+            chips={sectionItems.map((item) => ({ id: item.id, label: item.label, icon: item.icon }))}
+          />
+        }
+      >
           {activeSection === 'overview' && (() => {
             const health = overviewData.health;
             const channelStatus = overviewData.channels;
@@ -968,8 +951,9 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
             </React.Suspense>
           )}
 
-        </main>
+      </ModuleCard>
     </div>
+    </ModuleShell>
   );
 };
 
