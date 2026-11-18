@@ -13,7 +13,7 @@ import { LockedModuleView } from './components/LockedModuleView';
 import { UpgradeRequiredView } from './components/UpgradeRequiredView';
 import { FEATURES, FEATURE_BY_TAB } from './shared/features';
 import { AgentProvider } from './context/AgentContext';
-import { AgentWorkspace, AgentFloatingCompanion } from './components/AgentWorkspace';
+import { AgentWorkspace } from './components/AgentWorkspace';
 import {
   Contact,
   Lead,
@@ -3016,7 +3016,6 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
       </main>
     </div>
   </div>
-    <AgentFloatingCompanion hidden={activeTab === 'agent' || activeTab === 'dashboard' || !(currentUser.accessLevel === 'ALL' || currentUser.role === 'ADMIN' || (currentUser.allowedModules || []).includes('agent'))} moduleContext={activeTab} onOpenEmailTemplate={openAgentEmailTemplate} />
     </AgentProvider>
     </BrandProvider>
   );
