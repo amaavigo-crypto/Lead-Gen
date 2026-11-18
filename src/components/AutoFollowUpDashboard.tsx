@@ -5,7 +5,7 @@ import {
   XCircle,
   AlertTriangle,
   CheckCircle2,
-  Filter,
+  Search,
   RefreshCw,
   Settings,
   Bot,
@@ -17,9 +17,7 @@ import {
   Instagram,
   Facebook,
   Globe,
-  Sliders,
   Play,
-  FileText,
   Calendar,
 } from 'lucide-react';
 import { Channel, Lead, Conversation, Message } from '../types';
@@ -193,249 +191,266 @@ export const AutoFollowUpDashboard: React.FC<AutoFollowUpDashboardProps> = ({
     return true;
   });
 
+  const pillBase = 'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide ring-1 ring-inset ';
+
   const getChannelBadge = (ch: Channel | string) => {
     switch (ch) {
       case 'WHATSAPP':
-        return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"><MessageCircle className="w-3 h-3 mr-1" /> WhatsApp</span>;
+        return <span className={pillBase + 'bg-emerald-50 text-emerald-700 ring-emerald-200'}><MessageCircle className="w-3 h-3" /> WhatsApp</span>;
       case 'EMAIL':
-        return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"><Mail className="w-3 h-3 mr-1" /> Email</span>;
+        return <span className={pillBase + 'bg-blue-50 text-blue-700 ring-blue-200'}><Mail className="w-3 h-3" /> Email</span>;
       case 'INSTAGRAM':
-        return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-pink-100 text-pink-800 dark:bg-pink-950 dark:text-pink-300"><Instagram className="w-3 h-3 mr-1" /> Instagram</span>;
+        return <span className={pillBase + 'bg-pink-50 text-pink-700 ring-pink-200'}><Instagram className="w-3 h-3" /> Instagram</span>;
       case 'FACEBOOK':
-        return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300"><Facebook className="w-3 h-3 mr-1" /> Facebook</span>;
+        return <span className={pillBase + 'bg-indigo-50 text-indigo-700 ring-indigo-200'}><Facebook className="w-3 h-3" /> Facebook</span>;
       case 'WEBSITE':
-        return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300"><Globe className="w-3 h-3 mr-1" /> Website</span>;
+        return <span className={pillBase + 'bg-teal-50 text-teal-700 ring-teal-200'}><Globe className="w-3 h-3" /> Website</span>;
       default:
-        return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300">{ch}</span>;
+        return <span className={pillBase + 'bg-slate-50 text-slate-700 ring-slate-200'}>{ch}</span>;
     }
   };
 
   const getStatusBadge = (st: string) => {
     switch (st) {
       case 'scheduled':
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"><Clock className="w-3 h-3 mr-1 animate-pulse" /> Scheduled</span>;
+        return <span className={pillBase + 'bg-amber-50 text-amber-700 ring-amber-200'}><Clock className="w-3 h-3" /> Scheduled</span>;
       case 'sent':
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300"><CheckCircle2 className="w-3 h-3 mr-1" /> Sent</span>;
+        return <span className={pillBase + 'bg-emerald-50 text-emerald-700 ring-emerald-200'}><CheckCircle2 className="w-3 h-3" /> Sent</span>;
       case 'cancelled':
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"><XCircle className="w-3 h-3 mr-1" /> Cancelled</span>;
+        return <span className={pillBase + 'bg-slate-50 text-slate-600 ring-slate-200'}><XCircle className="w-3 h-3" /> Cancelled</span>;
       case 'skipped':
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300"><Bot className="w-3 h-3 mr-1" /> Skipped (No-Op)</span>;
+        return <span className={pillBase + 'bg-blue-50 text-blue-700 ring-blue-200'}><Bot className="w-3 h-3" /> Skipped (No-Op)</span>;
       case 'human_review':
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-950/80 dark:text-purple-300"><AlertTriangle className="w-3 h-3 mr-1" /> Human Review</span>;
+        return <span className={pillBase + 'bg-violet-50 text-violet-700 ring-violet-200'}><AlertTriangle className="w-3 h-3" /> Human Review</span>;
       case 'failed':
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300"><XCircle className="w-3 h-3 mr-1" /> Failed</span>;
+        return <span className={pillBase + 'bg-rose-50 text-rose-700 ring-rose-200'}><XCircle className="w-3 h-3" /> Failed</span>;
       default:
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">{st}</span>;
+        return <span className={pillBase + 'bg-slate-50 text-slate-700 ring-slate-200'}>{st}</span>;
     }
   };
 
+
+  const statCards = [
+    { label: 'Scheduled', value: dashboardData?.metrics.scheduled ?? 0, icon: Clock, tile: 'bg-sky-50 text-sky-600', note: 'Queued to send' },
+    { label: 'Sent Today', value: dashboardData?.metrics.sentToday ?? 0, icon: Send, tile: 'bg-emerald-50 text-emerald-600', note: 'Follow-ups delivered today' },
+    { label: 'Human Review', value: dashboardData?.metrics.humanReview ?? 0, icon: ShieldCheck, tile: 'bg-violet-50 text-violet-600', note: 'Waiting for a person' },
+    { label: 'Skipped (No-Op)', value: dashboardData?.metrics.skipped ?? 0, icon: Bot, tile: 'bg-slate-100 text-slate-600', note: 'AI chose not to send' },
+    { label: 'Cancelled', value: dashboardData?.metrics.cancelled ?? 0, icon: XCircle, tile: 'bg-slate-100 text-slate-600', note: 'Stopped before sending' },
+    { label: 'Failed', value: dashboardData?.metrics.failed ?? 0, icon: AlertTriangle, tile: 'bg-rose-50 text-rose-600', note: 'Needs attention' },
+    { label: 'Completed', value: dashboardData?.metrics.completed ?? 0, icon: CheckCircle2, tile: 'bg-emerald-50 text-emerald-600', note: 'Sequences finished' },
+  ];
+
+  const tabOptions: { id: 'JOBS' | 'SETTINGS' | 'LOGS'; label: string; count?: number }[] = [
+    { id: 'JOBS', label: 'Follow-Up Queue & History', count: dashboardData?.jobs?.length || 0 },
+    { id: 'SETTINGS', label: 'Channel Timing & Global Rules' },
+    { id: 'LOGS', label: 'Operational Activity Feed', count: dashboardData?.logs?.length || 0 },
+  ];
+
+  const cardCopy = {
+    JOBS: { title: 'Follow-up queue', desc: 'Every follow-up job with the AI decision and reason behind it.' },
+    SETTINGS: { title: 'Channel timing & global rules', desc: 'Delay per channel and the maximum number of follow-ups per sequence.' },
+    LOGS: { title: 'Activity feed', desc: 'Audit trail of follow-up actions taken by the agent and your team.' },
+  }[activeTab];
+
   return (
-    <div data-umrah360-module="auto-followup" className="ai-ops-page auto-followup-module">
-      {/* Header */}
-      <div className="ai-ops-page-header">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1>AI Auto Follow-Up Agent</h1>
-            <span className="ai-ops-status-pill">
-              <Zap className="w-3 h-3 mr-1 text-orange-500" /> Operational Control Active
-            </span>
+    <div data-umrah360-module="auto-followup" className="auto-followup-module af-shell">
+      {/* Header strip */}
+      <header className="af-strip">
+        <div className="af-strip-id">
+          <div className="af-strip-tile">
+            <Bot className="w-5 h-5" />
           </div>
-          <p className="text-sm text-slate-500 mt-1">
-            Dynamic, context-aware follow-up engine for your inbound leads. Reads actual thread context and generates personalized replies.
-          </p>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1>Auto Follow-Up Agent</h1>
+              <span className="af-strip-pill">Operational Control Active</span>
+            </div>
+            <p>Context-aware follow-ups, per-channel timing, human review hand-off and a full audit trail</p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="af-strip-actions">
           <button
-            onClick={handleManualTriggerNow}
-            disabled={loading}
-            className="ai-ops-primary-button"
-          >
-            <Play className="w-3.5 h-3.5 mr-1.5" />
-            Trigger Poller Cycle Now
-          </button>
-          <button
+            type="button"
             onClick={fetchDashboard}
             disabled={loading}
-            className="ai-ops-icon-button"
-            title="Refresh Dashboard"
+            title="Refresh dashboard"
+            className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg border border-slate-200 transition disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-orange-500' : ''}`} />
           </button>
+          <button
+            type="button"
+            onClick={handleManualTriggerNow}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-semibold transition shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Play className="w-4 h-4" />
+            <span>Trigger Poller Cycle Now</span>
+          </button>
         </div>
-      </div>
+      </header>
 
-      <div className="ai-ops-metrics" aria-label="Follow-up performance metrics">
-        {[
-          { label: 'Scheduled', value: dashboardData?.metrics.scheduled ?? 0, icon: Clock, tone: 'blue' },
-          { label: 'Sent Today', value: dashboardData?.metrics.sentToday ?? 0, icon: Send, tone: 'green' },
-          { label: 'Human Review', value: dashboardData?.metrics.humanReview ?? 0, icon: ShieldCheck, tone: 'violet' },
-          { label: 'Skipped (No-Op)', value: dashboardData?.metrics.skipped ?? 0, icon: Bot, tone: 'slate' },
-          { label: 'Cancelled', value: dashboardData?.metrics.cancelled ?? 0, icon: XCircle, tone: 'slate' },
-          { label: 'Failed', value: dashboardData?.metrics.failed ?? 0, icon: AlertTriangle, tone: 'rose' },
-          { label: 'Completed', value: dashboardData?.metrics.completed ?? 0, icon: CheckCircle2, tone: 'green' },
-        ].map((metric) => {
-          const MetricIcon = metric.icon;
-          return <div className={'ai-ops-metric-card tone-' + metric.tone} key={metric.label}>
-            <span className="ai-ops-metric-icon"><MetricIcon className="w-4 h-4" /></span>
-            <span className="ai-ops-metric-copy"><span>{metric.label}</span><strong>{metric.value}</strong></span>
-          </div>;
-        })}
-      </div>
-
-      {/* Tabs */}
-      <div className="ai-ops-tabs" role="tablist" aria-label="Auto Follow-Up sections">
-        <button
-          onClick={() => setActiveTab('JOBS')}
-          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all ${
-            activeTab === 'JOBS'
-              ? 'border-blue-600 text-blue-700'
-              : 'border-transparent text-slate-600 hover:text-blue-700'
-          }`}
-        >
-          <Clock className="w-4 h-4" />
-          Follow-Up Queue & History ({dashboardData?.jobs?.length || 0})
-        </button>
-        <button
-          onClick={() => setActiveTab('SETTINGS')}
-          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all ${
-            activeTab === 'SETTINGS'
-              ? 'border-blue-600 text-blue-700'
-              : 'border-transparent text-slate-600 hover:text-blue-700'
-          }`}
-        >
-          <Sliders className="w-4 h-4" />
-          Channel Timing & Global Rules
-        </button>
-        <button
-          onClick={() => setActiveTab('LOGS')}
-          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all ${
-            activeTab === 'LOGS'
-              ? 'border-blue-600 text-blue-700'
-              : 'border-transparent text-slate-600 hover:text-blue-700'
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          Operational Activity Feed ({dashboardData?.logs?.length || 0})
-        </button>
-      </div>
-
-      {/* TAB 1: JOBS TABLE */}
-      {activeTab === 'JOBS' && (
-        <div className="ai-ops-panel ai-ops-queue-panel">
-          {/* Controls */}
-          <div className="ai-ops-toolbar">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Channel:</span>
-              <select
-                value={channelFilter}
-                onChange={(e) => setChannelFilter(e.target.value)}
-                className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-none focus:border-orange-500"
-              >
-                <option value="ALL">All Channels</option>
-                <option value="WHATSAPP">WhatsApp</option>
-                <option value="EMAIL">Email</option>
-                <option value="INSTAGRAM">Instagram</option>
-                <option value="FACEBOOK">Facebook</option>
-                <option value="WEBSITE">Website</option>
-              </select>
-
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-2">Status:</span>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-none focus:border-orange-500"
-              >
-                <option value="ALL">All Statuses</option>
-                <option value="scheduled">Scheduled</option>
-                <option value="sent">Sent</option>
-                <option value="human_review">Human Review</option>
-                <option value="skipped">Skipped</option>
-                <option value="cancelled">Cancelled</option>
-                <option value="failed">Failed</option>
-              </select>
+      <main className="af-main">
+        <div className="af-content w-full max-w-[1600px] mx-auto p-5 md:p-7 space-y-6">
+          {/* Page intro */}
+          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+            <div>
+              <div className="af-eyebrow"><span className="h-2 w-2 rounded-full bg-orange-500" /> Follow-up workspace</div>
+              <h2 className="af-intro-title">AI Auto Follow-Up Agent</h2>
+              <p className="af-intro-copy">Dynamic, context-aware follow-up engine for your inbound leads. Reads actual thread context and generates personalized replies.</p>
             </div>
-
-            <div className="relative w-full md:w-64">
-              <input
-                type="text"
-                placeholder="Search lead or conversation..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full text-xs pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-orange-500"
-              />
-              <Filter className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Live workspace</span>
             </div>
           </div>
 
-          {/* Table */}
-          <div className="ai-ops-table-wrap">
-            <table className="ai-ops-table">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                  <th className="py-3 px-3">Lead / Company</th>
-                  <th className="py-3 px-3">Channel</th>
-                  <th className="py-3 px-3">Attempt</th>
-                  <th className="py-3 px-3">Scheduled / Processed</th>
-                  <th className="py-3 px-3">Status</th>
-                  <th className="py-3 px-3">AI Decision & Operational Reason</th>
-                  <th className="py-3 px-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-xs">
-                {filteredJobs.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-8 text-slate-500">
-                      No follow-up jobs match the active filters.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredJobs.map((j) => {
-                    const lead = leads.find((l) => l.leadId === j.leadId);
-                    const conversation = conversations.find((c) => c.conversationId === j.conversationId);
-                    const leadName = lead?.serviceInterest || lead?.queryMessage?.slice(0, 30) || j.leadId;
+          {/* Stat cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3" aria-label="Follow-up performance metrics">
+            {statCards.map((card) => {
+              const CardIcon = card.icon;
+              return (
+                <div key={card.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-slate-500">{card.label}</span>
+                    <span className={'h-8 w-8 shrink-0 rounded-xl flex items-center justify-center ' + card.tile}><CardIcon className="w-4 h-4" /></span>
+                  </div>
+                  <div className="mt-3 text-2xl font-bold tabular-nums text-slate-950">{card.value.toLocaleString('en-IN')}</div>
+                  <div className="mt-1 text-[11px] text-slate-400">{card.note}</div>
+                </div>
+              );
+            })}
+          </div>
 
-                    return (
-                      <tr key={j.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-3 font-medium text-slate-900">
-                          <div>
-                            <p className="font-semibold text-slate-900">{leadName}</p>
-                            <p className="text-[11px] text-slate-500 font-mono">
-                              {j.conversationId}
-                            </p>
-                          </div>
+          {/* Main card: title, filters, section chips, content */}
+          <section className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div className="p-4 md:p-5 border-b border-slate-100 space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                <div>
+                  <h3 className="af-card-title">{cardCopy.title}</h3>
+                  <p className="mt-0.5 text-xs text-slate-500">{cardCopy.desc}</p>
+                </div>
+                {activeTab === 'JOBS' && (
+                  <div className="flex w-full lg:w-auto flex-col sm:flex-row gap-2">
+                    <div className="relative w-full sm:w-72">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="search"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search lead or conversation..."
+                        aria-label="Search follow-ups"
+                        className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-800 placeholder:text-slate-400 outline-none"
+                      />
+                    </div>
+                    <select
+                      aria-label="Filter by channel"
+                      value={channelFilter}
+                      onChange={(e) => setChannelFilter(e.target.value)}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 outline-none"
+                    >
+                      <option value="ALL">Channel: All</option>
+                      <option value="WHATSAPP">Channel: WhatsApp</option>
+                      <option value="EMAIL">Channel: Email</option>
+                      <option value="INSTAGRAM">Channel: Instagram</option>
+                      <option value="FACEBOOK">Channel: Facebook</option>
+                      <option value="WEBSITE">Channel: Website</option>
+                    </select>
+                    <select
+                      aria-label="Filter by status"
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 outline-none"
+                    >
+                      <option value="ALL">Status: All</option>
+                      <option value="scheduled">Status: Scheduled</option>
+                      <option value="sent">Status: Sent</option>
+                      <option value="human_review">Status: Human Review</option>
+                      <option value="skipped">Status: Skipped</option>
+                      <option value="cancelled">Status: Cancelled</option>
+                      <option value="failed">Status: Failed</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5" role="tablist" aria-label="Auto Follow-Up sections">
+                {tabOptions.map((tab) => {
+                  const active = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={'shrink-0 px-3 py-2 rounded-lg text-xs font-semibold transition ' + (active ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700')}
+                    >
+                      {tab.label}
+                      {tab.count !== undefined && (
+                        <span className={'ml-1.5 tabular-nums ' + (active ? 'text-blue-100' : 'text-slate-400')}>{tab.count}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* TAB 1: JOBS TABLE */}
+            {activeTab === 'JOBS' && (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[980px] text-left">
+                  <thead className="bg-slate-50/80 border-b border-slate-100">
+                    <tr className="text-[10px] uppercase tracking-[0.12em] text-slate-400">
+                      <th className="px-5 py-3 font-semibold">Lead / Company</th>
+                      <th className="px-4 py-3 font-semibold">Channel</th>
+                      <th className="px-4 py-3 font-semibold">Attempt</th>
+                      <th className="px-4 py-3 font-semibold">Scheduled / Processed</th>
+                      <th className="px-4 py-3 font-semibold">Status</th>
+                      <th className="px-4 py-3 font-semibold">AI Decision & Operational Reason</th>
+                      <th className="px-4 py-3 font-semibold text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredJobs.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-14 text-center">
+                          <div className="mx-auto h-12 w-12 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center"><Clock className="w-5 h-5" /></div>
+                          <h4 className="mt-4 text-sm font-bold text-slate-900">{(dashboardData?.jobs?.length || 0) === 0 ? 'No follow-ups yet' : 'No matching follow-ups'}</h4>
+                          <p className="mt-1 text-xs text-slate-500">{(dashboardData?.jobs?.length || 0) === 0 ? 'Follow-up jobs appear here once Auto Follow-Up is enabled on a lead.' : 'No follow-up jobs match the active filters.'}</p>
                         </td>
-                        <td className="py-3 px-3">{getChannelBadge(j.channel)}</td>
-                        <td className="py-3 px-3 font-semibold text-slate-700">
-                          #{j.attempt}
-                        </td>
-                        <td className="py-3 px-3 text-slate-600 whitespace-nowrap">
-                          {j.status === 'scheduled' ? (
-                            <span className="font-medium text-amber-700">
-                              {new Date(j.scheduledAt).toLocaleString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: 'numeric',
-                                minute: '2-digit',
-                                hour12: true,
-                              })}
-                            </span>
-                          ) : (
-                            <span>
-                              {j.processedAt
-                                ? new Date(j.processedAt).toLocaleString('en-US', {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: 'numeric',
-                                    minute: '2-digit',
-                                    hour12: true,
-                                  })
-                                : '—'}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3">{getStatusBadge(j.status)}</td>
-                        <td className="py-3 px-3 max-w-xs">
+                      </tr>
+                    ) : (
+                      filteredJobs.map((j) => {
+                        const lead = leads.find((l) => l.leadId === j.leadId);
+                        const leadName = lead?.serviceInterest || lead?.queryMessage?.slice(0, 30) || j.leadId;
+                        const fmt = (value: string) => new Date(value).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true,
+                        });
+
+                        return (
+                          <tr key={j.id} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="px-5 py-4">
+                              <div className="min-w-0 max-w-[280px]">
+                                <p className="font-semibold text-slate-900 truncate" title={leadName}>{leadName}</p>
+                                <p className="mt-0.5 text-[11px] text-slate-400 truncate" title={j.conversationId}>{j.conversationId}</p>
+                              </div>
+                            </td>
+                            <td className="px-4 py-4">{getChannelBadge(j.channel)}</td>
+                            <td className="px-4 py-4 font-semibold text-slate-700 tabular-nums">#{j.attempt}</td>
+                            <td className="px-4 py-4 text-slate-600 whitespace-nowrap">
+                              {j.status === 'scheduled' ? (
+                                <span className="font-medium text-amber-700">{fmt(j.scheduledAt)}</span>
+                              ) : (
+                                <span>{j.processedAt ? fmt(j.processedAt) : '—'}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-4">{getStatusBadge(j.status)}</td>
+                            <td className="px-4 py-4 max-w-xs">
                           {j.audit ? (
                             <div>
                               {j.audit.decision && (
@@ -470,29 +485,29 @@ export const AutoFollowUpDashboard: React.FC<AutoFollowUpDashboardProps> = ({
                             </span>
                           )}
                         </td>
-                        <td className="py-3 px-3 text-right">
-                          {onSelectConversation && (
-                            <button
-                              onClick={() => onSelectConversation(j.conversationId)}
-                              className="text-xs font-semibold text-orange-600 hover:text-orange-700 hover:underline"
-                            >
-                              Open Thread →
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+                            <td className="px-4 py-4 text-right whitespace-nowrap">
+                              {onSelectConversation && (
+                                <button
+                                  type="button"
+                                  onClick={() => onSelectConversation(j.conversationId)}
+                                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:border-orange-200 hover:text-orange-700 transition"
+                                >
+                                  Open thread →
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
       {/* TAB 2: SETTINGS */}
       {activeTab === 'SETTINGS' && (
-        <form onSubmit={handleSaveConfig} className="ai-ops-panel ai-ops-settings-form">
+        <form onSubmit={handleSaveConfig} className="af-panel-body ai-ops-settings-form">
           <h2 className="text-lg font-bold text-slate-900 mb-1 font-display">Channel-Specific Timing Configuration</h2>
           <p className="text-xs text-slate-500 mb-6">
             Define independent follow-up delays for each communication channel. The team member enables Auto Follow-Up on a lead, and the agent uses these channel timings.
@@ -674,7 +689,7 @@ export const AutoFollowUpDashboard: React.FC<AutoFollowUpDashboardProps> = ({
 
       {/* TAB 3: AUDIT LOGS */}
       {activeTab === 'LOGS' && (
-        <div className="ai-ops-panel ai-ops-activity-panel">
+        <div className="af-panel-body ai-ops-activity-panel">
           <h2 className="text-sm font-bold text-slate-900 mb-3 font-display">Operational Activity Feed & Audit Trail</h2>
           <div className="space-y-3">
             {(dashboardData?.logs || []).length === 0 ? (
@@ -716,6 +731,9 @@ export const AutoFollowUpDashboard: React.FC<AutoFollowUpDashboardProps> = ({
           </div>
         </div>
       )}
+          </section>
+        </div>
+      </main>
     </div>
   );
 };
