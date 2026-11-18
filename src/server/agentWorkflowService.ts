@@ -24,6 +24,7 @@ import {
   getCampaignByIdAsync,
 } from './campaignService.js';
 import { getCampaignDatabaseSnapshot, listLeadDatabases } from './leadDatabaseService.js';
+import { listCampaignsForAgentReport } from './campaignReportService.js';
 import { createWhatsAppTemplate, createWhatsAppTemplateMediaSession, uploadWhatsAppTemplateMediaChunk } from './metaChannelsService.js';
 import type { TenantContext } from '../types/tenant.js';
 
@@ -189,19 +190,6 @@ function templateTheme(primary: string, accent: string): Record<string, unknown>
     bodyFontSize: 15,
     bodyLineHeight: 1.72,
   };
-}
-
-function hasSaveApproval(message: string, destination: string): boolean {
-  const text = message.toLowerCase();
-  const affirmative = /\b(save|store|keep|add|put|yes|go ahead|do it)\b/.test(text);
-  if (!affirmative) return false;
-  if (destination === 'campaign') return /\b(campaign|outbound|my designs|my templates)\b/.test(text);
-  if (destination === 'whatsapp_draft') return /\b(whatsapp|wa|draft)\b/.test(text);
-  return /\b(conversation|reply|email design|email studio|my designs)\b/.test(text);
-}
-
-function hasDispatchConfirmation(message: string): boolean {
-  return /^\s*(yes\b|confirm\b|confirmed\b|go ahead\b|send now\b|start (the )?campaign\b|launch (the )?campaign\b)/i.test(message);
 }
 
 function makePreviewHtml(kind: string, htmlDraft: string, body: string, brand: any, theme: Record<string, unknown>, name: string): string {
@@ -402,12 +390,10 @@ export async function savePreparedAgentTemplate(
   ctx: TenantContext,
   modules: string[],
   conversationId: string,
-  userMessage: string,
 ): Promise<{ output: Record<string, unknown>; artifact: Record<string, unknown> }> {
   const draftId = clean(args?.draftId, 100);
   const destination = clean(args?.destination, 30).toLowerCase();
   if (!draftId || !['campaign', 'conversation', 'whatsapp_draft'].includes(destination)) throw new Error('Choose a valid template destination.');
-  if (!hasSaveApproval(userMessage, destination)) throw new Error('I have prepared the preview, but I need your explicit confirmation to save it to that destination. Please say “Save this as a campaign template” or “Save this as a conversation email design”.');
   const ref = tenantRepo(ctx).doc('agent_drafts', draftId);
   const snap = await getDoc(ref);
   if (!snap.exists()) throw new Error('This preview draft has expired or could not be found.');
@@ -525,12 +511,9 @@ export async function submitPreparedWhatsAppDraft(
   ctx: TenantContext,
   modules: string[],
   conversationId: string,
-  userMessage: string,
 ): Promise<{ output: Record<string, unknown>; artifact: Record<string, unknown> }> {
   const draftId = clean(args?.draftId, 100);
-  if (!draftId || !/\b(submit|send)\b/i.test(userMessage) || !/\b(meta|whatsapp|review)\b/i.test(userMessage)) {
-    throw new Error('Submitting a WhatsApp template to Meta requires your explicit confirmation. Please say “Submit this WhatsApp template to Meta”.');
-  }
+  if (!draftId) throw new Error('A WhatsApp preview draft is required.');
   if (ctx.role === 'member' || (!modules.includes('*') && !modules.includes('whatsapp') && !modules.includes('settings'))) throw Object.assign(new Error('Only authorized workspace administrators can submit WhatsApp templates to Meta.'), { status: 403 });
   const ref = tenantRepo(ctx).doc('agent_drafts', draftId);
   const snap = await getDoc(ref);
@@ -590,13 +573,9 @@ export async function insertImageIntoCampaignTemplate(
   modules: string[],
   conversationId: string,
   appBaseUrl: string,
-  userMessage: string,
 ): Promise<{ output: Record<string, unknown>; artifact?: Record<string, unknown> }> {
   const canCampaign = modules.includes('*') || modules.includes('campaigns') || modules.includes('email-design-studio');
   if (!canCampaign) throw Object.assign(new Error('Campaign email template permission is required.'), { status: 403 });
-  if (!/\b(add|insert|place|include|put|use)\b/i.test(userMessage)) {
-    throw new Error('Updating a saved email needs a direct instruction to add or place the image.');
-  }
   await requireFeature(ctx.tenantId, 'campaigns');
   const templateQuery = clean(args?.templateNameOrId, 180);
   const assetId = clean(args?.assetId, 180);
@@ -787,10 +766,9 @@ export async function confirmCampaignDispatch(
   ctx: TenantContext,
   modules: string[],
   conversationId: string,
-  userMessage: string,
 ): Promise<{ output: Record<string, unknown>; artifact: Record<string, unknown> }> {
   const approvalId = clean(args?.approvalId, 100);
-  if (!approvalId || !hasDispatchConfirmation(userMessage)) throw new Error('Campaign dispatch needs your explicit confirmation. Please reply “Yes, send this campaign now”.');
+  if (!approvalId) throw new Error('A pending campaign approval is required.');
   if (!modules.includes('*') && !modules.includes('campaigns')) throw Object.assign(new Error('You do not have permission to send campaigns.'), { status: 403 });
   await requireFeature(ctx.tenantId, 'campaigns');
   const ref = tenantRepo(ctx).doc('agent_campaign_approvals', approvalId);
@@ -840,6 +818,64 @@ export async function confirmCampaignDispatch(
   }
 }
 
+export async function restartExistingAgentCampaign(
+  args: any,
+  ctx: TenantContext,
+  modules: string[],
+): Promise<{ output: Record<string, unknown>; artifact?: Record<string, unknown> }> {
+  if (!modules.includes('*') && !modules.includes('campaigns')) throw Object.assign(new Error('You do not have permission to control campaigns.'), { status: 403 });
+  await requireFeature(ctx.tenantId, 'campaigns');
+  const campaignQuery = clean(args?.campaignNameOrId, 160);
+  const action = clean(args?.action, 30).toLowerCase();
+  if (!campaignQuery || !['resume', 'restart', 'retry_failed'].includes(action)) throw new Error('Choose an existing campaign and a supported action.');
+
+  const available = await listCampaignsForAgentReport(ctx);
+  const normalized = campaignQuery.toLowerCase();
+  const matches = available.filter((item: any) => String(item.campaignId || '').toLowerCase() === normalized || String(item.name || '').trim().toLowerCase() === normalized);
+  if (matches.length !== 1) return {
+    output: { needsClarification: true, reason: matches.length ? 'More than one campaign matches that name.' : 'I could not find that campaign in this workspace.', availableCampaigns: available.map((item: any) => ({ campaignId: item.campaignId, name: item.name, status: item.status })) },
+    artifact: { type: 'campaign_control_choice' },
+  };
+
+  const selected = matches[0];
+  const current = await getAgentCampaignStatus(ctx, selected.campaignId);
+  const status = String(current.status || '').toUpperCase();
+  const pending = Number(current.pendingCount || 0);
+  const failed = Number(current.failedCount || 0);
+  if (action === 'resume' && status !== 'PAUSED' && status !== 'RUNNING') return {
+    output: { needsClarification: true, campaignId: selected.campaignId, campaignName: selected.name, status, message: 'This campaign is not paused. Would you like to restart the existing campaign or retry its failed recipients?' },
+    artifact: { type: 'campaign_control_choice' },
+  };
+  if (action === 'retry_failed' && pending > 0) return {
+    output: { needsClarification: true, campaignId: selected.campaignId, campaignName: selected.name, status, pendingCount: pending, failedCount: failed, message: 'This campaign still has pending recipients. Retrying failures now would also resume pending delivery. Would you like to resume all pending work, or wait until pending work finishes before retrying failures?' },
+    artifact: { type: 'campaign_control_choice' },
+  };
+  if (action === 'retry_failed' && failed === 0) return {
+    output: { success: true, noFailedRecipients: true, campaignId: selected.campaignId, campaignName: selected.name, status, message: 'There are no failed recipients to retry. No campaign state was changed.' },
+  };
+  if (status === 'COMPLETED' && pending === 0 && failed === 0) return {
+    output: { success: true, nothingToRetry: true, campaignId: selected.campaignId, campaignName: selected.name, status, sentCount: Number(current.sentCount || 0), message: 'This campaign has no pending or failed recipients. No new run was created and no emails were resent.' },
+  };
+  if (status === 'RUNNING' && action !== 'retry_failed') return {
+    output: { success: true, alreadyRunning: true, campaignId: selected.campaignId, campaignName: selected.name, status, message: 'This campaign is already running. I did not create another campaign or start a duplicate run.' },
+  };
+
+  // startCampaign reuses the existing campaign ID and only re-queues failed leads when there are no pending leads.
+  // Previously sent recipients remain SENT; this path never resets all unreplied recipients.
+  const started = await runWithCampaignCtx(ctx, () => startCampaign(selected.campaignId, { sendInitialBatch: false }));
+  const refreshed = await getAgentCampaignStatus(ctx, selected.campaignId);
+  await writeTenantAuditEvent(ctx, {
+    action: action === 'retry_failed' ? 'AGENT_CAMPAIGN_FAILED_RECIPIENTS_RETRIED' : action === 'resume' ? 'AGENT_CAMPAIGN_RESUMED' : 'AGENT_CAMPAIGN_RESTARTED',
+    module: 'CAMPAIGNS',
+    description: 'AI Agent controlled an existing campaign without creating a new campaign or re-queuing recipients already sent.',
+    target: { type: 'Campaign', id: selected.campaignId, name: selected.name },
+    metadata: { requestedAction: action, previousStatus: status, runId: started.currentRunId || '', pendingCount: Number(refreshed.pendingCount || 0), failedCount: Number(refreshed.failedCount || 0), sentCount: Number(refreshed.sentCount || 0) },
+  });
+  return {
+    output: { success: true, campaignId: selected.campaignId, campaignName: selected.name, action, previousStatus: status, status: refreshed.status, runId: started.currentRunId || '', sentCount: Number(refreshed.sentCount || 0), pendingCount: Number(refreshed.pendingCount || 0), failedCount: Number(refreshed.failedCount || 0), message: action === 'retry_failed' ? 'The existing campaign was reused. Failed recipients were made eligible for retry; recipients already sent remain sent.' : 'The existing campaign was reused. No new campaign was created, and recipients already sent were not re-queued.' },
+    artifact: { type: 'campaign_control_result', campaignId: selected.campaignId, name: selected.name, status: refreshed.status, action },
+  };
+}
 export async function saveAgentWorkflowAudit(ctx: TenantContext, action: string, id: string, description: string, metadata: Record<string, unknown> = {}) {
   await writeTenantAuditEvent(ctx, {
     action,

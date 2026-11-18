@@ -244,7 +244,21 @@ function Messages({ messages, sending, compact, onOpenTemplate, onAction, activi
   onAction?: (query: string) => void;
   activityLabel?: string;
 }) {
-  return <div className={'agent-home-messages agent-messages w-full min-w-0 flex-1 min-h-0 overflow-y-auto ' + (compact ? 'px-3 py-4' : 'px-4 py-5 sm:px-6 sm:py-6')}>
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
+  const previousLastMessageIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage?.role === 'user' && lastMessage.id !== previousLastMessageIdRef.current) stickToBottomRef.current = true;
+    if (stickToBottomRef.current) container.scrollTop = container.scrollHeight;
+    previousLastMessageIdRef.current = lastMessage?.id || null;
+  }, [messages, sending, activityLabel]);
+  return <div ref={scrollContainerRef} onScroll={(event) => {
+    const element = event.currentTarget;
+    stickToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
+  }} className={'agent-home-messages agent-messages w-full min-w-0 flex-1 min-h-0 overflow-y-auto ' + (compact ? 'px-3 py-4' : 'px-4 py-5 sm:px-6 sm:py-6')}>
     {messages.length === 0 && (
       <div className="agent-home-empty-state flex h-full min-h-[250px] flex-col items-center justify-center px-4 text-center">
         <div className="text-[15px] font-semibold tracking-[-.02em] text-slate-100">How can I help you today?</div>
@@ -366,7 +380,7 @@ function ChatComposer({ moduleContext, compact }: { moduleContext: string; compa
       {isListening
         ? <VoiceRecordingControls variant="light" interimTranscript={interimTranscript} onStop={stopListening} />
         : <>
-            <button type="button" onClick={toggleListening} disabled={sending} className="mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 disabled:cursor-not-allowed disabled:opacity-35" title="Dictate message" aria-label="Start dictation"><Mic className="h-4 w-4" /></button>
+            <button type="button" onClick={toggleListening} disabled={sending} className="mb-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-600 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 disabled:cursor-not-allowed disabled:opacity-35" title="Dictate message" aria-label="Start dictation"><Mic className="h-4 w-4" /></button>
             <button type="button" disabled={(!value.trim() && !attachments.length) || sending} onClick={submit} className="agent-home-send mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-35" title="Send message" aria-label="Send message"><Send className="h-4 w-4" /></button>
           </>}
     </div>
@@ -430,7 +444,7 @@ function ConfigPanel({ compact = false }: { compact?: boolean }) {
 export const AgentWorkspace: React.FC<{ currentUser: AppUser; onOpenEmailTemplate?: (id: string, kind?: 'campaign' | 'conversation') => void }> = ({ currentUser, onOpenEmailTemplate }) => {
   const { conversations, activeConversationId, messages, loading, sending, activityLabel, error, selectConversation, newConversation, sendMessage, clearError, refresh } = useAgent();
   const [showSettings, setShowSettings] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1024);
+  const [showSidebar, setShowSidebar] = useState(false);
 
   return <div className="agent-home-workspace agent-shell flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden rounded-none border-0 bg-[#05051f] text-slate-100 shadow-none">
     <div className="agent-grid relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-col">
