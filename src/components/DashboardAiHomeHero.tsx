@@ -61,7 +61,7 @@ export const DashboardAiHomeHero: React.FC<DashboardAiHomeHeroProps> = ({ userNa
     onNavigate('agent');
     if (message) {
       // Reuse the exact conversation created above; do not create a second chat.
-      void sendMessage(message, 'agent', []);
+      void sendMessage(message, 'agent', [], conversationId);
     }
   };
 
