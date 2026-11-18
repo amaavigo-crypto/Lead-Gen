@@ -77,6 +77,7 @@ const AI_TABS: ModuleTab[] = [
 ];
 const MARKETING_TABS: ModuleTab[] = [
   { id: 'campaigns', label: 'Campaigns', icon: <Send className="h-3.5 w-3.5" /> },
+  { id: 'sms-marketing', label: 'SMS Marketing', icon: <MessageSquare className="h-3.5 w-3.5" /> },
   { id: 'email-design-studio', label: 'Template Studio', icon: <Mail className="h-3.5 w-3.5" /> },
   { id: 'campaign-reports', label: 'AI Campaign Report', icon: <FileBarChart className="h-3.5 w-3.5" /> },
 ];
@@ -87,6 +88,7 @@ const MODULE_TABS: Partial<Record<ActiveTab, ModuleTab[]>> = {
   playground: AI_TABS,
   crm: [{ id: 'crm', label: 'CRM', icon: <Users className="h-3.5 w-3.5" /> }],
   campaigns: MARKETING_TABS,
+  'sms-marketing': MARKETING_TABS,
   'email-design-studio': MARKETING_TABS,
   'campaign-reports': MARKETING_TABS,
   dashboard: [{ id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-3.5 w-3.5" /> }],
@@ -104,6 +106,7 @@ const APP_SHORTCUTS: ModuleTab[] = [
   { id: 'agent', label: 'AI Agent', icon: <Sparkles className="h-4 w-4" /> },
   { id: 'crm', label: 'CRM', icon: <Users className="h-4 w-4" /> },
   { id: 'campaigns', label: 'Campaigns', icon: <Send className="h-4 w-4" /> },
+  { id: 'sms-marketing', label: 'SMS Marketing', icon: <MessageSquare className="h-4 w-4" /> },
   { id: 'email-design-studio', label: 'Template Studio', icon: <Mail className="h-4 w-4" /> },
   { id: 'campaign-reports', label: 'Campaign Reports', icon: <FileBarChart className="h-4 w-4" /> },
   { id: 'database', label: 'Lead Database', icon: <Database className="h-4 w-4" /> },
@@ -285,6 +288,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         item.id === 'database' ||
         item.id === 'workspace' ||
         (currentUser?.allowedModules || []).includes(item.id) ||
+        (item.id === 'sms-marketing' && (currentUser?.allowedModules || []).includes('campaigns')) ||
         (item.id === 'email-design-studio' && (currentUser?.allowedModules || []).includes('settings'));
       return allowed && !planLocked?.(item.id);
     });
