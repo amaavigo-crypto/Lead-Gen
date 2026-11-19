@@ -1,0 +1,94 @@
+/* Public sign-in experience — matches the dark Amaavigo marketing site. Scoped to .av-login-root. */
+.av-login-root{--bg:#05061a;--line:rgba(150,162,255,.18);--line2:rgba(150,162,255,.34);--mut:#a2abd0;
+  position:relative;isolation:isolate;display:flex;min-height:100vh;min-height:100svh;flex-direction:column;overflow:hidden;padding:0 32px;color:#f3f4ff;background:var(--bg);font-family:var(--font-sans,'Lexend',system-ui,sans-serif);-webkit-font-smoothing:antialiased}
+.av-login-root,.av-login-root *{box-sizing:border-box}
+.av-login-root a{color:inherit;text-decoration:none}
+.av-login-root button,.av-login-root input{font:inherit}
+.av-login-root button:focus-visible,.av-login-root a:focus-visible,.av-login-root input:focus-visible{outline:2px solid #8fa8ff;outline-offset:3px}
+.av-login-ambient{position:absolute;z-index:-1;pointer-events:none;border-radius:50%;filter:blur(90px);opacity:.55}
+.av-login-ambient-blue{width:640px;height:460px;top:-140px;right:-120px;background:radial-gradient(closest-side,#6a3dff,transparent);animation:avLoginFloat 16s ease-in-out infinite alternate}
+.av-login-ambient-orange{width:560px;height:400px;bottom:-160px;left:-170px;background:radial-gradient(closest-side,#ff6a4d88,transparent);animation:avLoginFloat 20s ease-in-out infinite alternate-reverse}
+.av-login-grid{position:absolute;inset:0;z-index:-1;pointer-events:none;background-image:linear-gradient(rgba(130,150,255,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(130,150,255,.08) 1px,transparent 1px);background-size:56px 56px;-webkit-mask-image:radial-gradient(ellipse at 50% 40%,#000 10%,transparent 72%);mask-image:radial-gradient(ellipse at 50% 40%,#000 10%,transparent 72%)}
+@keyframes avLoginFloat{to{transform:translate3d(-50px,40px,0) scale(1.1)}}
+.av-login-header{position:relative;z-index:2;display:flex;width:min(1240px,100%);min-height:80px;align-items:center;justify-content:space-between;gap:20px;margin:0 auto}
+.av-login-brand img{display:block;height:32px;width:auto}
+.av-login-back-link{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.04);color:#cdd3f2;font-size:13px;font-weight:500;transition:gap .25s,color .25s,background .25s,border-color .25s}
+.av-login-back-link:hover{gap:12px;color:#fff;background:rgba(143,91,255,.18);border-color:rgba(167,139,255,.6)}
+.av-login-layout{display:grid;width:min(1240px,100%);flex:1 0 auto;grid-template-columns:minmax(0,1.1fr) minmax(400px,.9fr);align-items:center;gap:56px;margin:8px auto 24px}
+.av-login-story{position:relative;min-width:0;padding:20px 0}
+.av-login-story-content{max-width:620px}
+.av-login-eyebrow{display:inline-flex;align-items:center;gap:9px;padding:7px 14px;border:1px solid rgba(167,139,255,.34);border-radius:999px;background:rgba(110,80,230,.16);color:#d9d6ff;font-size:11.5px;font-weight:600;letter-spacing:.05em}
+.av-login-eyebrow i{width:6px;height:6px;border-radius:50%;background:#ff7a45;box-shadow:0 0 12px #ff7a45;animation:avLoginPulse 2.4s infinite}
+@keyframes avLoginPulse{70%{box-shadow:0 0 0 8px rgba(255,122,69,0)}100%{box-shadow:0 0 0 0 rgba(255,122,69,0)}}
+.av-login-story h1{margin:24px 0 0;font-family:var(--font-display,'Archivo',sans-serif);font-size:clamp(40px,4.6vw,64px);font-weight:800;line-height:1.04;letter-spacing:-.035em;color:#fff}
+.av-login-story h1 span{background:linear-gradient(100deg,#7ea2ff 0%,#a78bff 45%,#f06bd8 75%,#ff9a6b 100%);background-size:200% auto;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:avLoginGrad 9s ease-in-out infinite alternate}
+@keyframes avLoginGrad{to{background-position:100% 0}}
+.av-login-story-intro{max-width:520px;margin:20px 0 0;color:var(--mut);font-size:16.5px;line-height:1.7}
+.av-login-journey-card{position:relative;overflow:hidden;max-width:540px;margin-top:34px;padding:22px 24px 16px;border:1px solid var(--line2);border-radius:20px;background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.015));box-shadow:0 30px 70px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.06);backdrop-filter:blur(10px)}
+.av-login-journey-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.av-login-journey-head>div{display:grid;gap:4px}.av-login-journey-head small{color:#8e98cc;font-size:10.5px;font-weight:700;letter-spacing:.12em}.av-login-journey-head strong{color:#fff;font-size:15px;font-weight:600}
+.av-login-live{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border:1px solid rgba(34,197,139,.3);border-radius:999px;background:rgba(34,197,139,.1);color:#7ee7b6;font-size:10px;font-weight:700;letter-spacing:.08em}
+.av-login-live i{width:6px;height:6px;border-radius:50%;background:#22c58b;animation:avLoginPulse2 2s infinite}
+@keyframes avLoginPulse2{70%{box-shadow:0 0 0 7px rgba(34,197,139,0)}100%{box-shadow:0 0 0 0 rgba(34,197,139,0)}}
+.av-login-journey-list{display:grid;padding-top:10px}
+.av-login-journey-step{position:relative;display:flex;min-height:68px;align-items:center;gap:14px;opacity:.5;transition:opacity .5s,transform .5s}
+.av-login-journey-step.active,.av-login-journey-step.done{opacity:1}.av-login-journey-step.active{transform:translateX(4px)}
+.av-login-step-icon{position:relative;z-index:2;display:grid;width:42px;height:42px;flex:0 0 42px;place-items:center;border:1px solid var(--line2);border-radius:13px;background:rgba(255,255,255,.05);color:#a9b4ec;transition:background .5s,color .5s,box-shadow .5s,border-color .5s}
+.av-login-journey-step.active .av-login-step-icon,.av-login-journey-step.done .av-login-step-icon{background:linear-gradient(135deg,#2f62ff,#8f5bff);border-color:transparent;color:#fff;box-shadow:0 8px 24px rgba(110,90,255,.5)}
+.av-login-journey-step.active .av-login-step-icon{animation:avLoginRing 1.8s infinite}
+@keyframes avLoginRing{0%{box-shadow:0 0 0 0 rgba(143,91,255,.6)}100%{box-shadow:0 0 0 14px rgba(143,91,255,0)}}
+.av-login-step-copy{display:grid;min-width:0;flex:1;gap:3px}.av-login-step-copy b{color:#fff;font-size:15px;font-weight:600}.av-login-step-copy small{color:var(--mut);font-size:13px}
+.av-login-step-check{display:grid;width:24px;height:24px;place-items:center;border-radius:50%;background:rgba(34,197,139,.18);color:#7ee7b6;transform:scale(0);transition:transform .45s cubic-bezier(.34,1.56,.64,1)}
+.av-login-journey-step.done .av-login-step-check{transform:scale(1)}
+.av-login-step-connector{position:absolute;left:20px;top:55px;z-index:1;width:2px;height:26px;background:rgba(255,255,255,.1);overflow:hidden}
+.av-login-step-connector i{display:block;width:100%;height:0;background:linear-gradient(#8f5bff,#f06bd8);transition:height .6s ease}
+.av-login-journey-step.done .av-login-step-connector i{height:100%}
+.av-login-journey-foot{display:flex;align-items:center;gap:9px;margin-top:6px;padding-top:14px;border-top:1px solid var(--line);color:#aeb8e6;font-size:13px}.av-login-journey-foot svg{color:#9db4ff;flex:none}
+.av-login-story-foot{display:flex;flex-wrap:wrap;gap:12px 24px;margin-top:26px;color:var(--mut);font-size:13.5px}.av-login-story-foot span{display:inline-flex;align-items:center;gap:8px}.av-login-story-foot svg{color:#a78bff}
+/* form panel */
+.av-login-panel{position:relative;display:flex;min-width:0;flex-direction:column;justify-content:center;padding:clamp(28px,3.4vw,46px);border:1px solid var(--line2);border-radius:26px;background:linear-gradient(160deg,rgba(255,255,255,.075),rgba(255,255,255,.02));box-shadow:0 40px 90px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.av-login-panel::before{content:"";position:absolute;inset:-1px;z-index:-1;border-radius:27px;background:linear-gradient(140deg,rgba(59,108,255,.55),transparent 35%,transparent 65%,rgba(240,107,216,.45));opacity:.55;filter:blur(18px)}
+.av-login-panel-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.av-login-panel-icon{display:grid;width:48px;height:48px;place-items:center;border-radius:14px;color:#fff;background:linear-gradient(135deg,#2f62ff,#8f5bff);box-shadow:0 8px 24px rgba(100,90,255,.5),inset 0 1px rgba(255,255,255,.3)}
+.av-login-database-status{display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.04);color:#b7c0e8;font-size:12px;font-weight:500}
+.av-login-database-status>i{width:7px;height:7px;border-radius:50%;background:#22c58b;animation:avLoginPulse2 2.4s infinite}.av-login-database-status svg{color:#8e98cc}
+.av-login-panel-heading{margin-top:28px}.av-login-panel-heading>small{color:#a78bff;font-size:11.5px;font-weight:700;letter-spacing:.14em}
+.av-login-panel-heading h2{margin:10px 0 0;color:#fff;font-family:var(--font-display,'Archivo',sans-serif);font-size:clamp(32px,3vw,42px);font-weight:800;line-height:1.05;letter-spacing:-.035em}
+.av-login-panel-heading p{margin:10px 0 0;color:var(--mut);font-size:15px;line-height:1.6}
+.av-login-alert{display:flex;align-items:flex-start;gap:10px;margin-top:20px;padding:13px 14px;border-radius:12px;font-size:13.5px;line-height:1.55}.av-login-alert svg{width:17px;height:17px;flex:0 0 17px;margin-top:1px}
+.av-login-alert-success{border:1px solid rgba(34,197,139,.4);background:rgba(34,197,139,.1);color:#8ff0c3}
+.av-login-alert-error{border:1px solid rgba(255,99,99,.4);background:rgba(255,80,80,.1);color:#ffb3b3;animation:avLoginShake .5s}
+@keyframes avLoginShake{15%{transform:translateX(-7px)}35%{transform:translateX(6px)}55%{transform:translateX(-4px)}75%{transform:translateX(3px)}}
+.av-login-form{display:grid;gap:20px;margin-top:28px}
+.av-login-field{display:grid;gap:9px}.av-login-field label{color:#dfe3ff;font-size:13.5px;font-weight:600}
+.av-login-label-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.av-login-forgot{padding:0;border:0;background:none;color:#9db4ff;font-size:13px;font-weight:600;cursor:pointer;transition:color .2s}.av-login-forgot:hover{color:#fff}
+.av-login-input-wrap{position:relative;display:flex;min-height:54px;align-items:center;gap:11px;padding:0 15px;border:1px solid var(--line2);border-radius:13px;background:rgba(5,6,26,.55);transition:border-color .25s,box-shadow .25s,background .25s,transform .25s}
+.av-login-input-wrap:hover{border-color:rgba(167,139,255,.5)}
+.av-login-input-wrap:focus-within{border-color:#8f7bff;background:rgba(10,12,40,.85);box-shadow:0 0 0 4px rgba(143,91,255,.2),0 8px 24px rgba(80,60,200,.25);transform:translateY(-1px)}
+.av-login-input-wrap>svg{flex:0 0 18px;color:#8e98cc;transition:color .25s}.av-login-input-wrap:focus-within>svg{color:#b9a8ff}
+.av-login-input-wrap input{width:100%;min-width:0;height:52px;padding:0;border:0;outline:none;background:transparent;color:#fff;font-size:15px;font-weight:500}
+.av-login-input-wrap input::placeholder{color:#6f78a6;font-weight:400}
+.av-login-input-wrap input:-webkit-autofill{-webkit-text-fill-color:#fff;transition:background-color 9999s}
+.av-login-toggle-password{display:grid;width:30px;height:30px;flex:0 0 30px;place-items:center;padding:0;border:0;border-radius:8px;background:transparent;color:#8e98cc;cursor:pointer;transition:color .2s,background .2s}.av-login-toggle-password:hover{color:#fff;background:rgba(255,255,255,.08)}
+.av-login-submit{position:relative;display:flex;width:100%;min-height:54px;align-items:center;justify-content:center;gap:12px;margin-top:4px;padding:0 20px;border:0;border-radius:13px;overflow:hidden;isolation:isolate;background:linear-gradient(100deg,#2f62ff,#7b5bff);color:#fff;box-shadow:0 10px 30px rgba(90,90,255,.45),inset 0 1px rgba(255,255,255,.28);font-size:15.5px;font-weight:700;cursor:pointer;transition:transform .25s cubic-bezier(.22,1,.36,1),box-shadow .25s}
+.av-login-submit::after{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.34) 50%,transparent 70%);transform:translateX(-120%);transition:transform .7s cubic-bezier(.22,1,.36,1)}
+.av-login-submit svg{transition:transform .25s}
+.av-login-submit:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 16px 40px rgba(110,100,255,.6),inset 0 1px rgba(255,255,255,.3)}.av-login-submit:hover:not(:disabled)::after{transform:translateX(120%)}.av-login-submit:hover:not(:disabled) svg{transform:translateX(4px)}
+.av-login-submit:active:not(:disabled){transform:scale(.985)}.av-login-submit:disabled{opacity:.75;cursor:wait}
+.av-login-spinner{width:18px;height:18px;border-radius:50%;border:2.5px solid rgba(255,255,255,.3);border-top-color:#fff;animation:avLoginSpin .75s linear infinite}@keyframes avLoginSpin{to{transform:rotate(360deg)}}
+.av-login-security-note{display:flex;align-items:flex-start;gap:10px;margin-top:22px;padding:13px 14px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.03);color:var(--mut);font-size:12.5px;line-height:1.6}.av-login-security-note svg{flex:0 0 16px;margin-top:2px;color:#9db4ff}
+.av-login-legal{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:9px;margin-top:22px;padding-top:18px;border-top:1px solid var(--line);color:#6f78a6;font-size:12.5px}.av-login-legal a{color:var(--mut)!important;transition:color .2s}.av-login-legal a:hover{color:#fff!important}
+.av-login-footer{display:flex;width:min(1240px,100%);min-height:54px;align-items:center;justify-content:space-between;gap:14px;margin:0 auto;color:#6f78a6;font-size:12.5px}
+@media(max-width:1000px){
+  .av-login-layout{grid-template-columns:1fr;max-width:560px;gap:32px}.av-login-panel{order:1}.av-login-story{order:2;padding:0}
+}
+@media(max-width:560px){
+  .av-login-root{padding:0 16px}.av-login-header{min-height:68px}.av-login-brand img{height:28px}.av-login-back-link{padding:8px 13px;font-size:12px}
+  .av-login-panel{padding:24px 20px;border-radius:20px}.av-login-story h1{font-size:36px}.av-login-journey-card{padding:18px 16px 12px}
+  .av-login-footer{flex-direction:column;align-items:flex-start;justify-content:center;gap:4px;padding:10px 0}
+}
+@media(prefers-reduced-motion:reduce){
+  .av-login-root *,.av-login-root *::before,.av-login-root *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+.av-login-pwa{margin-top:18px}

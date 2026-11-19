@@ -1,0 +1,43 @@
+/* Shared public marketing shell for the rebuilt reference-faithful site. */
+.avx-site-shell {
+  min-height: 100vh;
+  overflow: clip;
+  background: #05071f;
+  color: #f7f8ff;
+}
+.avx-site-shell .av-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.avx-site-shell .avx-page {
+  min-height: 60vh;
+  width: 100%;
+  background-color: #05071f;
+}
+.avx-site-shell .av-footer {
+  position: relative;
+  z-index: 1;
+}
+.avx-site-shell .av-main-nav .av-nav-simple {
+  color: #d7def7;
+}
+.avx-site-shell .av-main-nav .av-nav-simple:hover,
+.avx-site-shell .av-main-nav .av-nav-simple.is-active {
+  color: #fff;
+}
+@media (max-width: 760px) {
+  .avx-site-shell .av-header-inner {
+    min-height: 65px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .avx-site-shell *,
+  .avx-site-shell *::before,
+  .avx-site-shell *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

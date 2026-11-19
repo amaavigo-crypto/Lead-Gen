@@ -71,7 +71,7 @@ const AutoFollowUpDashboard = lazyNamed(() => import('./components/AutoFollowUpD
 const LeadDatabase = lazyNamed(() => import('./components/LeadDatabase'), 'LeadDatabase');
 const PlatformConsole = lazyNamed(() => import('./components/PlatformConsole'), 'PlatformConsole');
 const BillingView = lazyNamed(() => import('./components/BillingView'), 'BillingView');
-const LandingPage = lazyNamed(() => import('./components/LandingPage'), 'LandingPage');
+const MarketingWebsite = lazyNamed(() => import('./components/MarketingWebsite'), 'MarketingWebsite');
 
 function ScreenLoading() {
   return (
@@ -2636,7 +2636,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
     if (pathname === '/login') {
       return <LoginView isFirebaseActive={isFirebaseActive} initialError={authError} />;
     }
-    return <Suspense fallback={<ScreenLoading />}><LandingPage /></Suspense>;
+    return <Suspense fallback={<ScreenLoading />}><MarketingWebsite /></Suspense>;
   }
 
   if (session?.isPlatformAdmin) {

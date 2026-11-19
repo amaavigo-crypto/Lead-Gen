@@ -1,0 +1,207 @@
+import React, { useState } from 'react';
+import {
+  ArrowRight, ArrowUpRight, BarChart3, BookOpen,
+  CalendarCheck, CalendarDays, CheckCircle2, ChevronDown,
+  Clock3, Database, Facebook, FileText, Filter, Globe, Headphones, Image as ImageIcon,
+  Inbox, Instagram, Layers, Mail, Megaphone, MessageCircle,
+  MessageSquare, Play, Plus, Search, Send, ShieldCheck,
+  Smartphone, Sparkles, Target, TrendingUp, Type, Users, Workflow, Zap,
+} from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import './MarketingPages.css';
+
+const EASE: [number, number, number, number] = [.22, 1, .36, 1];
+const PageReveal: React.FC<{children:React.ReactNode;className?:string;delay?:number}> = ({children,className,delay=0}) => {
+  const reduced=useReducedMotion();
+  return <motion.div className={className} initial={reduced?false:{opacity:0,y:22}} whileInView={{opacity:1,y:0}} viewport={{once:true,amount:.12}} transition={{duration:reduced?0:.7,delay:reduced?0:delay,ease:EASE}}>{children}</motion.div>;
+};
+const Eyebrow: React.FC<{children:React.ReactNode}> = ({children}) => <span className="avx-eyebrow"><i/>{children}</span>;
+const Button: React.FC<{href?:string;children:React.ReactNode;quiet?:boolean;external?:boolean}> = ({href='/contact',children,quiet=false,external=false}) => <a className={quiet?'avx-button quiet':'avx-button'} href={href} {...(external?{target:'_blank',rel:'noreferrer'}:{})}>{children}<ArrowUpRight size={14}/></a>;
+const Tick: React.FC<{children:React.ReactNode}> = ({children}) => <li><CheckCircle2 size={14}/><span>{children}</span></li>;
+const BrowserTop: React.FC<{title:string;meta?:string}> = ({title,meta='Workspace preview'}) => <div className="avx-browser-top"><span className="avx-browser-dots"><i/><i/><i/></span><b>{title}</b><small>{meta}</small><span className="avx-browser-live"><i/> LIVE PREVIEW</span></div>;
+const LogoPill: React.FC<{kind:string;label:string}> = ({kind,label}) => <span className={'avx-logo-pill '+kind}>{kind==='wa'?<MessageCircle/>:kind==='ig'?<Instagram/>:kind==='fb'?<Facebook/>:kind==='mail'?<Mail/>:kind==='web'?<Globe/>:kind==='calendar'?<CalendarCheck/>:<Zap/>}{label}</span>;
+const ChannelIcons = () => <div className="avx-channel-icons"><span className="wa"><MessageCircle/></span><span className="ig"><Instagram/></span><span className="fb"><Facebook/></span><span className="email"><Mail/></span></div>;
+
+const InboxMockup: React.FC<{home?:boolean}> = ({home=false}) => {
+  const [selected,setSelected]=useState(0);
+  const people=[{name:'Ayesha Khan',initial:'AK',channel:'WhatsApp',time:'2m',message:'Hi! I would like to know more about your service.',kind:'wa'},{name:'Imran Mehta',initial:'IM',channel:'Instagram',time:'8m',message:'Can you share the available options?',kind:'ig'},{name:'Sara Merchant',initial:'SM',channel:'Messenger',time:'15m',message:'Could we arrange a quick call?',kind:'fb'},{name:'Karan Patel',initial:'KP',channel:'Email',time:'30m',message:'Please send me the product details.',kind:'mail'}];
+  const person=people[selected];
+  return <div className={home?'avx-inbox-window avx-home-inbox':'avx-inbox-window'}>
+    <BrowserTop title="amaavigo / Unified Inbox" meta="All conversations"/>
+    <div className="avx-inbox-app">
+      <aside className="avx-app-rail"><b>a</b><span><Layers/></span><span className="active"><Inbox/></span><span><Users/></span><span><Megaphone/></span><span><Sparkles/></span><span><BarChart3/></span></aside>
+      <div className="avx-thread-list"><div className="avx-thread-list-head"><b>Unified Inbox</b><span><Plus size={13}/></span></div><div className="avx-thread-tabs"><b>All (24)</b><span>WhatsApp</span><span>Instagram</span><span>Messenger</span><span>Email</span></div>
+        {people.map((p,i)=><button type="button" className={'avx-thread-row '+(selected===i?'selected':'')} key={p.name} onClick={()=>setSelected(i)}><span className={'avx-avatar tone-'+i}>{p.initial}</span><span className="avx-thread-person"><b>{p.name}</b><small>{p.message}</small></span><em>{p.time}</em></button>)}
+      </div>
+      <section className="avx-thread-chat">
+        <div className="avx-chat-top"><span className={'avx-avatar tone-'+selected}>{person.initial}</span><span><b>{person.name}</b><small>{person.channel} · Active conversation</small></span><div><PhoneIcon/><Search size={14}/></div></div>
+        <div className="avx-chat-day">TODAY · 10:42 AM</div>
+        <div className="avx-bubble incoming">{person.message}</div>
+        <div className="avx-ai-reply"><small><Sparkles size={11}/> AI SUGGESTED REPLY</small>Absolutely. I can help you explore the right option and arrange the next step for your team.</div>
+        <div className="avx-booking-hint"><CalendarCheck size={14}/><span><b>Meeting intent detected</b><small>Offer available demo times</small></span><ArrowUpRight size={13}/></div>
+        <div className="avx-chat-input">Type a message… <span><Plus size={13}/><ArrowUpRight size={13}/></span></div>
+      </section>
+      <aside className="avx-contact-card"><small>CONTACT PROFILE</small><span className={'avx-avatar large tone-'+selected}>{person.initial}</span><b>{person.name}</b><em>New opportunity</em><hr/><small>CHANNEL</small><b>{person.channel}</b><small>AI ASSIST</small><b className="green">Enabled</b><small>NEXT ACTION</small><b>Qualify enquiry</b></aside>
+    </div>
+  </div>;
+};
+const PhoneIcon: React.FC = () => <MessageCircle size={14}/>;
+
+const MetricStrip: React.FC<{items:{icon:React.ReactNode;value:string;label:string}[]}> = ({items}) => <div className="avx-metric-strip">{items.map((item,i)=><div key={i}><span>{item.icon}</span><b>{item.value}</b><small>{item.label}</small></div>)}</div>;
+
+
+const HomeCampaignShowcase: React.FC = () => (
+ <section className="avx-home-campaign-showcase">
+  <div className="avx-wrap">
+   <PageReveal className="avx-home-campaign-heading">
+    <Eyebrow>EMAIL + WHATSAPP CAMPAIGNS</Eyebrow>
+    <h2>Make every message<br/><span>feel worth opening.</span></h2>
+    <p>Create polished, on-brand campaigns for the channels your customers already use — then coordinate follow-ups and understand engagement from one workspace.</p>
+   </PageReveal>
+   <div className="avx-home-campaign-grid">
+    <PageReveal className="avx-home-campaign-card email">
+     <div className="avx-home-campaign-card-head"><span><Mail size={15}/> EMAIL CAMPAIGN</span><small>DESKTOP PREVIEW</small></div>
+     <div className="avx-home-email-frame">
+      <div className="avx-home-email-browser"><span><i/><i/><i/></span><b>Campaign preview</b><small>100% · Desktop</small></div>
+      <div className="avx-home-email-sheet">
+       <div className="avx-home-email-brand"><b>amaavigo<span>●</span></b><small>INSIGHTS&nbsp;&nbsp; · &nbsp;&nbsp;PRODUCT&nbsp;&nbsp; · &nbsp;&nbsp;UPDATES</small></div>
+       <div className="avx-home-email-art">
+        <small>MADE FOR WHAT'S NEXT</small>
+        <strong>Give every new idea<br/><em>room to grow.</em></strong>
+        <p>One connected experience for the work that moves your business forward.</p>
+        <div className="avx-home-email-orbit"><span>A</span><i/><b/></div>
+        <a>Explore what's possible <ArrowUpRight size={11}/></a>
+       </div>
+       <p className="avx-home-email-body">Hello {'{{first_name}}'}, bring your customer conversations, campaigns and next steps together in one place.</p>
+       <div className="avx-home-email-cta">Discover the workspace <ArrowUpRight size={11}/></div>
+       <small className="avx-home-email-foot">A thoughtful message. A clear next step. A connected customer journey.</small>
+      </div>
+     </div>
+     <div className="avx-home-campaign-tags"><span>Newsletter</span><span>Product launch</span><span>Customer updates</span></div>
+    </PageReveal>
+    <PageReveal className="avx-home-campaign-card whatsapp" delay={.1}>
+     <div className="avx-home-campaign-card-head"><span><MessageCircle size={15}/> WHATSAPP CAMPAIGN</span><small>MOBILE PREVIEW</small></div>
+     <div className="avx-home-wa-stage">
+      <div className="avx-home-wa-phone">
+       <div className="avx-home-wa-status"><span>9:41</span><span>● ● ●</span></div>
+       <div className="avx-home-wa-header"><span className="avx-home-wa-avatar">a</span><span><b>Amaavigo Business</b><small>Business account</small></span><MessageCircle size={16}/></div>
+       <div className="avx-home-wa-date">TODAY</div>
+       <div className="avx-home-wa-message">
+        <div className="avx-home-wa-art"><small>THE NEXT STEP STARTS HERE</small><strong>Make more<br/><em>meaningful</em><br/>connections.</strong><span><i/><i/><i/></span><b>AMAAVIGO</b></div>
+        <p>Hello {'{{1}}'} 👋 Thanks for getting in touch. Here's a quick look at how we can help your team keep every conversation moving.</p>
+        <small>10:42 AM <span>✓✓</span></small>
+       </div>
+       <div className="avx-home-wa-actions"><span>Explore the platform <ArrowUpRight size={11}/></span><span>Talk to our team <MessageCircle size={11}/></span></div>
+       <div className="avx-home-wa-composer"><span>Message</span><b>＋</b></div>
+      </div>
+     </div>
+     <div className="avx-home-campaign-tags"><span>Approved templates</span><span>Rich media</span><span>Interactive CTAs</span></div>
+    </PageReveal>
+   </div>
+   <div className="avx-home-campaign-link"><a href="/campaigns">Explore the Campaign Builder <ArrowUpRight size={14}/></a><span>Email and WhatsApp, designed together.</span></div>
+  </div>
+ </section>
+);
+
+export const HomeMarketingPage: React.FC = () => (
+ <main className="avx-page avx-home-page">
+  <section className="avx-home-hero"><div className="avx-home-glow one"/><div className="avx-home-glow two"/><div className="avx-home-lines"/>
+   <div className="avx-wrap avx-home-layout">
+    <PageReveal className="avx-home-copy"><Eyebrow>The AI-powered lead-to-revenue platform</Eyebrow><h1>Capture leads,<br/>run conversations,<br/>book more meetings<br/>and <span>grow revenue.</span></h1><p>All your sales, marketing and customer conversations in one AI-powered workspace.</p><div className="avx-actions"><Button href="https://www.amaavigo.com/consult-now" external>See Amaavigo in action</Button><Button href="/platform" quiet><Play size={12}/> Watch 2-min demo</Button></div><div className="avx-home-proof"><span><ShieldCheck size={14}/> Human control stays built in</span><i/><span><Workflow size={14}/> One connected sales journey</span></div></PageReveal>
+    <PageReveal className="avx-home-visual" delay={.13}><div className="avx-floating-channels"><LogoPill kind="wa" label=""/><LogoPill kind="ig" label=""/><LogoPill kind="fb" label=""/><LogoPill kind="mail" label=""/></div><div className="avx-mockup-glow"/><InboxMockup home/><div className="avx-home-notification"><span><Sparkles size={13}/></span><b>AI response prepared</b><small>Ready for review</small></div></PageReveal>
+   </div>
+   <div className="avx-wrap"><MetricStrip items={[{icon:<Users/>,value:'5',label:'Connected channels'},{icon:<Sparkles/>,value:'AI',label:'Assisted conversations'},{icon:<Inbox/>,value:'1',label:'Shared customer inbox'},{icon:<BarChart3/>,value:'Live',label:'Performance insights'}]}/></div>
+  </section>
+  <section className="avx-home-capabilities"><div className="avx-wrap"><div className="avx-section-intro"><Eyebrow>ONE CONNECTED WORKSPACE</Eyebrow><h2>Every step from first touch<br/><span>to the next customer.</span></h2></div><div className="avx-home-cap-grid">{[{icon:Globe,title:'Lead capture',copy:'Bring every enquiry into your workspace.',href:'/lead-capture'},{icon:Inbox,title:'Unified Inbox',copy:'Keep every channel and conversation together.',href:'/unified-inbox'},{icon:Sparkles,title:'AI Agent',copy:'Move workflows forward from one prompt.',href:'/ai-agents'},{icon:Users,title:'Built-in CRM',copy:'Organise leads, ownership and pipeline.',href:'/crm'},{icon:Send,title:'Campaign Builder',copy:'Create email, WhatsApp and SMS campaigns.',href:'/campaigns'},{icon:CalendarCheck,title:'Scheduling',copy:'Turn buying intent into booked meetings.',href:'/demo-scheduling'}].map((item,i)=>{const I=item.icon;return <PageReveal key={item.title} className="avx-home-cap"><span><I/></span><b>{item.title}</b><p>{item.copy}</p><a href={item.href}>Explore <ArrowUpRight size={12}/></a></PageReveal>;})}</div></div></section>
+  <HomeCampaignShowcase/>
+  <section className="avx-home-cta"><div className="avx-wrap"><Eyebrow>ONE PLATFORM. ONE SALES JOURNEY.</Eyebrow><h2>Make the next conversation<br/><span>your next customer.</span></h2><Button href="/pricing">Explore plans</Button></div></section>
+ </main>
+);
+
+export const AIAgentMarketingPage: React.FC = () => {
+ const [active,setActive]=useState(0); const reduced=useReducedMotion();
+ const prompts=[
+  {name:'Prepare a follow-up campaign',task:'Find leads who enquired but have not booked. Prepare a branded follow-up campaign and show me the draft.',steps:['Review lead databases and recent conversations','Find the right audience','Prepare branded content','Create campaign draft','Wait for approval before sending']},
+  {name:'Create a WhatsApp template',task:'Create a WhatsApp template for a new enquiry with personalisation and a preview for review.',steps:['Understand the template purpose','Draft the message and variables','Prepare a preview','Save the template draft','Prepare for Meta review']},
+  {name:'Understand campaign performance',task:'Compare recent campaigns, show what drove replies and bookings, and recommend the next step.',steps:['Retrieve campaign performance','Compare delivery and engagement','Review replies and outcomes','Prepare campaign insights','Recommend next experiments']},
+ ];
+ const selected=prompts[active];
+ return <main className="avx-page avx-ai-page">
+  <section className="avx-ai-hero"><div className="avx-ai-backdrop"/><div className="avx-wrap avx-ai-layout">
+   <PageReveal className="avx-ai-copy"><Eyebrow>AI Agent</Eyebrow><h1>Your always-on<br/><span>AI sales agent</span><br/>that turns conversations<br/>into <em>revenue.</em></h1><p>Engage visitors, answer questions, qualify leads, book meetings and follow up — across every channel, 24/7.</p><div className="avx-actions"><Button href="/contact">See AI Agent in action</Button><Button href="/contact" quiet>Get a demo</Button></div></PageReveal>
+   <PageReveal className="avx-ai-core-stage" delay={.12}><div className="avx-orb-halo"/><div className="avx-orbit ring-a"/><div className="avx-orbit ring-b"/><div className="avx-orbit ring-c"/><motion.div className="avx-ai-orb" animate={reduced?{}:{y:[0,-10,0],rotate:[-4,4,-4]}} transition={{duration:7,repeat:Infinity,ease:'easeInOut'}}><div className="avx-ai-orb-shine"/><span>a</span><i/></motion.div><div className="avx-orb-platform"/><div className="avx-node engage"><span><MessageCircle/></span><b>Engage</b><small>Start conversations</small></div><div className="avx-node qualify"><span><Target/></span><b>Qualify</b><small>Find the right leads</small></div><div className="avx-node book"><span><CalendarCheck/></span><b>Book</b><small>Schedule meetings</small></div><div className="avx-node convert"><span><TrendingUp/></span><b>Convert</b><small>Move deals forward</small></div><ChannelIcons/></PageReveal>
+   <PageReveal className="avx-ai-benefits" delay={.22}>{[{icon:MessageCircle,title:'Natural conversations',desc:'Human-like, context-aware replies'},{icon:Database,title:'Trained on your business',desc:'Website, docs and custom data'},{icon:Workflow,title:'Works across channels',desc:'WhatsApp, Instagram, Facebook, Email and Website'},{icon:Clock3,title:'Automates follow-ups',desc:'Nurture leads until they are ready'},{icon:TrendingUp,title:'Drives measurable results',desc:'More qualified leads and bookings'}].map((x,i)=>{const I=x.icon;return <div className="avx-benefit-card" key={x.title}><span><I/></span><b>{x.title}</b><small>{x.desc}</small></div>;})}</PageReveal>
+  </div></section>
+  <section className="avx-ai-work-section"><div className="avx-wrap"><div className="avx-section-intro"><Eyebrow>ONE INSTRUCTION. CONNECTED ACTIONS.</Eyebrow><h2>Tell the agent what needs to happen.<br/><span>See every step take shape.</span></h2></div><div className="avx-ai-work-grid"><div className="avx-prompt-list">{prompts.map((p,i)=><button key={p.name} className={active===i?'active':''} onClick={()=>setActive(i)}><span>0{i+1}</span>{p.name}<ArrowUpRight size={13}/></button>)}</div><div className="avx-agent-task-window"><BrowserTop title="AI Agent" meta="Workspace assistant"/><div className="avx-agent-task-body"><div className="avx-agent-prompt"><small>YOUR INSTRUCTION</small><p>{selected.task}</p></div><div className="avx-agent-task-head"><b><Sparkles size={13}/> PREPARING WORKFLOW</b><span><i/> Ready to review</span></div><AnimatePresence mode="wait"><motion.div key={active} initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}} transition={{duration:.2}}>{selected.steps.map((s,i)=><div className="avx-agent-step" key={s}><span>{String(i+1).padStart(2,'0')}</span><CheckCircle2 size={14}/><b>{s}</b><small>{i===4?'Approval gate':'Prepared'}</small></div>)}</motion.div></AnimatePresence><div className="avx-agent-control"><ShieldCheck size={16}/><span><b>You stay in control</b><small>Actions follow workspace permissions and approval requirements.</small></span></div></div></div></div></div></section>
+ </main>;
+};
+
+export const UnifiedInboxMarketingPage: React.FC = () => (
+ <main className="avx-page avx-inbox-page"><section className="avx-feature-hero"><div className="avx-wrap avx-feature-layout">
+  <PageReveal className="avx-feature-copy"><Eyebrow>Unified Inbox</Eyebrow><h1>All your conversations.<br/><span>In one powerful inbox.</span></h1><p>Bring every customer conversation into one place, with AI assistance, clear ownership and the full customer context beside every reply.</p><ul><Tick>WhatsApp, Instagram, Facebook Messenger, Email & Website chats</Tick><Tick>AI-powered replies & suggestions</Tick><Tick>Human handoff & team assignment</Tick><Tick>Complete conversation history</Tick><Tick>Turn conversations into deals</Tick></ul><Button href="/contact">Explore Unified Inbox</Button></PageReveal>
+  <PageReveal className="avx-feature-visual inbox-visual" delay={.12}><div className="avx-visual-glow"/><div className="avx-feature-channel-float"><ChannelIcons/></div><InboxMockup/></PageReveal>
+ </div></section><section className="avx-feature-bottom"><div className="avx-wrap"><Eyebrow>EVERY CHANNEL. EVERY CUSTOMER. ONE VIEW.</Eyebrow><h2>Respond with context.<br/><span>Keep every opportunity moving.</span></h2></div></section></main>
+);
+
+export const CampaignBuilderMarketingPage: React.FC<{initialTab?:'email'|'whatsapp'}> = ({initialTab='email'}) => {
+ const [tab,setTab]=useState<'email'|'whatsapp'|'sms'>(initialTab);
+ const [block,setBlock]=useState('Text');
+ return <main className="avx-page avx-campaign-page"><section className="avx-feature-hero"><div className="avx-wrap avx-feature-layout">
+  <PageReveal className="avx-feature-copy"><Eyebrow>Campaigns</Eyebrow><h1>Create stunning<br/><span>Email, WhatsApp<br/>& SMS campaigns.</span></h1><p>Design, personalise, automate and send on-brand campaigns — all in one place.</p><ul><Tick>Drag-and-drop editor</Tick><Tick>Ready-to-use templates</Tick><Tick>Automated follow-ups</Tick><Tick>A/B testing & analytics</Tick></ul><Button href="/contact">Explore Campaign Builder</Button></PageReveal>
+  <PageReveal className="avx-feature-visual avx-campaign-window" delay={.12}><BrowserTop title="Campaign Studio" meta="Create and design"/><div className="avx-builder-tabs">{(['email','whatsapp','sms'] as const).map(v=><button className={tab===v?'active':''} key={v} onClick={()=>setTab(v)}>{v==='email'?<Mail size={13}/>:v==='whatsapp'?<MessageCircle size={13}/>:<Smartphone size={13}/>} {v==='email'?'Email':v==='whatsapp'?'WhatsApp':'SMS'}</button>)}<ArrowRight size={14}/></div><div className="avx-builder-layout"><aside className="avx-builder-rail"><small>CONTENT</small>{[{name:'Text',icon:Type},{name:'Image',icon:ImageIcon},{name:'Video',icon:Play},{name:'Divider',icon:Workflow},{name:'Social',icon:Globe}].map(x=>{const I=x.icon;return <button key={x.name} className={block===x.name?'active':''} onClick={()=>setBlock(x.name)}><I size={14}/>{x.name}</button>;})}</aside><div className="avx-campaign-canvas">{tab==='email'?<div className="avx-email-preview"><small>PREVIEW · YOUR BRAND</small><div className="avx-email-creative"><span>PRODUCT LAUNCH</span><strong>Make your next<br/>move count.</strong><i/><div className="avx-product-art"><div className="avx-product-orb"><Headphones/></div><b>Product<br/>Launch ✨</b><em>Explore now</em></div></div><p>Hello {'{{first_name}}'}, discover what is new for your team.</p><span className="avx-email-cta">Continue <ArrowUpRight size={10}/></span></div>:tab==='whatsapp'?<div className="avx-wa-preview"><div className="avx-wa-phone"><div className="avx-wa-phone-top">Business message <small>online</small></div><div className="avx-wa-message"><div className="avx-wa-art"><Sparkles/><b>YOUR BRAND</b><strong>Make the next conversation count.</strong></div><p>Hello Ayesha, thanks for connecting with us. Here is the next step to keep things moving.</p><em>10:42 AM</em></div><div className="avx-wa-actions"><span>Continue</span><span>Learn more</span></div></div></div>:<div className="avx-sms-preview"><span><MessageCircle/></span><small>SMS CAMPAIGN PREVIEW</small><b>Hi Ayesha! Thanks for your interest. Choose a time for your product demo: amaavigo.com/demo</b><em>160 characters · Personalised</em></div>}</div><aside className="avx-builder-properties"><small>{tab.toUpperCase()} DESIGN</small><b>Content properties</b><span>Selected block <strong>{block}</strong></span><span>Brand colours <strong><i/><i/><i/></strong></span><span>Personalisation <strong>Enabled</strong></span><span>Mobile preview <strong>On</strong></span><em><CheckCircle2 size={12}/> Changes preview instantly</em></aside></div><div className="avx-builder-footer"><span><CheckCircle2 size={13}/> Draft saved</span><span>Audience → Schedule → Review & send</span></div></PageReveal>
+ </div></section><section className="avx-feature-bottom"><div className="avx-wrap"><Eyebrow>FROM DESIGN TO DELIVERY</Eyebrow><h2>Beautiful messages.<br/><span>Measurable customer engagement.</span></h2></div></section></main>;
+};
+
+export const CrmMarketingPage: React.FC = () => {
+ const lanes=[{name:'New Leads',count:128,records:[['AK','Ayesha Khan','$12,000','Website'],['NK','Neha Kapoor','$8,400','Instagram']]},{name:'Qualified',count:64,records:[['IM','Imran Mehta','$18,500','WhatsApp'],['SR','Sara Merchant','$9,200','Email']]},{name:'Demo',count:32,records:[['KP','Karan Patel','$15,000','Website'],['ZS','Zeeshan Shah','$21,000','Messenger']]}];
+ return <main className="avx-page avx-crm-page"><section className="avx-feature-hero"><div className="avx-wrap avx-feature-layout">
+  <PageReveal className="avx-feature-copy"><Eyebrow>CRM</Eyebrow><h1>A built-in CRM<br/>that keeps every<br/><span>lead moving forward.</span></h1><p>One clear view of every contact, conversation, deal and follow-up — connected to the rest of your workspace.</p><ul><Tick>Track leads, deals and activities</Tick><Tick>Custom pipelines & deal stages</Tick><Tick>Lead assignment & team collaboration</Tick><Tick>Follow-ups & reminders</Tick><Tick>Connected with campaigns & AI</Tick></ul><Button href="/contact">Explore CRM</Button></PageReveal>
+  <PageReveal className="avx-crm-window" delay={.12}><BrowserTop title="CRM  ›  Pipeline" meta="Sales workspace"/><div className="avx-crm-toolbar"><div><b>Sales pipeline</b><small>Track every opportunity</small></div><span><Search size={13}/> Search leads</span><button><Plus size={12}/> Add lead</button></div><div className="avx-crm-stats">{lanes.map(l=><div key={l.name}><small>{l.name.toUpperCase()}</small><b>{l.count}</b><i>{l.name==='New Leads'?'New enquiries':l.name==='Qualified'?'In progress':'Meetings'}</i></div>)}</div><div className="avx-kanban">{lanes.map((l,i)=><div className={'avx-kanban-lane l'+i} key={l.name}><header><b>{l.name}</b><span>{l.count}</span><Filter size={12}/></header>{l.records.map(p=><article key={p[1]}><div><span className={'avx-avatar tone-'+i}>{p[0]}</span><b>{p[1]}</b><button>···</button></div><strong>{p[2]}</strong><small>{p[3]} <span>Follow-up</span></small></article>)}<button className="avx-add-lead"><Plus size={11}/> Add lead</button></div>)}</div><div className="avx-crm-window-footer"><Database size={13}/><span><b>Lead databases</b><small>Import · Organise · Reuse audiences</small></span><ArrowUpRight size={13}/></div></PageReveal>
+ </div></section><section className="avx-feature-bottom"><div className="avx-wrap"><Eyebrow>ONE RECORD. COMPLETE CONTEXT.</Eyebrow><h2>Know where every lead stands.<br/><span>And what should happen next.</span></h2></div></section></main>;
+};
+
+const CapabilityMock: React.FC<{kind:'capture'|'schedule'|'analytics'|'integrations'|'platform'|'solutions'|'resources'}> = ({kind}) => {
+ if(kind==='capture')return <div className="avx-cap-screen"><BrowserTop title="Website Lead Capture" meta="Form builder"/><div className="avx-capture-window"><aside><b>a</b><span>Dashboard</span><span className="selected">Lead forms</span><span>Contacts</span><span>Automation</span></aside><div className="avx-capture-main"><div className="avx-capture-title"><b>Request a consultation</b><small>Website form preview</small></div><div className="avx-capture-form"><span>Let's start a conversation.</span><small>Tell us a little about your goals.</small><label>Full name</label><i/><label>Work email</label><i/><label>Phone number</label><i/><button>Submit enquiry <ArrowUpRight size={11}/></button></div><div className="avx-capture-note"><Sparkles size={12}/> New lead → CRM record created</div></div></div></div>;
+ if(kind==='schedule')return <div className="avx-cap-screen"><BrowserTop title="Book a Demo" meta="Scheduling"/><div className="avx-schedule-window"><div className="avx-schedule-intro"><small>BOOK A PRODUCT DEMO</small><b>Choose a suitable time</b><span>30-minute product walkthrough</span></div><div className="avx-calendar"><div className="avx-calendar-head"><b>November 2026</b><span><ArrowRight size={12}/></span></div><div className="avx-calendar-grid">{['M','T','W','T','F','S','S',...'      '.split(''),...Array.from({length:30},(_,i)=>String(i+1))].map((x,i)=><span className={x==='26'?'picked':''} key={i}>{x}</span>)}</div></div><div className="avx-time-slots"><small>AVAILABLE TIMES · IST</small>{['10:00 AM','11:30 AM','02:00 PM','04:00 PM'].map((x,i)=><span className={i===2?'picked':''} key={x}>{x}</span>)}</div></div></div>;
+ if(kind==='analytics')return <div className="avx-cap-screen"><BrowserTop title="Growth Analytics" meta="Performance overview"/><div className="avx-analytics-window"><div className="avx-analytics-kpis"><div><small>TOTAL LEADS</small><b>4,892</b><em>↗ +22%</em></div><div><small>BOOKINGS</small><b>318</b><em>↗ +42%</em></div><div><small>CONVERSION</small><b>8.4%</b><em>↗ +18%</em></div></div><div className="avx-chart-panel"><div><b>Campaign performance</b><small>Engagement over time</small></div><span className="avx-chart-badge">+42%</span><svg viewBox="0 0 600 220" preserveAspectRatio="none" role="img" aria-label="Illustrative rising campaign performance chart"><defs><linearGradient id="avxChartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#a65cff" stopOpacity=".42"/><stop offset="1" stopColor="#a65cff" stopOpacity="0"/></linearGradient></defs><path d="M0 180 C45 158 54 171 95 140 S145 153 190 116 S243 141 284 86 S341 108 382 70 S438 82 478 45 S550 57 600 12 L600 220 L0 220Z" fill="url(#avxChartFill)"/><path d="M0 180 C45 158 54 171 95 140 S145 153 190 116 S243 141 284 86 S341 108 382 70 S438 82 478 45 S550 57 600 12" fill="none" stroke="#a76bff" strokeWidth="4" strokeLinecap="round"/></svg></div></div></div>;
+ if(kind==='integrations')return <div className="avx-integrations-screen"><div className="avx-integration-glow"/><div className="avx-integration-center"><span>a</span><b>Connected<br/>workspace</b></div>{[{c:'g',t:'Google Calendar',i:<CalendarDays/>},{c:'m',t:'Gmail / Workspace',i:<Mail/>},{c:'o',t:'Microsoft 365',i:<Layers/>},{c:'h',t:'WhatsApp Business',i:<MessageCircle/>},{c:'s',t:'Instagram',i:<Instagram/>},{c:'z',t:'Messenger',i:<Facebook/>},{c:'sl',t:'Website forms',i:<Globe/>},{c:'add',t:'API & Webhooks',i:<Workflow/>}].map((x,i)=><div className={'avx-integration-icon icon-'+x.c} key={x.t}>{x.i}<small>{x.t}</small></div>)}</div>;
+ if(kind==='platform')return <div className="avx-platform-network"><div className="avx-platform-lines"/><div className="avx-platform-core"><span>a</span><b>amaavigo</b></div>{[{n:'Unified Inbox',i:<Inbox/>,c:'one'},{n:'AI Agent',i:<Sparkles/>,c:'two'},{n:'CRM',i:<Users/>,c:'three'},{n:'Campaigns',i:<Send/>,c:'four'},{n:'Scheduling',i:<CalendarCheck/>,c:'five'},{n:'Analytics',i:<BarChart3/>,c:'six'}].map(x=><div className={'avx-platform-node '+x.c} key={x.n}>{x.i}<b>{x.n}</b></div>)}</div>;
+ if(kind==='solutions')return <div className="avx-solutions-visual"><div className="avx-solution-orb"><span>a</span></div>{[{n:'Sales Teams',i:<Users/>,c:'s'},{n:'Marketing Teams',i:<Megaphone/>,c:'m'},{n:'Support Teams',i:<Headphones/>,c:'h'},{n:'Agencies',i:<Layers/>,c:'a'}].map(x=><div className={'avx-solution-chip '+x.c} key={x.n}>{x.i}<b>{x.n}</b></div>)}</div>;
+ return <div className="avx-resource-visual"><div className="avx-resource-paper"><span>AMAAVIGO GUIDE</span><b>Capture → Engage<br/>→ Convert</b><i/><i/><i/><em>Product guide</em></div><div className="avx-resource-card back"><BookOpen/><b>Insights & guides</b><small>Ideas for growing teams</small></div><div className="avx-resource-card front"><FileText/><b>Product updates</b><small>What’s new in Amaavigo</small></div></div>;
+};
+
+export const CapabilityPage: React.FC<{kind:'capture'|'schedule'|'analytics'|'integrations'|'platform'|'solutions'|'resources';path:string}> = ({kind,path}) => {
+ const config={
+  capture:{tag:'Lead Capture',title:'Turn more visitors into',accent:'qualified leads.',copy:'Capture enquiries from your website, connected channels and imported lists. Bring every new prospect into the right workflow.',bullets:['AI chat on your website','Custom lead capture forms','Enrich leads with more data','Auto-assign to your team','Capture from ads & campaigns'],cta:'Explore Lead Capture'},
+  schedule:{tag:'Scheduling',title:'Turn interest into',accent:'confirmed meetings.',copy:'Let customers choose a suitable time while your connected calendar, working hours and meeting links stay in sync.',bullets:['Share your booking link','Real-time availability','Automatic reminders','Google Calendar & Outlook sync','Capture meeting outcomes'],cta:'Explore Scheduling'},
+  analytics:{tag:'Analytics',title:'Track performance and',accent:'grow revenue.',copy:'See the impact of your lead generation, conversations and campaigns with connected reporting and practical AI insights.',bullets:['Campaign and sales insights','Lead and pipeline reports','Team performance tracking','Channel-wise analytics','ROI and revenue attribution'],cta:'Explore Analytics'},
+  integrations:{tag:'Integrations',title:'Connect your',accent:'favourite tools.',copy:'Bring your customer channels, business inboxes, calendars and automation tools into one connected workspace.',bullets:['Calendars (Google, Outlook)','Email (Gmail, Outlook)','Business mailboxes (Gmail, Outlook, IMAP)','APIs, website forms & webhooks','Connected social messaging channels'],cta:'Explore Integrations'},
+  platform:{tag:'Platform',title:'The complete',accent:'AI growth workspace.',copy:'Everything you need to capture, engage, convert and grow customers — in one connected platform.',bullets:['Lead capture and enrichment','Unified customer conversations','AI agent and automation','CRM, campaigns and scheduling','Analytics across your sales journey'],cta:'Explore the platform'},
+  solutions:{tag:'Solutions',title:'Built for teams',accent:'that live on conversations.',copy:'Power your sales, marketing and customer operations with a single AI-driven platform.',bullets:['Sales teams and revenue operations','Marketing teams and campaign managers','Support teams and customer success','Agencies managing multiple clients','Growing businesses and lean teams'],cta:'Explore Solutions'},
+  resources:{tag:'Resources',title:'Insights, guides',accent:'and updates.',copy:'Practical resources to help your team get more leads, book meetings and grow revenue with Amaavigo.',bullets:['Product guides and how-to articles','Lead generation playbooks','Campaign and sales insights','Use cases and customer workflows','Product updates and announcements'],cta:'Explore Resources'}
+ } as const;
+ const p=config[kind];
+ return <main data-page={path} className={'avx-page avx-cap-page avx-cap-'+kind}><section className="avx-feature-hero"><div className="avx-wrap avx-feature-layout">
+  <PageReveal className="avx-feature-copy"><Eyebrow>{p.tag}</Eyebrow><h1>{p.title}<br/><span>{p.accent}</span></h1><p>{p.copy}</p><ul>{p.bullets.map(x=><Tick key={x}>{x}</Tick>)}</ul><Button href={kind==='resources'?'/faqs':kind==='solutions'?'/contact':kind==='platform'?'/pricing':'/contact'}>{p.cta}</Button></PageReveal>
+  <PageReveal className="avx-feature-visual avx-cap-visual" delay={.12}><CapabilityMock kind={kind}/></PageReveal>
+ </div></section>{kind==='resources'?<section className="avx-resource-links"><div className="avx-wrap"><ResourceGrid/></div></section>:kind==='solutions'?<section className="avx-solution-links"><div className="avx-wrap"><div className="avx-solution-detail-grid">{[{title:'Sales Teams',copy:'Keep conversations, pipeline, meetings and follow-ups connected.',icon:Users},{title:'Marketing Teams',copy:'Build campaigns, choose audiences and measure engagement.',icon:Megaphone},{title:'Support Teams',copy:'Coordinate customer requests, handoffs and next steps.',icon:Headphones},{title:'Agencies',copy:'Run a repeatable lead-to-revenue workflow for each client.',icon:Layers}].map(x=>{const I=x.icon;return <article key={x.title}><I/><b>{x.title}</b><p>{x.copy}</p></article>;})}</div></div></section>:null}</main>;
+};
+
+const ResourceGrid: React.FC = () => {
+ const [active,setActive]=useState('All');
+ const items=[{tag:'Guides',title:'The connected lead-to-revenue journey',icon:BookOpen},{tag:'Use Cases',title:'From first enquiry to booked meeting',icon:CalendarCheck},{tag:'Insights',title:'Campaign engagement that moves sales',icon:BarChart3},{tag:'Product Updates',title:'What’s new across the workspace',icon:Sparkles}];
+ const shown=active==='All'?items:items.filter(x=>x.tag===active);
+ return <><div className="avx-resource-filters">{['All','Insights','Guides','Use Cases','Product Updates'].map(x=><button className={active===x?'active':''} onClick={()=>setActive(x)} key={x}>{x}</button>)}</div><div className="avx-resource-grid">{shown.map(x=>{const I=x.icon;return <article key={x.title}><span><I/></span><small>{x.tag}</small><b>{x.title}</b><a href="/faqs">Explore <ArrowUpRight size={12}/></a></article>;})}</div></>;
+};
+
+export const HowItWorksMarketingPage: React.FC = () => {
+ const steps=[['01','Capture','Website forms, connected channels and lead imports feed the same workspace.',Globe],['02','Engage','Conversations move into Unified Inbox, with AI assistance and human handoff.',Inbox],['03','Qualify','Customer context and lead details stay connected in CRM.',Target],['04','Book','Calendar availability and scheduling turn intent into confirmed meetings.',CalendarCheck],['05','Grow','Campaigns and analytics keep the relationship moving.',TrendingUp]] as const;
+ return <main className="avx-page avx-how-page"><section className="avx-simple-hero"><div className="avx-wrap"><Eyebrow>How it works</Eyebrow><h1>From first enquiry<br/><span>to lasting customer.</span></h1><p>One connected journey that keeps customer context with your team at every step.</p></div></section><section className="avx-how-steps"><div className="avx-wrap">{steps.map(([n,t,d,I])=><div className="avx-how-row" key={n}><span>{n}</span><i><I/></i><div><b>{t}</b><p>{d}</p></div><ArrowRight/></div>)}</div></section></main>;
+};
+
+export const FaqMarketingPage: React.FC = () => {
+ const questions=[['What is Amaavigo?','Amaavigo is an AI-powered lead-to-revenue workspace connecting lead capture, customer conversations, AI assistance, CRM, scheduling, campaigns and reporting.'],['Which channels can I connect?','WhatsApp, Instagram messaging, Facebook Messenger, email and website lead capture are supported subject to provider permissions and workspace configuration.'],['Can the AI Agent handle conversations?','The operating mode depends on the channel setup. Teams can use automatic replies, review drafts or turn AI replies off where supported. Human handoff remains available.'],['Can I create my own WhatsApp templates?','Yes. The workspace includes custom template drafting, personalisation and previews. Meta approval is still required before eligible outbound use.'],['Does Amaavigo include a CRM?','Yes. Lead records, ownership, pipeline stages, notes and activities stay connected, with separate lead databases for organising campaign audiences.'],['How does pricing work?','Published plans and allowances are managed in the platform catalogue. AI usage and third-party messaging provider charges may be billed separately.']];
+ const [open,setOpen]=useState(0);
+ return <main className="avx-page avx-faq-page"><section className="avx-simple-hero"><div className="avx-wrap"><Eyebrow>FAQs</Eyebrow><h1>Questions answered.<br/><span>Clarity to get started.</span></h1><p>Learn how Amaavigo connects your leads, conversations, campaigns and customer workflows.</p></div></section><section className="avx-faq-list"><div className="avx-wrap">{questions.map(([q,a],i)=><div className={'avx-faq-item '+(open===i?'open':'')} key={q}><button onClick={()=>setOpen(open===i?-1:i)}><b>{q}</b><ChevronDown size={17}/></button>{open===i&&<p>{a}</p>}</div>)}</div></section></main>;
+};
+
