@@ -70,6 +70,7 @@ const DemoSchedulingView = lazyNamed(() => import('./components/DemoSchedulingVi
 const AutoFollowUpDashboard = lazyNamed(() => import('./components/AutoFollowUpDashboard'), 'AutoFollowUpDashboard');
 const LeadDatabase = lazyNamed(() => import('./components/LeadDatabase'), 'LeadDatabase');
 const PlatformConsole = lazyNamed(() => import('./components/PlatformConsole'), 'PlatformConsole');
+const MarketingWebsite = lazyNamed(() => import('./components/MarketingWebsite'), 'MarketingWebsite');
 const BillingView = lazyNamed(() => import('./components/BillingView'), 'BillingView');
 
 function ScreenLoading() {
@@ -2630,10 +2631,17 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
     );
   }
 
-  // Signed-out visitors always enter through the workspace sign-in screen.
-  // The authenticated application is rendered immediately after Firebase restores a valid session.
+  // The installed PWA is the application entry point; the normal browser keeps the public website.
+  const isStandaloneApp = typeof window !== 'undefined' && (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
   if (!currentUser) {
-    return <LoginView isFirebaseActive={isFirebaseActive} initialError={authError} />;
+    const pathname = typeof window !== 'undefined' ? window.location.pathname.replace(/\/+$/, '') || '/' : '/';
+    if (isStandaloneApp || pathname === '/login') {
+      return <LoginView isFirebaseActive={isFirebaseActive} initialError={authError} />;
+    }
+    return <Suspense fallback={<ScreenLoading />}><MarketingWebsite /></Suspense>;
   }
 
   if (session?.isPlatformAdmin) {

@@ -13,6 +13,7 @@ import {
   MessageCircle,
   CalendarCheck,
   Check,
+  ArrowUpRight,
   Zap,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
@@ -95,6 +96,13 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
         <a href="/" className="av-login-brand" aria-label="Amaavigo sign in">
           <img src="/amaavigo-logo-white.png" alt="Amaavigo" />
         </a>
+        {!(
+          typeof window !== 'undefined' &&
+          (window.matchMedia('(display-mode: standalone)').matches ||
+            (window.navigator as Navigator & { standalone?: boolean }).standalone === true)
+        ) && (
+          <a href="/" className="av-login-back-link">Back to website <ArrowUpRight size={15} /></a>
+        )}
       </header>
 
       <main className="av-login-layout">
