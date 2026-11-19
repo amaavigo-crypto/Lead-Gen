@@ -1,5 +1,6 @@
 import { SEO_PAGES, normalizePath, resolveSeo, type SeoFields } from '../shared/seoSettings.js';
 import { getPublishedSeoSettings } from './seoSettingsService.js';
+import { getPublishedResourceBySlug, listPublishedResources } from './siteResourcesService.js';
 
 const escapeHtml = (value: string): string => value
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -57,6 +58,22 @@ export function renderSeoHtml(template: string, pagePath: string, origin: string
 
 export async function renderSeoPage(template: string, rawPath: string, origin: string): Promise<string> {
   const pagePath = normalizePath(rawPath);
+  const resourceMatch = pagePath.match(/^\/resources\/([a-z0-9-]+)$/);
+  if (resourceMatch) {
+    const resource = await getPublishedResourceBySlug(resourceMatch[1]).catch(() => null);
+    if (!resource) return template;
+    const title = resource.seoTitle || resource.title;
+    const description = resource.metaDescription || resource.summary;
+    return renderSeoHtml(template, pagePath, origin, {
+      title,
+      description,
+      ogTitle: title,
+      ogDescription: description,
+      ogImage: resource.coverImageUrl || '',
+      canonicalPath: pagePath,
+      noindex: false,
+    });
+  }
   if (!SEO_PAGES.some((page) => page.path === pagePath)) return template;
   const published = await getPublishedSeoSettings();
   const seo = resolveSeo(published.seo, pagePath);
@@ -85,5 +102,11 @@ export async function sitemapXml(origin: string): Promise<string> {
     const priority = page.path === '/' ? '1.0' : '0.8';
     return '<url><loc>' + escapeHtml(absolute(origin, page.path)) + '</loc>' + lastmod + '<priority>' + priority + '</priority></url>';
   }).join('');
-  return '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + entries + '</urlset>';
+  const resources = await listPublishedResources().catch(() => []);
+  const resourceEntries = resources.filter((resource) => resource.type !== 'link' && resource.type !== 'video').map((resource) => {
+    const url = absolute(origin, '/resources/' + resource.slug);
+    const modified = resource.updatedAt ? '<lastmod>' + escapeHtml(resource.updatedAt.slice(0, 10)) + '</lastmod>' : '';
+    return '<url><loc>' + escapeHtml(url) + '</loc>' + modified + '<priority>0.6</priority></url>';
+  }).join('');
+  return '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + entries + resourceEntries + '</urlset>';
 }

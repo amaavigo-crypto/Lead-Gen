@@ -300,6 +300,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     url === '/api/health' ||
     (req.method === 'GET' && url === '/api/site-seo') ||
     (req.method === 'GET' && url === '/api/public/plans') ||
+    (req.method === 'GET' && /^\/api\/site-resources(?:\/[a-z0-9-]+|\/media\/[a-f0-9-]{36})?$/.test(url.split('?')[0])) ||
     // Public asset raw/view streaming for email clients
     (req.method === 'GET' && /^\/api\/assets\/[^/]+\/view$/.test(url)) ||
     // Published legal pages (Privacy, Terms, DPA, AUP) are public by design.
@@ -758,6 +759,99 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       }
       console.error('[Website SEO] request failed:', err);
       return send(500, { error: 'Could not process website SEO settings' });
+    }
+  }
+
+  // =========================================================================
+  // WEBSITE RESOURCES: public reads expose published content only; all CMS writes are Super Admin-only.
+  // =========================================================================
+  const siteResourcePath = url.split('?')[0];
+  if (
+    siteResourcePath === '/api/site-resources' ||
+    siteResourcePath.startsWith('/api/site-resources/') ||
+    siteResourcePath === '/api/platform/site-resources' ||
+    siteResourcePath.startsWith('/api/platform/site-resources/')
+  ) {
+    const resources = await import('./siteResourcesService.js');
+    const send = (status: number, payload: unknown) => {
+      res.statusCode = status;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(payload));
+      return true;
+    };
+    try {
+      if (siteResourcePath === '/api/site-resources') {
+        if (req.method !== 'GET') return send(405, { error: 'Method not allowed' });
+        res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=300');
+        return send(200, { resources: await resources.listPublishedResources() });
+      }
+
+      const publicImage = siteResourcePath.match(/^\/api\/site-resources\/media\/([a-f0-9-]{36})$/);
+      if (publicImage) {
+        if (req.method !== 'GET') return send(405, { error: 'Method not allowed' });
+        const image = await resources.getResourceImage(publicImage[1]);
+        if (!image) return send(404, { error: 'Image not found' });
+        res.statusCode = 200;
+        res.setHeader('Content-Type', image.contentType);
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.end(image.data);
+        return true;
+      }
+
+      const publicSlug = siteResourcePath.match(/^\/api\/site-resources\/([a-z0-9-]+)$/);
+      if (publicSlug) {
+        if (req.method !== 'GET') return send(405, { error: 'Method not allowed' });
+        const resource = await resources.getPublishedResourceBySlug(publicSlug[1]);
+        if (!resource) return send(404, { error: 'Resource not found' });
+        res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=300');
+        return send(200, { resource });
+      }
+
+      if (!siteResourcePath.startsWith('/api/platform/site-resources')) return send(404, { error: 'Not found' });
+      if (!isPlatformAdmin) return send(403, { error: 'Platform Admin access is required to manage website resources.' });
+      res.setHeader('Cache-Control', 'no-store');
+      if (!isFirebaseConfigured || !db) return send(503, { error: 'Resource storage is not configured.' });
+
+      const actor = userEmail || userUid;
+      if (siteResourcePath === '/api/platform/site-resources/media') {
+        if (req.method !== 'POST') return send(405, { error: 'Method not allowed' });
+        const image = await resources.saveResourceImage(body?.dataUrl);
+        return send(200, { image });
+      }
+
+      if (siteResourcePath === '/api/platform/site-resources') {
+        if (req.method === 'GET') return send(200, { resources: await resources.listAllResources() });
+        if (req.method === 'POST') return send(201, { resource: await resources.createResource(body?.resource || body, actor) });
+        return send(405, { error: 'Method not allowed' });
+      }
+
+      const match = siteResourcePath.match(/^\/api\/platform\/site-resources\/([^/]+)(?:\/(publish|unpublish|archive))?$/);
+      if (!match) return send(404, { error: 'Not found' });
+      let id = '';
+      try { id = decodeURIComponent(match[1]); } catch { return send(400, { error: 'Invalid resource ID' }); }
+      const action = match[2] || '';
+      const revision = Number(body?.revision);
+      if (!Number.isInteger(revision) || revision < 0) return send(400, { error: 'A valid resource revision is required.' });
+
+      if (action) {
+        if (req.method !== 'POST') return send(405, { error: 'Method not allowed' });
+        if (action === 'publish') return send(200, { resource: await resources.publishResource(id, revision, actor) });
+        if (action === 'unpublish') return send(200, { resource: await resources.unpublishResource(id, revision, actor) });
+        if (action === 'archive') return send(200, { resource: await resources.archiveResource(id, revision, actor) });
+      }
+      if (req.method === 'PUT') return send(200, { resource: await resources.saveResourceDraft(id, body?.resource || body, revision, actor) });
+      if (req.method === 'DELETE') {
+        await resources.deleteResource(id, revision);
+        return send(200, { ok: true });
+      }
+      return send(405, { error: 'Method not allowed' });
+    } catch (err: any) {
+      const shared = await import('../shared/siteResources.js');
+      if (err instanceof shared.SiteResourceValidationError) return send(400, { error: err.message });
+      if (err instanceof shared.SiteResourceConflictError) return send(409, { error: err.message });
+      console.error('[Website Resources] request failed:', err);
+      return send(500, { error: 'Could not process website resources. Please retry.' });
     }
   }
 

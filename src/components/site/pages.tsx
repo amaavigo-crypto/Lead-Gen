@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight, ArrowUpRight, BarChart3, BookOpen, Bot, Building2, CalendarCheck, Check, Clock3, Database, Facebook, FileText, Filter, Globe, Headphones,
   Inbox, Instagram, Layers, Lock, Mail, Megaphone, MessageCircle, Monitor, Palette, Repeat, ShieldCheck, Smartphone, Sparkles, Target, TrendingUp, UserCheck,
   Users, Workflow, Zap, type LucideIcon,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { RESOURCE_CATEGORIES, RESOURCE_TYPES, type SiteResourcePublic } from '../../shared/siteResources.js';
 import { Btn, CountUp, DEMO_URL, EASE, Eyebrow, Marquee, Reveal, SectionHead, Stagger, StaggerItem, TiltCard, Ticks } from './SiteUI';
 import {
   AgentMock, AnalyticsMock, BuilderMock, CaptureMock, ChannelIcon, CrmMock, EmailTemplate, FlowMock, InboxMock, OrbitMock, PLATFORM_ITEMS,
@@ -545,20 +546,128 @@ export const SolutionsPage: React.FC = () => (
   </main>
 );
 
-const RESOURCES = [
-  { tag: 'Guides', icon: BookOpen, title: 'The connected lead-to-revenue journey', copy: 'How capture, conversations, CRM and campaigns fit together.', href: '/how-it-works' },
-  { tag: 'Guides', icon: Megaphone, title: 'Designing campaigns people open', copy: 'Layout, copy and previews for email and WhatsApp.', href: '/campaigns' },
-  { tag: 'Use cases', icon: CalendarCheck, title: 'From first enquiry to booked meeting', copy: 'A walkthrough of the fastest path to a conversation.', href: '/demo-scheduling' },
-  { tag: 'Use cases', icon: Headphones, title: 'One inbox for every channel', copy: 'How teams answer faster without switching tabs.', href: '/unified-inbox' },
-  { tag: 'Insights', icon: BarChart3, title: 'Reading campaign engagement', copy: 'What delivered, read and replied really tell you.', href: '/analytics' },
-  { tag: 'Insights', icon: Bot, title: 'Working with an AI agent safely', copy: 'Approvals, handoff and keeping humans in control.', href: '/ai-agent' },
-  { tag: 'Product updates', icon: Sparkles, title: 'What’s new across the workspace', copy: 'The latest improvements to inbox, CRM and campaigns.', href: '/platform' },
-  { tag: 'Product updates', icon: Zap, title: 'Frequently asked questions', copy: 'Quick answers about channels, AI and plans.', href: '/faqs' },
-];
+const RESOURCE_ICON_MAP: Record<string, LucideIcon> = {
+  BookOpen, Megaphone, CalendarCheck, Headphones, BarChart3, Bot, Sparkles, Zap, FileText, Newspaper,
+};
+
+function renderInlineMarkdown(value: string, prefix: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const pattern = /\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  let index = 0;
+  while ((match = pattern.exec(value))) {
+    if (match.index > cursor) parts.push(value.slice(cursor, match.index));
+    const token = match[0];
+    if (token.startsWith('**')) {
+      parts.push(<strong key={prefix + '-' + index}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('*')) {
+      parts.push(<em key={prefix + '-' + index}>{token.slice(1, -1)}</em>);
+    } else {
+      const parsed = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      const href = parsed?.[2] || '';
+      const safe = (href.startsWith('/') && !href.startsWith('//')) || /^https:\/\//i.test(href);
+      if (parsed && safe) {
+        const external = /^https:\/\//i.test(href);
+        parts.push(<a key={prefix + '-' + index} href={href} className="sx-resource-inline-link" {...(external ? { target: '_blank', rel: 'noreferrer' } : {})}>{parsed[1]}</a>);
+      } else {
+        parts.push(token);
+      }
+    }
+    cursor = match.index + token.length;
+    index += 1;
+  }
+  if (cursor < value.length) parts.push(value.slice(cursor));
+  return parts;
+}
+
+function ResourceMarkdown({ content }: { content: string }) {
+  const lines = content.split('\n');
+  const blocks: React.ReactNode[] = [];
+  let paragraph: string[] = [];
+  let list: string[] = [];
+  let listNumbered = false;
+  const flushParagraph = () => {
+    if (paragraph.length) {
+      const value = paragraph.join(' ').trim();
+      blocks.push(<p key={'p-' + blocks.length}>{renderInlineMarkdown(value, 'p-' + blocks.length)}</p>);
+      paragraph = [];
+    }
+  };
+  const flushList = () => {
+    if (list.length) {
+      const values = list;
+      const numbered = listNumbered;
+      blocks.push(numbered
+        ? <ol key={'ol-' + blocks.length}>{values.map((item, i) => <li key={i}>{renderInlineMarkdown(item, 'ol-' + blocks.length + '-' + i)}</li>)}</ol>
+        : <ul key={'ul-' + blocks.length}>{values.map((item, i) => <li key={i}>{renderInlineMarkdown(item, 'ul-' + blocks.length + '-' + i)}</li>)}</ul>);
+      list = [];
+    }
+  };
+  lines.forEach((raw) => {
+    const line = raw.trim();
+    if (!line) { flushParagraph(); flushList(); return; }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph(); flushList();
+      const text = renderInlineMarkdown(heading[2], 'h-' + blocks.length);
+      if (heading[1].length === 1) blocks.push(<h2 key={'h-' + blocks.length}>{text}</h2>);
+      else if (heading[1].length === 2) blocks.push(<h3 key={'h-' + blocks.length}>{text}</h3>);
+      else blocks.push(<h4 key={'h-' + blocks.length}>{text}</h4>);
+      return;
+    }
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (bullet || numbered) {
+      flushParagraph();
+      const nextNumbered = Boolean(numbered);
+      if (list.length && listNumbered !== nextNumbered) flushList();
+      listNumbered = nextNumbered;
+      list.push((bullet || numbered)![1]);
+      return;
+    }
+    if (line.startsWith('> ')) {
+      flushParagraph(); flushList();
+      blocks.push(<blockquote key={'q-' + blocks.length}>{renderInlineMarkdown(line.slice(2), 'q-' + blocks.length)}</blockquote>);
+      return;
+    }
+    flushList();
+    paragraph.push(line);
+  });
+  flushParagraph();
+  flushList();
+  return <div className="sx-resource-prose">{blocks}</div>;
+}
 
 export const ResourcesPage: React.FC = () => {
+  const [resources, setResources] = useState<SiteResourcePublic[]>([]);
   const [tag, setTag] = useState('All');
-  const shown = tag === 'All' ? RESOURCES : RESOURCES.filter((r) => r.tag === tag);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/site-resources')
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data?.error || 'Resources are temporarily unavailable.');
+        return data;
+      })
+      .then((data) => { if (active) setResources(Array.isArray(data.resources) ? data.resources : []); })
+      .catch((err) => { if (active) setError(err?.message || 'Resources are temporarily unavailable.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  const shown = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return resources.filter((resource) => {
+      if (tag !== 'All' && resource.category !== tag) return false;
+      return !q || [resource.title, resource.summary, resource.category].some((value) => String(value || '').toLowerCase().includes(q));
+    });
+  }, [resources, tag, search]);
+
   return (
     <main className="sx-page">
       <section className="sx-hero simple">
@@ -571,24 +680,122 @@ export const ResourcesPage: React.FC = () => {
       </section>
       <section className="sx-section tight">
         <div className="sx-wrap">
-          <div className="sx-filters">{['All', 'Guides', 'Use cases', 'Insights', 'Product updates'].map((f) => (
-            <button type="button" key={f} className={tag === f ? 'on' : ''} onClick={() => setTag(f)}>{f}{tag === f && <motion.i layoutId="sx-filter" className="sx-pill-bg" />}</button>
-          ))}</div>
-          <motion.div layout className="sx-resource-grid">
-            <AnimatePresence mode="popLayout">
-              {shown.map((r) => {
-                const I = r.icon;
-                return (
-                  <motion.div layout key={r.title} initial={{ opacity: 0, scale: 0.96, y: 14 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.35, ease: EASE }}>
-                    <TiltCard as="a" href={r.href} className="sx-resource"><div className="sx-resource-art"><I size={30} /><i /><i /></div><small>{r.tag}</small><h3>{r.title}</h3><p>{r.copy}</p><em>Read more <ArrowUpRight size={13} /></em></TiltCard>
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
-          </motion.div>
+          <div className="sx-resource-toolbar">
+            <div className="sx-filters">
+              {['All', ...RESOURCE_CATEGORIES].map((filter) => (
+                <button type="button" key={filter} className={tag === filter ? 'on' : ''} onClick={() => setTag(filter)}>
+                  {filter}{tag === filter && <motion.i layoutId="sx-filter" className="sx-pill-bg" />}
+                </button>
+              ))}
+            </div>
+            <label className="sx-resource-search"><span>Search resources</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search guides, insights, topics…" /></label>
+          </div>
+          <div className="sx-resource-count">{loading ? 'Loading resources…' : shown.length + (shown.length === 1 ? ' resource' : ' resources')}</div>
+          {error && <div className="sx-resource-error">{error}</div>}
+          {loading ? <div className="sx-resource-loading"><i /><i /><i /></div> :
+            shown.length === 0 ? <div className="sx-resource-empty"><BookOpen size={24} /><h2>No resources found</h2><p>Try another category or search term.</p></div> :
+            <motion.div layout className="sx-resource-grid">
+              <AnimatePresence mode="popLayout">
+                {shown.map((resource) => {
+                  const Icon = RESOURCE_ICON_MAP[resource.icon] || BookOpen;
+                  const typeLabel = RESOURCE_TYPES.find((item) => item.value === resource.type)?.label || 'Resource';
+                  const isDirectLink = resource.type === 'link' || resource.type === 'video';
+                  const href = isDirectLink ? resource.destinationUrl : '/resources/' + resource.slug;
+                  const external = /^https:\/\//i.test(href);
+                  return (
+                    <motion.div layout key={resource.id} initial={{ opacity: 0, scale: 0.97, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }} transition={{ duration: 0.3, ease: EASE }}>
+                      <a href={href} className="sx-resource" {...(external ? { target: '_blank', rel: 'noreferrer' } : {})}>
+                        <div className="sx-resource-art">
+                          {resource.coverImageUrl ? <img src={resource.coverImageUrl} alt={resource.coverImageAlt} loading="lazy" /> : <><Icon size={30} /><i /><i /></>}
+                        </div>
+                        <div className="sx-resource-meta"><small>{resource.category}</small><span>{typeLabel}</span></div>
+                        <h3>{resource.title}</h3>
+                        <p>{resource.summary}</p>
+                        <em>{resource.ctaLabel || (isDirectLink ? 'Explore resource' : 'Read resource')} <ArrowUpRight size={13} /></em>
+                      </a>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </motion.div>
+          }
         </div>
       </section>
       <CtaBand />
+    </main>
+  );
+};
+
+export const ResourceDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
+  const [resource, setResource] = useState<SiteResourcePublic | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setResource(null);
+    setLoading(true);
+    setError('');
+    fetch('/api/site-resources/' + encodeURIComponent(slug))
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data?.error || 'This resource could not be found.');
+        return data;
+      })
+      .then((data) => { if (active) setResource(data.resource || null); })
+      .catch((err) => { if (active) setError(err?.message || 'This resource could not be found.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [slug]);
+
+  useEffect(() => {
+    if (!resource) return;
+    const title = resource.seoTitle || resource.title;
+    const description = resource.metaDescription || resource.summary;
+    document.title = title + ' | Amaavigo';
+    const setMeta = (selector: string, attribute: string, value: string) => {
+      let element = document.querySelector(selector) as HTMLMetaElement | null;
+      if (!element) {
+        element = document.createElement('meta');
+        if (selector.includes('property=')) element.setAttribute('property', selector.match(/property="([^"]+)"/)?.[1] || '');
+        else element.name = selector.match(/name="([^"]+)"/)?.[1] || '';
+        document.head.appendChild(element);
+      }
+      element.setAttribute(attribute, value);
+    };
+    setMeta('meta[name="description"]', 'content', description);
+    setMeta('meta[property="og:title"]', 'content', title + ' | Amaavigo');
+    setMeta('meta[property="og:description"]', 'content', description);
+    setMeta('meta[property="og:url"]', 'content', window.location.href);
+    if (resource.coverImageUrl) setMeta('meta[property="og:image"]', 'content', resource.coverImageUrl.startsWith('/') ? window.location.origin + resource.coverImageUrl : resource.coverImageUrl);
+    let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+    if (!canonical) { canonical = document.createElement('link'); canonical.rel = 'canonical'; document.head.appendChild(canonical); }
+    canonical.href = window.location.origin + '/resources/' + resource.slug;
+  }, [resource]);
+
+  if (loading) return <main className="sx-resource-detail"><div className="sx-wrap sx-resource-detail-loading">Loading resource…</div></main>;
+  if (!resource || error) return <main className="sx-resource-detail"><div className="sx-wrap sx-resource-not-found"><Eyebrow>RESOURCE</Eyebrow><h1>We could not find that resource.</h1><p>{error || 'It may have been unpublished or moved.'}</p><a href="/resources">Back to all resources <ArrowUpRight size={14} /></a></div></main>;
+
+  const typeLabel = RESOURCE_TYPES.find((item) => item.value === resource.type)?.label || 'Resource';
+  return (
+    <main className="sx-resource-detail">
+      <div className="sx-wrap">
+        <nav className="sx-resource-breadcrumb" aria-label="Breadcrumb"><a href="/">Home</a><span>/</span><a href="/resources">Resources</a><span>/</span><span>{resource.title}</span></nav>
+        <article className="sx-resource-article">
+          <header className="sx-resource-article-head">
+            <div className="sx-resource-meta"><small>{resource.category}</small><span>{typeLabel}</span></div>
+            <h1>{resource.title}</h1>
+            <p className="sx-resource-article-summary">{resource.summary}</p>
+            <div className="sx-resource-byline">{resource.author}{resource.readingTime ? ' · ' + resource.readingTime : ''}{resource.publishedAt ? ' · ' + new Date(resource.publishedAt).toLocaleDateString() : ''}</div>
+          </header>
+          {resource.coverImageUrl && <img className="sx-resource-article-cover" src={resource.coverImageUrl} alt={resource.coverImageAlt} />}
+          {resource.content ? <ResourceMarkdown content={resource.content} /> : <div className="sx-resource-external"><p>Continue to the full resource.</p><a href={resource.destinationUrl} target="_blank" rel="noreferrer">{resource.ctaLabel || 'Open resource'} <ArrowUpRight size={15} /></a></div>}
+          <footer className="sx-resource-article-footer">
+            <div><small>KEEP MOVING FORWARD</small><h2>Make the next conversation count.</h2></div>
+            <a href={resource.ctaUrl || '/contact'}>{resource.ctaLabel || 'Talk to our team'} <ArrowUpRight size={15} /></a>
+          </footer>
+        </article>
+      </div>
     </main>
   );
 };

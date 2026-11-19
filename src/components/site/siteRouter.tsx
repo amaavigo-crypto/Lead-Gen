@@ -9,6 +9,8 @@ export const SITE_ROUTES = new Set([
 
 export const normalizePath = (path: string) => path.replace(/\/+$/, '').toLowerCase() || '/';
 
+const isSiteRoute = (path: string) => SITE_ROUTES.has(path) || /^\/resources\/[a-z0-9-]+$/.test(path);
+
 interface SiteRouterValue {
   pathname: string;
   navigate: (href: string) => void;
@@ -33,7 +35,7 @@ export const SiteRouter: React.FC<{ children: React.ReactNode }> = ({ children }
   const navigate = useCallback((href: string) => {
     const url = new URL(href, window.location.origin);
     const next = normalizePath(url.pathname);
-    if (!SITE_ROUTES.has(next)) { window.location.href = href; return; }
+    if (!isSiteRoute(next)) { window.location.href = href; return; }
     window.history.pushState({}, '', url.pathname + url.search + url.hash);
     setPathname(next);
     scrollToHash(url.hash);
@@ -57,7 +59,7 @@ export const SiteRouter: React.FC<{ children: React.ReactNode }> = ({ children }
       try { url = new URL(raw, window.location.origin); } catch { return; }
       if (url.origin !== window.location.origin) return;
       const next = normalizePath(url.pathname);
-      if (!SITE_ROUTES.has(next)) return;
+      if (!isSiteRoute(next)) return;
       if (next === pathname && url.hash) return; // same page anchor: browser handles it
       event.preventDefault();
       if (next === pathname) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }

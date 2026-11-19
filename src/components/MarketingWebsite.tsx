@@ -4,7 +4,7 @@ import { AboutPage, ContactPage, PricingPage } from './LandingPage';
 import { FaqMarketingPage, HowItWorksMarketingPage } from './MarketingPages';
 import { SiteFooter, SiteHeader } from './site/SiteChrome';
 import { SiteRouter, useSiteRouter } from './site/siteRouter';
-import { CampaignsPage, HomePage, IntegrationsPage, PlatformPage, ProductPage, ResourcesPage, SolutionsPage } from './site/pages';
+import { CampaignsPage, HomePage, IntegrationsPage, PlatformPage, ProductPage, ResourceDetailPage, ResourcesPage, SolutionsPage } from './site/pages';
 import { EASE } from './site/SiteUI';
 import './LandingPageRepair.css';
 import './MarketingWebsite.css';
@@ -105,6 +105,10 @@ function updateMeta(selector: string, attribute: string, value: string) {
 }
 
 function renderPage(pathname: string): React.ReactNode {
+  if (pathname.startsWith('/resources/')) {
+    const slug = decodeURIComponent(pathname.slice('/resources/'.length));
+    return <ResourceDetailPage slug={slug} />;
+  }
   switch (pathname) {
     case '/': return <HomePage />;
     case '/platform': return <PlatformPage />;
@@ -135,6 +139,7 @@ const SiteShell: React.FC = () => {
   const reduced = useReducedMotion();
 
   useEffect(() => {
+    if (pathname.startsWith('/resources/')) return;
     const meta = PAGE_META[pathname] || PAGE_META['/'];
     document.title = meta.title + ' | Amaavigo';
     updateMeta('meta[name="description"]', 'content', meta.description);
