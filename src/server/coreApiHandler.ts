@@ -1392,7 +1392,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       if (req.method === 'GET') {
         const snap = await getDocs(collection(db, 'platform_feedback_submissions'));
         const submissions = snap.docs
-          .map((entry) => ({ ...(entry.data() as Record<string, any>), id: entry.id }))
+          .map((entry): Record<string, any> & { id: string } => ({ ...(entry.data() as Record<string, any>), id: entry.id }))
           .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
           .slice(0, 1000);
         res.statusCode = 200;
