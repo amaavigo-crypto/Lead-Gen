@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight, ArrowUpRight, BarChart3, BookOpen, Bot, Building2, CalendarCheck, Check, Clock3, Database, Facebook, FileText, Filter, Globe, Headphones,
-  Inbox, Instagram, Layers, Lock, Mail, Megaphone, MessageCircle, Monitor, Palette, Repeat, ShieldCheck, Smartphone, Sparkles, Target, TrendingUp, UserCheck,
+  Inbox, Instagram, Layers, Lock, Mail, Megaphone, MessageCircle, Monitor, Newspaper, Palette, Repeat, ShieldCheck, Smartphone, Sparkles, Target, TrendingUp, UserCheck,
   Users, Workflow, Zap, type LucideIcon,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
