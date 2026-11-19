@@ -300,6 +300,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     url === '/api/health' ||
     (req.method === 'GET' && url === '/api/site-seo') ||
     (req.method === 'GET' && url === '/api/public/plans') ||
+    (req.method === 'GET' && url === '/api/site-resources') ||
     // Public asset raw/view streaming for email clients
     (req.method === 'GET' && /^\/api\/assets\/[^/]+\/view$/.test(url)) ||
     // Published legal pages (Privacy, Terms, DPA, AUP) are public by design.
@@ -758,6 +759,43 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       }
       console.error('[Website SEO] request failed:', err);
       return send(500, { error: 'Could not process website SEO settings' });
+    }
+  }
+
+  // =========================================================================
+  // WEBSITE RESOURCES: published list is public; create / edit / delete are platform-admin only.
+  // =========================================================================
+  if (url === '/api/site-resources' || url === '/api/platform/site-resources' || url.startsWith('/api/platform/site-resources/')) {
+    const resources = await import('./siteResourcesService.js');
+    const path = url.split('?')[0];
+    const send = (status: number, payload: unknown) => {
+      res.statusCode = status;
+      res.end(JSON.stringify(payload));
+      return true;
+    };
+    try {
+      if (path === '/api/site-resources') {
+        if (req.method !== 'GET') return send(405, { error: 'Method not allowed' });
+        res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=300');
+        return send(200, { resources: await resources.listPublishedResources() });
+      }
+      if (!isPlatformAdmin) return send(403, { error: 'Platform admin only' });
+      if (!isFirebaseConfigured || !db) return send(503, { error: 'Database is not configured' });
+      const id = path.startsWith('/api/platform/site-resources/') ? decodeURIComponent(path.slice('/api/platform/site-resources/'.length)) : '';
+      if (!id) {
+        if (req.method === 'GET') return send(200, { resources: await resources.listAllResources() });
+        if (req.method === 'POST') return send(200, { resource: await resources.createResource(body) });
+        return send(405, { error: 'Method not allowed' });
+      }
+      if (req.method === 'PUT') return send(200, { resource: await resources.updateResource(id, body) });
+      if (req.method === 'DELETE') { await resources.deleteResource(id); return send(200, { ok: true }); }
+      return send(405, { error: 'Method not allowed' });
+    } catch (err: any) {
+      if (err instanceof (await import('./../shared/siteResources.js')).SiteResourceValidationError) {
+        return send(400, { error: err.message });
+      }
+      console.error('[Site resources] request failed:', err);
+      return send(500, { error: 'Could not process website resources' });
     }
   }
 

@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowRight, ArrowUpRight, BarChart3, BookOpen, Bot, Building2, CalendarCheck, Check, Clock3, Database, Facebook, FileText, Filter, Globe, Headphones,
-  Inbox, Instagram, Layers, Lock, Mail, Megaphone, MessageCircle, Monitor, Palette, Repeat, ShieldCheck, Smartphone, Sparkles, Target, TrendingUp, UserCheck,
+  Inbox, Instagram, Layers, Lock, Mail, Megaphone, MessageCircle, Monitor, Newspaper, Palette, Repeat, ShieldCheck, Smartphone, Sparkles, Target, TrendingUp, UserCheck,
   Users, Workflow, Zap, type LucideIcon,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -10,6 +10,7 @@ import {
   AgentMock, AnalyticsMock, BuilderMock, CaptureMock, ChannelIcon, CrmMock, EmailTemplate, FlowMock, InboxMock, OrbitMock, PLATFORM_ITEMS,
   ScheduleMock, WhatsAppPhone, type EmailKind, type WaKind,
 } from './mockups';
+import { RESOURCE_CATEGORIES, SAMPLE_RESOURCES, type SiteResource } from '../../shared/siteResources';
 
 /* ───────────── shared blocks ───────────── */
 
@@ -545,20 +546,30 @@ export const SolutionsPage: React.FC = () => (
   </main>
 );
 
-const RESOURCES = [
-  { tag: 'Guides', icon: BookOpen, title: 'The connected lead-to-revenue journey', copy: 'How capture, conversations, CRM and campaigns fit together.', href: '/how-it-works' },
-  { tag: 'Guides', icon: Megaphone, title: 'Designing campaigns people open', copy: 'Layout, copy and previews for email and WhatsApp.', href: '/campaigns' },
-  { tag: 'Use cases', icon: CalendarCheck, title: 'From first enquiry to booked meeting', copy: 'A walkthrough of the fastest path to a conversation.', href: '/demo-scheduling' },
-  { tag: 'Use cases', icon: Headphones, title: 'One inbox for every channel', copy: 'How teams answer faster without switching tabs.', href: '/unified-inbox' },
-  { tag: 'Insights', icon: BarChart3, title: 'Reading campaign engagement', copy: 'What delivered, read and replied really tell you.', href: '/analytics' },
-  { tag: 'Insights', icon: Bot, title: 'Working with an AI agent safely', copy: 'Approvals, handoff and keeping humans in control.', href: '/ai-agent' },
-  { tag: 'Product updates', icon: Sparkles, title: 'What’s new across the workspace', copy: 'The latest improvements to inbox, CRM and campaigns.', href: '/platform' },
-  { tag: 'Product updates', icon: Zap, title: 'Frequently asked questions', copy: 'Quick answers about channels, AI and plans.', href: '/faqs' },
-];
+const RESOURCE_ICON_MAP: Record<string, React.ComponentType<{ size?: number }>> = {
+  BookOpen, Megaphone, CalendarCheck, Headphones, BarChart3, Bot, Sparkles, Zap, FileText, Newspaper,
+};
+const RESOURCE_TABS = ['All', ...RESOURCE_CATEGORIES];
+
+function useSiteResources() {
+  const [items, setItems] = useState<SiteResource[]>(SAMPLE_RESOURCES as SiteResource[]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/site-resources')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('bad status'))))
+      .then((d) => { if (alive && Array.isArray(d?.resources)) setItems(d.resources); })
+      .catch(() => { /* keep the built-in samples */ })
+      .finally(() => { if (alive) setLoaded(true); });
+    return () => { alive = false; };
+  }, []);
+  return { items, loaded };
+}
 
 export const ResourcesPage: React.FC = () => {
   const [tag, setTag] = useState('All');
-  const shown = tag === 'All' ? RESOURCES : RESOURCES.filter((r) => r.tag === tag);
+  const { items } = useSiteResources();
+  const shown = tag === 'All' ? items : items.filter((r) => r.category === tag);
   return (
     <main className="sx-page">
       <section className="sx-hero simple">
@@ -571,21 +582,23 @@ export const ResourcesPage: React.FC = () => {
       </section>
       <section className="sx-section tight">
         <div className="sx-wrap">
-          <div className="sx-filters">{['All', 'Guides', 'Use cases', 'Insights', 'Product updates'].map((f) => (
+          <div className="sx-filters">{RESOURCE_TABS.map((f) => (
             <button type="button" key={f} className={tag === f ? 'on' : ''} onClick={() => setTag(f)}>{f}{tag === f && <motion.i layoutId="sx-filter" className="sx-pill-bg" />}</button>
           ))}</div>
           <motion.div layout className="sx-resource-grid">
             <AnimatePresence mode="popLayout">
               {shown.map((r) => {
-                const I = r.icon;
+                const I = RESOURCE_ICON_MAP[r.icon] || BookOpen;
+                const external = /^https?:/i.test(r.href);
                 return (
-                  <motion.div layout key={r.title} initial={{ opacity: 0, scale: 0.96, y: 14 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.35, ease: EASE }}>
-                    <TiltCard as="a" href={r.href} className="sx-resource"><div className="sx-resource-art"><I size={30} /><i /><i /></div><small>{r.tag}</small><h3>{r.title}</h3><p>{r.copy}</p><em>Read more <ArrowUpRight size={13} /></em></TiltCard>
+                  <motion.div layout key={r.id} initial={{ opacity: 0, scale: 0.96, y: 14 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.35, ease: EASE }}>
+                    <TiltCard as="a" href={r.href} {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})} className="sx-resource"><div className="sx-resource-art"><I size={30} /><i /><i /></div><small>{r.category}</small><h3>{r.title}</h3><p>{r.summary}</p><em>Read more <ArrowUpRight size={13} /></em></TiltCard>
                   </motion.div>
                 );
               })}
             </AnimatePresence>
           </motion.div>
+          {shown.length === 0 && <p className="sx-empty">New resources are on the way — check back soon.</p>}
         </div>
       </section>
       <CtaBand />

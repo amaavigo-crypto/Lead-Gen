@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { LegalEditor } from './LegalEditor';
 const SeoSettingsEditor = React.lazy(() => import('./SeoSettingsEditor'));
+const ResourcesManager = React.lazy(() => import('./ResourcesManager'));
 import {
   Building2,
   Plus,
@@ -147,7 +148,7 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [view, setView] = useState<'workspaces' | 'feedback' | 'plans' | 'legal' | 'seo'>('workspaces');
+  const [view, setView] = useState<'workspaces' | 'feedback' | 'plans' | 'legal' | 'seo' | 'resources'>('workspaces');
   const [feedbackItems, setFeedbackItems] = useState<FeedbackSubmission[]>([]);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
@@ -302,7 +303,7 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-5">
         <div className="inline-flex rounded-lg bg-slate-200/60 p-1 text-sm font-semibold">
-          {(['workspaces', 'feedback', 'plans', 'legal', 'seo'] as const).map((v) => (
+          {(['workspaces', 'feedback', 'plans', 'legal', 'seo', 'resources'] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -331,6 +332,14 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
         <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
           <React.Suspense fallback={<div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading Website SEO…</div>}>
             <SeoSettingsEditor />
+          </React.Suspense>
+        </main>
+      )}
+
+      {view === 'resources' && (
+        <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+          <React.Suspense fallback={<div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading Resources…</div>}>
+            <ResourcesManager />
           </React.Suspense>
         </main>
       )}

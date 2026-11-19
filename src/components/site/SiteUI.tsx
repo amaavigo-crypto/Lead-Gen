@@ -56,7 +56,7 @@ export const Ticks: React.FC<{ items: string[] }> = ({ items }) => (
 );
 
 /** Card with cursor spotlight and a gentle 3D tilt. Pure CSS variables, so no React re-renders while the pointer moves. */
-export const TiltCard: React.FC<{ children: React.ReactNode; className?: string; tilt?: number; as?: 'div' | 'a'; href?: string }> = ({ children, className = '', tilt = 5, as = 'div', href }) => {
+export const TiltCard: React.FC<{ children: React.ReactNode; className?: string; tilt?: number; as?: 'div' | 'a'; href?: string; target?: string; rel?: string }> = ({ children, className = '', tilt = 5, as = 'div', href, target, rel }) => {
   const ref = useRef<HTMLElement | null>(null);
   const frame = useRef(0);
   const reduced = useReducedMotion();
@@ -82,7 +82,7 @@ export const TiltCard: React.FC<{ children: React.ReactNode; className?: string;
     el.style.setProperty('--rx', '0deg'); el.style.setProperty('--ry', '0deg');
   };
   const props = { ref: ref as any, className: 'sx-tilt ' + className, onPointerMove: onMove, onPointerLeave: onLeave };
-  return as === 'a' ? <a {...props} href={href}>{children}</a> : <div {...props}>{children}</div>;
+  return as === 'a' ? <a {...props} href={href} target={target} rel={rel}>{children}</a> : <div {...props}>{children}</div>;
 };
 
 export const CountUp: React.FC<{ to: number; suffix?: string; prefix?: string; decimals?: number; duration?: number }> = ({ to, suffix = '', prefix = '', decimals = 0, duration = 1.6 }) => {
