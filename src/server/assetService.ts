@@ -1,8 +1,8 @@
 import { tenantRepo } from './tenantRepo.js';
 import type { TenantContext } from '../types/tenant.js';
 import type { CompanyAsset, AssetCategory } from '../types/index.js';
-import { isFirebaseConfigured, db } from '../firebase/config.js';
-import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, query, orderBy } from './adminFirestore.js';
+import { isFirebaseConfigured } from '../firebase/config.js';
+import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, query, orderBy, db as adminDb } from './adminFirestore.js';
 import { safeSetDoc } from './firestoreUtils.js';
 
 // In-memory cache for ultra-fast raw asset serving to email clients
@@ -44,7 +44,7 @@ export async function seedTenantAssetsIfEmpty(ctx: TenantContext): Promise<Compa
 export async function listTenantAssets(ctx: TenantContext): Promise<CompanyAsset[]> {
   const assets: CompanyAsset[] = [];
 
-  if (isFirebaseConfigured && db) {
+  if (isFirebaseConfigured && adminDb) {
     try {
       const snap = await getDocs(tenantRepo(ctx).assets()).catch(() => null);
       if (snap) {
@@ -154,7 +154,7 @@ export async function saveTenantAsset(
   }
 
   // Persist to Firestore. Do not report upload success when the tenant asset was not saved.
-  if (isFirebaseConfigured && db) {
+  if (isFirebaseConfigured && adminDb) {
     try {
       await safeSetDoc(tenantRepo(ctx).assetDoc(id), asset, { merge: true });
     } catch (err) {
@@ -173,7 +173,7 @@ export async function saveTenantAsset(
 export async function deleteTenantAsset(ctx: TenantContext, assetId: string): Promise<boolean> {
   assetMemoryCache.delete(assetId);
 
-  if (isFirebaseConfigured && db) {
+  if (isFirebaseConfigured && adminDb) {
     try {
       await deleteDoc(tenantRepo(ctx).assetDoc(assetId));
       return true;
@@ -192,10 +192,10 @@ export async function deleteTenantAsset(ctx: TenantContext, assetId: string): Pr
  */
 export type PlatformAssetView = Omit<CompanyAsset, 'dataUrl'>;
 
-const platformAssetsCollection = () => collection(db, 'platform_assets');
+const platformAssetsCollection = () => collection(adminDb, 'platform_assets');
 
 export async function listPlatformAssets(): Promise<PlatformAssetView[]> {
-  if (!isFirebaseConfigured || !db) throw new Error('Asset storage is not configured.');
+  if (!isFirebaseConfigured || !adminDb) throw new Error('Asset storage is not configured.');
   const snapshot = await getDocs(platformAssetsCollection());
   const assets: PlatformAssetView[] = [];
   snapshot.forEach((entry) => {
@@ -214,7 +214,7 @@ export async function listPlatformAssets(): Promise<PlatformAssetView[]> {
 export async function savePlatformAsset(
   input: Partial<CompanyAsset> & { dataUrl?: string }
 ): Promise<PlatformAssetView> {
-  if (!isFirebaseConfigured || !db) throw new Error('Asset storage is not configured.');
+  if (!isFirebaseConfigured || !adminDb) throw new Error('Asset storage is not configured.');
   if (typeof input.dataUrl !== 'string') throw new Error('Choose an image file to upload.');
   const match = input.dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/i);
   if (!match) throw new Error('Use a PNG, JPG or WebP image.');
@@ -281,7 +281,7 @@ export async function resolveAssetRaw(
     return null;
   }
 
-  if (tenantId === 'platform' && isFirebaseConfigured && db) {
+  if (tenantId === 'platform' && isFirebaseConfigured && adminDb) {
     try {
       const snap = await getDoc(doc(platformAssetsCollection(), assetId));
       if (snap.exists()) {
@@ -299,7 +299,7 @@ export async function resolveAssetRaw(
     return null;
   }
 
-  if (tenantId && isFirebaseConfigured && db) {
+  if (tenantId && isFirebaseConfigured && adminDb) {
     try {
       const mockCtx: TenantContext = {
         tenantId,
