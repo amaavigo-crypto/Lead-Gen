@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { CheckCircle2, ChevronDown, Download, ShieldCheck, Smartphone } from 'lucide-react';
+import React, { useState } from 'react';
+import { CheckCircle2, ChevronDown, Download, MonitorDown, ShieldCheck, Smartphone } from 'lucide-react';
 import { usePwaInstall } from '../context/PwaInstallContext';
 
 interface PwaInstallCardProps {
@@ -11,20 +11,11 @@ export const PwaInstallCard: React.FC<PwaInstallCardProps> = ({ variant = 'setti
   const [showInstructions, setShowInstructions] = useState(false);
   const isLogin = variant === 'login';
 
-  useEffect(() => {
-    if (canInstall || isInstalled) setShowInstructions(false);
-  }, [canInstall, isInstalled]);
-
   const handleInstall = async () => {
-    if (isInstalled) return;
-    setShowInstructions(false);
-
     if (!canInstall) {
-      // On browsers that do not expose beforeinstallprompt yet, explain the native menu path.
-      setShowInstructions(true);
+      setShowInstructions((current) => !current);
       return;
     }
-
     const outcome = await promptInstall();
     if (outcome !== 'accepted') setShowInstructions(true);
   };
@@ -52,11 +43,10 @@ export const PwaInstallCard: React.FC<PwaInstallCardProps> = ({ variant = 'setti
           type="button"
           onClick={handleInstall}
           disabled={isInstalled}
-          aria-expanded={showInstructions}
           className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-xs font-extrabold text-white shadow-sm transition hover:bg-orange-600 active:bg-orange-700 disabled:cursor-default disabled:bg-emerald-600"
         >
-          {isInstalled ? <CheckCircle2 className="h-4 w-4" /> : <Download className="h-4 w-4" />}
-          {isInstalled ? 'App installed' : 'Install app'}
+          {isInstalled ? <CheckCircle2 className="h-4 w-4" /> : canInstall ? <Download className="h-4 w-4" /> : <MonitorDown className="h-4 w-4" />}
+          {isInstalled ? 'App installed' : canInstall ? 'Install app' : 'Installation help'}
         </button>
       </div>
 
@@ -68,7 +58,7 @@ export const PwaInstallCard: React.FC<PwaInstallCardProps> = ({ variant = 'setti
         </div>
       )}
 
-      {showInstructions && !isInstalled && (
+      {(showInstructions || (!canInstall && !isInstalled)) && (
         <div className={isLogin ? 'mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-600' : 'border-t border-slate-100 px-5 py-4 text-xs text-slate-600 sm:px-6'}>
           <p className="font-bold text-slate-800">{isIOS ? 'Add Amaavigo to your Home Screen' : 'Install from your browser'}</p>
           {isIOS ? (
@@ -78,9 +68,7 @@ export const PwaInstallCard: React.FC<PwaInstallCardProps> = ({ variant = 'setti
               <li>Choose <strong>Add to Home Screen</strong>, then tap Add.</li>
             </ol>
           ) : (
-            <p className="mt-2 leading-relaxed">
-              In Chrome, open the three-dot menu and choose <strong>Install app</strong> (or <strong>Add to Home screen</strong>). If Chrome has not offered the install prompt yet, use this page briefly and check the menu again once the app is eligible. No APK or separate download is required.
-            </p>
+            <p className="mt-2 leading-relaxed">Open your browser menu and choose <strong>Install app</strong> or <strong>Add to Home Screen</strong>. In supported browsers, the Install app button above opens the native install prompt.</p>
           )}
           {!isLogin && <p className="mt-3 inline-flex items-center gap-1 text-[11px] text-slate-500"><ChevronDown className="h-3 w-3" /> Your installed app uses the same live platform; it does not create a separate account or data store.</p>}
         </div>

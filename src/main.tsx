@@ -8,7 +8,7 @@ import { PwaInstallProvider } from './context/PwaInstallContext';
 // Production-only app shell cache. API responses, auth tokens and tenant data are never cached.
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   const registerServiceWorker = () => {
-    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(() => undefined);
+    navigator.serviceWorker.register('/sw.js').catch(() => undefined);
   };
   if (document.readyState === 'complete') registerServiceWorker();
   else window.addEventListener('load', registerServiceWorker, { once: true });

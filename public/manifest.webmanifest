@@ -9,32 +9,12 @@
   "orientation": "any",
   "background_color": "#0B132B",
   "theme_color": "#0B132B",
-  "prefer_related_applications": false,
   "icons": [
-    {
-      "src": "/icons/amaavigo-app-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icons/amaavigo-app-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
     {
       "src": "/icons/amaavigo-app.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any"
-    }
-  ],
-  "related_applications": [
-    {
-      "platform": "webapp",
-      "url": "/manifest.webmanifest",
-      "id": "https://leads.amaavigo.com/"
+      "purpose": "any maskable"
     }
   ],
   "shortcuts": [
@@ -42,13 +22,13 @@
       "name": "Unified Inbox",
       "short_name": "Inbox",
       "url": "/?tab=inbox",
-      "icons": [{ "src": "/icons/amaavigo-app-192.png", "sizes": "192x192", "type": "image/png" }]
+      "icons": [{ "src": "/icons/amaavigo-app.svg", "sizes": "any", "type": "image/svg+xml" }]
     },
     {
       "name": "Dashboard",
       "short_name": "Dashboard",
       "url": "/?tab=dashboard",
-      "icons": [{ "src": "/icons/amaavigo-app-192.png", "sizes": "192x192", "type": "image/png" }]
+      "icons": [{ "src": "/icons/amaavigo-app.svg", "sizes": "any", "type": "image/svg+xml" }]
     }
   ],
   "lang": "en",
