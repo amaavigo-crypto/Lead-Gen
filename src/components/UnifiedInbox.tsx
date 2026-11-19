@@ -112,6 +112,7 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
   const [selectedConversationId, setSelectedConversationId] = useState<string>(
     conversations[0]?.conversationId || ''
   );
+  const [isMobileThreadOpen, setIsMobileThreadOpen] = useState<boolean>(false);
   useEffect(() => {
     const onGlobalSearchResult = (event: Event) => {
       const detail = (event as CustomEvent<any>).detail;
@@ -126,6 +127,8 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
       if (matched) {
         setSelectedConversationId(matched.conversationId);
         setIsUnifiedAllPlatforms(false);
+        setIsMobileThreadOpen(true);
+        if (window.matchMedia('(max-width: 820px)').matches) setIsProfileOpen(false);
       }
     };
     window.addEventListener('umrah360:global-search-result', onGlobalSearchResult);
@@ -659,7 +662,7 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
   };
 
   return (
-    <div className="unified-inbox-shell unified-inbox-layout-root flex flex-row h-full w-full bg-white text-slate-900 overflow-hidden relative" style={{ ['--uinbox-profile-width' as any]: (isProfileOpen ? profilePanelWidth : 0) + 'px' }}>
+    <div className={'unified-inbox-shell unified-inbox-layout-root flex flex-row h-full w-full bg-white text-slate-900 overflow-hidden relative' + (isMobileThreadOpen ? ' is-mobile-thread-open' : '')} style={{ ['--uinbox-profile-width' as any]: (isProfileOpen ? profilePanelWidth : 0) + 'px' }}>
       {/* 1. LEFT COLUMN: Conversation List & Filters (Width: 340px) */}
       <div className="unified-inbox-sidebar unified-inbox-conversation-panel flex flex-col bg-white h-full min-h-0 shrink-0" style={{ ['--uinbox-conversation-width' as any]: conversationListWidth + 'px' }}>
 
@@ -744,6 +747,8 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
                   onClick={() => {
                     setSelectedConversationId(conv.conversationId);
                     setIsUnifiedAllPlatforms(false);
+                    setIsMobileThreadOpen(true);
+                    if (window.matchMedia('(max-width: 820px)').matches) setIsProfileOpen(false);
                     if (isUnread) {
                       onMarkAsRead?.(conv.conversationId);
                     }
@@ -759,6 +764,7 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
                   <div className="flex items-start justify-between">
                     <div className="flex items-center space-x-2">
                       {renderChannelIcon(conv.channel, 4)}
+                      <span className="uinbox-mobile-avatar" aria-hidden="true">{(contact?.firstName?.[0] || '?') + (contact?.lastName?.[0] || '')}</span>
                       <span className={`text-xs ${isUnread ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'}`}>
                         {contact?.firstName} {contact?.lastName}
                       </span>
@@ -862,6 +868,7 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
         {activeConversation && activeContact ? (
           <>
             <div className="unified-inbox-thread-header p-3.5 border-b border-slate-200/80 bg-white flex items-center justify-between shrink-0">
+              <button type="button" onClick={() => setIsMobileThreadOpen(false)} aria-label="Back to conversations" className="uinbox-mobile-back"><ChevronLeft size={19} /></button>
               <div className="flex items-center space-x-3">
                 <div className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-800 text-sm shadow-2xs">
                   {activeContact.firstName?.[0]}

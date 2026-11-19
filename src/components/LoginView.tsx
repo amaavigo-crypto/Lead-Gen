@@ -62,12 +62,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden selection:bg-orange-500/20 selection:text-orange-900">
+    <div className="auth-login-page min-h-screen bg-slate-50 text-slate-900 flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden selection:bg-orange-500/20 selection:text-orange-900">
       {/* Soft orange ambient ambient glows */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-1/4 left-1/3 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
 
-      <div className="w-full max-w-md space-y-6 relative z-10">
+      <div className="auth-login-content w-full max-w-md space-y-6 relative z-10">
         {/* Brand Header */}
         <div className="text-center space-y-3">
           <div className="flex justify-center mb-2">
@@ -79,7 +79,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
         </div>
 
         {/* Login Card */}
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-8 shadow-xl space-y-5">
+        <div className="auth-login-card bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-8 shadow-xl space-y-5">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center space-x-2">
               <KeyRound className="w-4 h-4 text-orange-500" />
