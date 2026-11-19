@@ -2,12 +2,18 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle, Archive, ArrowUpRight, BookOpen, CheckCircle2, Clock3, Eye,
   FilePlus2, FileText, Filter, ImagePlus, Loader2, Pencil, Plus, RefreshCw,
-  Search, Send, Trash2, X,
+  Search, Send, Trash2, X, Monitor, Smartphone, FileUp,
 } from 'lucide-react';
 import {
   RESOURCE_CATEGORIES, RESOURCE_ICONS, RESOURCE_TYPES,
   type ResourceStatus, type SiteResourceAdminRecord, type SiteResourceFields,
 } from '../shared/siteResources.js';
+import ResourceHtmlEditor from './ResourceHtmlEditor.js';
+import ResourceAssetLibrary from './ResourceAssetLibrary.js';
+import { importResourceFile } from '../services/resourceArchiveImport.js';
+import { getImageDimensions } from '../services/assetClientService.js';
+import { uploadPlatformAsset, type PlatformSiteAsset } from '../services/platformAssetClientService.js';
+import { sanitizeResourceHtml } from '../shared/resourceHtml.js';
 
 const API = '/api/platform/site-resources';
 const blankResource = (order: number): SiteResourceFields => ({
@@ -17,6 +23,7 @@ const blankResource = (order: number): SiteResourceFields => ({
   category: 'Guides',
   type: 'article',
   content: '',
+  contentFormat: 'html',
   destinationUrl: '',
   coverImageUrl: '',
   coverImageAlt: '',
@@ -74,6 +81,8 @@ export default function ResourcesManager() {
   const [slugTouched, setSlugTouched] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
+  const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
 
   const load = async () => {
     setLoading(true);
@@ -119,7 +128,7 @@ export default function ResourcesManager() {
 
   const openEdit = (item: SiteResourceAdminRecord) => {
     setSelectedId(item.id);
-    setForm({ ...item.draft });
+    setForm({ ...item.draft, contentFormat: item.draft.contentFormat || 'markdown' });
     setEditing(true);
     setSlugTouched(true);
     setError('');
@@ -234,6 +243,23 @@ export default function ResourcesManager() {
     }
   };
 
+  const openAssetLibrary = (_purpose: 'content' | 'cover') => setAssetLibraryOpen(true);
+
+  const usePlatformAsset = (asset: PlatformSiteAsset, purpose: 'content' | 'cover') => {
+    if (purpose === 'cover') {
+      setField('coverImageUrl', asset.url);
+      setField('coverImageAlt', asset.altText || asset.name);
+      setNotice('Cover image selected from the platform asset library. Save the draft to keep the change.');
+    } else {
+      const currentHtml = form.contentFormat === 'markdown' ? legacyMarkdownToHtml(form.content) : form.content;
+      const imageHtml = '<figure><img src="' + escapeHtmlAttribute(asset.url) + '" alt="' + escapeHtmlAttribute(asset.altText || asset.name) + '" loading="lazy" /></figure>';
+      setField('contentFormat', 'html');
+      setField('content', (currentHtml.trim() ? currentHtml.trim() + '\n' : '') + imageHtml);
+      setNotice('Image URL inserted into the article HTML. You can reposition it in the visual editor.');
+    }
+    setAssetLibraryOpen(false);
+  };
+
   const uploadImage = async (file?: File) => {
     if (!file) return;
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) {
@@ -244,12 +270,18 @@ export default function ResourcesManager() {
     setError('');
     try {
       const dataUrl = await readAsDataUrl(file);
-      const result = await request<{ image: { id: string; url: string } }>(API + '/media', {
-        method: 'POST',
-        body: JSON.stringify({ dataUrl }),
+      const dimensions = await getImageDimensions(dataUrl);
+      const asset = await uploadPlatformAsset({
+        name: file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').slice(0, 120) || 'Resource image',
+        mimeType: file.type,
+        dataUrl,
+        size: file.size,
+        dimensions,
+        altText: file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').slice(0, 300),
       });
-      setField('coverImageUrl', result.image.url);
-      setNotice('Featured image uploaded. Save the draft to keep the change.');
+      setField('coverImageUrl', asset.url);
+      setField('coverImageAlt', asset.altText || asset.name);
+      setNotice('Image uploaded to the shared platform asset library. Save the draft to keep the change.');
     } catch (err: any) {
       setError(err?.message || 'Could not upload this image.');
     } finally {
@@ -257,7 +289,42 @@ export default function ResourcesManager() {
     }
   };
 
+  const importPackage = async (file?: File) => {
+    if (!file) return;
+    setUploading(true);
+    setError('');
+    setNotice('');
+    try {
+      const imported = await importResourceFile(file, async (name, dataUrl, mimeType, size) => {
+        const dimensions = await getImageDimensions(dataUrl);
+        const asset = await uploadPlatformAsset({
+          name: name.replace(/\.[^.]+$/, '').slice(0, 120) || 'Resource image',
+          mimeType,
+          dataUrl,
+          size,
+          dimensions,
+          altText: name.replace(/\.[^.]+$/, '').slice(0, 300) || 'Resource image',
+        });
+        return asset.url;
+      });
+      setField('contentFormat', 'html');
+      setField('content', imported.html);
+      if (!form.title.trim() && imported.suggestedTitle) {
+        setField('title', imported.suggestedTitle.slice(0, 140));
+        if (!slugTouched) setField('slug', slugify(imported.suggestedTitle));
+      }
+      setNotice('Imported HTML successfully' + (imported.uploadedImages ? ' and uploaded ' + imported.uploadedImages + ' image(s) to the platform library.' : '.'));
+    } catch (err: any) {
+      setError(err?.message || 'Could not import this blog package.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const selected = items.find((item) => item.id === selectedId) || null;
+
+  function escapeHtmlAttribute(value: string) { return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function legacyMarkdownToHtml(markdown: string) { return markdown.split(/\n\s*\n/).map((block) => { const trimmed = block.trim(); if (!trimmed) return ''; const heading = trimmed.match(/^(#{1,3})\s+(.+)$/); if (heading) return '<h' + (heading[1].length + 1) + '>' + escapeHtmlAttribute(heading[2]) + '</h' + (heading[1].length + 1) + '>'; if (/^[-*]\s/m.test(trimmed)) return '<ul>' + trimmed.split('\n').map((line) => line.replace(/^[-*]\s+/, '')).map((line) => '<li>' + escapeHtmlAttribute(line) + '</li>').join('') + '</ul>'; return '<p>' + escapeHtmlAttribute(trimmed).replace(/\n/g, '<br />') + '</p>'; }).join('\n'); }
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 px-4 py-5 sm:px-6">
@@ -322,12 +389,30 @@ export default function ResourcesManager() {
               </div>
 
               {form.type === 'link' || form.type === 'video' ? <label className={labelClass}>Destination URL<input required className={inputClass} value={form.destinationUrl} onChange={(event) => setField('destinationUrl', event.target.value)} placeholder="https://… or /platform" /></label> :
-                <label className={labelClass}>Resource content (Markdown)<textarea required rows={13} className={inputClass + ' font-mono text-xs leading-6'} value={form.content} onChange={(event) => setField('content', event.target.value)} placeholder={'# Start with the problem\n\nExplain the idea in a few clear paragraphs.\n\n## What to do next\n\n- First action\n- Second action\n\n**Tip:** Keep the advice practical.'} /><span className="mt-1 block text-[10px] font-normal normal-case tracking-normal text-slate-400">Supports headings (# / ##), paragraphs, bullet lists, numbered lists, bold, italic and safe links.</span></label>}
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div><div className={labelClass}>Complete article content</div><p className="mt-1 text-xs text-slate-500">Paste your full HTML, edit visually, or import an HTML / ZIP package with images and CSS.</p></div>
+                    <div className="flex flex-wrap gap-2">
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-700 hover:bg-slate-50">
+                        <FileUp className="h-3.5 w-3.5" /> {uploading ? 'Importing…' : 'Import HTML / ZIP'}
+                        <input type="file" accept=".html,.htm,.zip,text/html,application/zip" className="hidden" disabled={uploading} onChange={(event) => { void importPackage(event.target.files?.[0]); event.currentTarget.value = ''; }} />
+                      </label>
+                      {form.contentFormat === 'markdown' && <button type="button" onClick={() => { setField('content', legacyMarkdownToHtml(form.content)); setField('contentFormat', 'html'); }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-700">Convert legacy Markdown</button>}
+                    </div>
+                  </div>
+                  {form.contentFormat === 'markdown' ?
+                    <label className={labelClass}>Legacy Markdown content<textarea required rows={13} className={inputClass + ' font-mono text-xs leading-6'} value={form.content} onChange={(event) => setField('content', event.target.value)} /></label> :
+                    <ResourceHtmlEditor value={form.content} onChange={(value) => setField('content', value)} onOpenImageLibrary={() => openAssetLibrary('content')} />}
+                  <p className="text-[10px] leading-5 text-slate-400">ZIP imports upload PNG, JPG and WebP files to the platform asset library, rewrite image paths to permanent /api/assets URLs, and include local CSS in the article.</p>
+                </div>}
 
               <details className="rounded-lg border border-slate-200 p-3" open><summary className="cursor-pointer text-xs font-bold text-slate-700">Featured image & card appearance</summary><div className="mt-3 grid gap-3 md:grid-cols-2">
-                <label className={labelClass + ' md:col-span-2'}>Upload cover image<input type="file" accept="image/png,image/jpeg,image/webp" className="mt-2 block w-full text-xs text-slate-600" disabled={uploading} onChange={(event) => { void uploadImage(event.target.files?.[0]); event.currentTarget.value = ''; }} /><span className="mt-1 block text-[10px] font-normal normal-case tracking-normal text-slate-400">PNG, JPG or WebP · maximum 2 MB</span></label>
+                <div className="md:col-span-2 flex flex-wrap gap-2">
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-700"><ImagePlus className="h-3.5 w-3.5" /> Upload new cover<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" disabled={uploading} onChange={(event) => { void uploadImage(event.target.files?.[0]); event.currentTarget.value = ''; }} /></label>
+                  <button type="button" onClick={() => openAssetLibrary('cover')} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-700"><ImagePlus className="h-3.5 w-3.5" /> Choose from image library</button>
+                </div>
                 {form.coverImageUrl && <div className="md:col-span-2"><img src={form.coverImageUrl} alt={form.coverImageAlt || ''} className="max-h-48 w-full rounded-lg border border-slate-100 object-cover" /></div>}
-                <label className={labelClass + ' md:col-span-2'}>Image URL<input className={inputClass} value={form.coverImageUrl} onChange={(event) => setField('coverImageUrl', event.target.value)} placeholder="Optional image URL or uploaded image" /></label>
+                <label className={labelClass + ' md:col-span-2'}>Image URL<input className={inputClass} value={form.coverImageUrl} onChange={(event) => setField('coverImageUrl', event.target.value)} placeholder="Optional HTTPS or platform asset URL" /></label>
                 <label className={labelClass + ' md:col-span-2'}>Image alt text<input className={inputClass} value={form.coverImageAlt} onChange={(event) => setField('coverImageAlt', event.target.value)} maxLength={300} placeholder="Describe the image for accessibility and search engines" /></label>
                 <label className="flex items-center gap-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={form.featured} onChange={(event) => setField('featured', event.target.checked)} /> Feature this resource at the top of the library</label>
                 <label className={labelClass}>Card icon<select className={inputClass} value={form.icon} onChange={(event) => setField('icon', event.target.value as any)}>{RESOURCE_ICONS.map((item) => <option key={item}>{item}</option>)}</select></label>
@@ -346,7 +431,8 @@ export default function ResourcesManager() {
         </section>
       </div>
 
-      {previewOpen && <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 sm:p-8" role="dialog" aria-modal="true" aria-label="Resource preview"><div className="my-auto w-full max-w-3xl rounded-2xl bg-white p-5 shadow-2xl sm:p-8"><div className="flex items-center justify-between"><span className="text-[9px] font-bold uppercase tracking-[.18em] text-indigo-600">Draft preview · not public</span><button type="button" onClick={() => setPreviewOpen(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button></div><div className="mt-6">{form.coverImageUrl && <img src={form.coverImageUrl} alt={form.coverImageAlt} className="mb-6 max-h-64 w-full rounded-xl object-cover" />}<span className="text-[10px] font-bold uppercase tracking-[.15em] text-indigo-600">{form.category} · {RESOURCE_TYPES.find((item) => item.value === form.type)?.label}</span><h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{form.title || 'Untitled resource'}</h2><p className="mt-3 text-sm leading-6 text-slate-500">{form.summary}</p><div className="mt-5 whitespace-pre-wrap border-t border-slate-100 pt-5 text-sm leading-7 text-slate-700">{form.content || form.destinationUrl}</div></div></div></div>}
+      {previewOpen && <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 sm:p-8" role="dialog" aria-modal="true" aria-label="Resource preview"><div className={'my-auto w-full rounded-2xl bg-white p-5 shadow-2xl transition-all sm:p-8 ' + (previewDevice === 'mobile' ? 'max-w-[390px]' : 'max-w-5xl')}><div className="flex flex-wrap items-center justify-between gap-3"><div><span className="text-[9px] font-bold uppercase tracking-[.18em] text-indigo-600">Draft preview · not public</span><p className="mt-1 text-xs text-slate-500">Preview the article at desktop or mobile width.</p></div><div className="flex items-center gap-2"><button type="button" onClick={() => setPreviewDevice('desktop')} className={'rounded-lg border p-2 ' + (previewDevice === 'desktop' ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-500')} aria-label="Desktop preview"><Monitor size={15} /></button><button type="button" onClick={() => setPreviewDevice('mobile')} className={'rounded-lg border p-2 ' + (previewDevice === 'mobile' ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-500')} aria-label="Mobile preview"><Smartphone size={15} /></button><button type="button" onClick={() => setPreviewOpen(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Close preview"><X className="h-4 w-4" /></button></div></div><article className="mx-auto mt-6 max-w-3xl"><div className="border-b border-slate-100 pb-5">{form.coverImageUrl && <img src={form.coverImageUrl} alt={form.coverImageAlt} className="mb-6 max-h-64 w-full rounded-xl object-cover" />}<span className="text-[10px] font-bold uppercase tracking-[.15em] text-indigo-600">{form.category} · {RESOURCE_TYPES.find((item) => item.value === form.type)?.label}</span><h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{form.title || 'Untitled resource'}</h2><p className="mt-3 text-sm leading-6 text-slate-500">{form.summary}</p></div><div className="mt-5 border-t border-slate-100 pt-5 text-sm leading-7 text-slate-700">{form.contentFormat === 'html' ? <div className="sx-resource-html-content" dangerouslySetInnerHTML={{ __html: sanitizeResourceHtml(form.content) }} /> : <div className="whitespace-pre-wrap">{form.content || form.destinationUrl}</div>}</div></article></div></div>}
+      {assetLibraryOpen && <ResourceAssetLibrary onClose={() => setAssetLibraryOpen(false)} onUse={usePlatformAsset} />}
     </div>
   );
 }

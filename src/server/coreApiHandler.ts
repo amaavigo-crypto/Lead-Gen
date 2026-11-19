@@ -144,6 +144,8 @@ import {
   deleteTenantAsset,
   resolveAssetRaw,
   seedTenantAssetsIfEmpty,
+  listPlatformAssets,
+  savePlatformAsset,
 } from './assetService.js';
 import {
   analyzeCompanyWebsite,
@@ -3843,6 +3845,42 @@ ${signature || defSig}`;
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     res.setHeader('Content-Length', raw.buffer.length);
     res.end(raw.buffer);
+    return true;
+  }
+
+  // Platform-wide Resources media: same raw asset URL/streaming path as Company Assets,
+  // but stored in an isolated root collection and writable only by verified platform admins.
+  if (url.split('?')[0] === '/api/platform/assets') {
+    if (!isPlatformAdmin) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ error: 'Platform Admin access is required to manage website assets.' }));
+      return true;
+    }
+    try {
+      if (!isFirebaseConfigured || !db) {
+        res.statusCode = 503;
+        res.end(JSON.stringify({ error: 'Asset storage is not configured.' }));
+        return true;
+      }
+      res.setHeader('Cache-Control', 'no-store');
+      if (req.method === 'GET') {
+        const assets = await listPlatformAssets();
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, assets }));
+        return true;
+      }
+      if (req.method === 'POST') {
+        const asset = await savePlatformAsset(body || {});
+        res.statusCode = 201;
+        res.end(JSON.stringify({ success: true, asset }));
+        return true;
+      }
+      res.statusCode = 405;
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+    } catch (err: any) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: err?.message || 'Could not process platform image asset.' }));
+    }
     return true;
   }
 

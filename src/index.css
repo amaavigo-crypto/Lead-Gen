@@ -5741,3 +5741,13 @@ div[class~="fixed"][class~="inset-0"][class~="z-50"][class~="flex"][class~="md:h
     animation-iteration-count:1!important;
   }
 }
+
+
+/* Resources CMS visual HTML editor: shared workspace styles. */
+.resource-html-editor { min-height: 360px; }
+.resource-html-editor:empty::before { content: attr(data-placeholder); color: #94a3b8; pointer-events: none; }
+.resource-html-editor img { max-width: 100%; height: auto; border-radius: 10px; }
+.resource-html-editor h1,
+.resource-html-editor h2,
+.resource-html-editor h3 { color: #101b36; font-weight: 750; margin: 1.25rem 0 .5rem; }
+.resource-html-editor blockquote { border-left: 3px solid #9bb4ff; padding-left: 1rem; color: #64748b; }

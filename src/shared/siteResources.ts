@@ -1,3 +1,4 @@
+import { sanitizeResourceHtml } from './resourceHtml.js';
 /**
  * Global public-site Resources CMS contract.
  * Resource records are platform-wide content, not tenant-owned workspace data.
@@ -23,6 +24,7 @@ export const RESOURCE_TYPES = [
 
 export type ResourceType = (typeof RESOURCE_TYPES)[number]['value'];
 export type ResourceStatus = 'draft' | 'published' | 'archived';
+export type ResourceContentFormat = 'html' | 'markdown';
 
 export const RESOURCE_ICONS = [
   'BookOpen', 'Megaphone', 'CalendarCheck', 'Headphones', 'BarChart3',
@@ -37,6 +39,7 @@ export interface SiteResourceFields {
   category: ResourceCategory;
   type: ResourceType;
   content: string;
+  contentFormat: ResourceContentFormat;
   destinationUrl: string;
   coverImageUrl: string;
   coverImageAlt: string;
@@ -72,7 +75,7 @@ export interface SiteResourcePublic extends SiteResourceFields {
 }
 
 export const RESOURCE_LIMITS = {
-  title: 140, slug: 120, summary: 320, content: 60000,
+  title: 140, slug: 120, summary: 320, content: 250000,
   destinationUrl: 2000, coverImageUrl: 2048, coverImageAlt: 300,
   author: 100, readingTime: 40, ctaLabel: 80, ctaUrl: 2000,
   seoTitle: 80, metaDescription: 240,
@@ -123,7 +126,9 @@ export function normaliseResourceInput(input: unknown, publish = false): SiteRes
   const summary = clean(src.summary, RESOURCE_LIMITS.summary);
   const category = categorySet.has(String(src.category)) ? src.category as ResourceCategory : 'Guides';
   const type = typeSet.has(String(src.type)) ? src.type as ResourceType : 'article';
-  const content = typeof src.content === 'string' ? src.content.replace(/\r\n/g, '\n').trim().slice(0, RESOURCE_LIMITS.content) : '';
+  const contentFormat: ResourceContentFormat = src.contentFormat === 'html' ? 'html' : 'markdown';
+  const rawContent = typeof src.content === 'string' ? src.content.replace(/\r\n/g, '\n').trim().slice(0, RESOURCE_LIMITS.content) : '';
+  const content = contentFormat === 'html' ? sanitizeResourceHtml(rawContent) : rawContent;
   const destinationUrl = normaliseResourceUrl(src.destinationUrl, 'Destination URL', publish && (type === 'link' || type === 'video'));
   const coverImageUrl = normaliseResourceUrl(src.coverImageUrl, 'Cover image URL');
   const ctaUrl = normaliseResourceUrl(src.ctaUrl, 'Call-to-action URL');
@@ -144,7 +149,7 @@ export function normaliseResourceInput(input: unknown, publish = false): SiteRes
   const metaDescription = clean(src.metaDescription, RESOURCE_LIMITS.metaDescription) || summary;
 
   return {
-    title, slug, summary, category, type, content, destinationUrl,
+    title, slug, summary, category, type, content, contentFormat, destinationUrl,
     coverImageUrl, coverImageAlt,
     author: clean(src.author, RESOURCE_LIMITS.author) || 'Amaavigo Editorial Team',
     readingTime: clean(src.readingTime, RESOURCE_LIMITS.readingTime),
@@ -166,7 +171,7 @@ const starter = (
   icon: ResourceIcon,
   order: number,
 ): SiteResourceFields & { id: string } => ({
-  id, title, slug, summary, category, type: 'link', content: '', destinationUrl,
+  id, title, slug, summary, category, type: 'link', content: '', contentFormat: 'markdown', destinationUrl,
   coverImageUrl: '', coverImageAlt: '', author: 'Amaavigo Editorial Team',
   readingTime: '', ctaLabel: 'Explore guide', ctaUrl: destinationUrl,
   seoTitle: title + ' | Amaavigo', metaDescription: summary, icon,

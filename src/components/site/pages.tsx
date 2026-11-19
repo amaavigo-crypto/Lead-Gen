@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { RESOURCE_CATEGORIES, RESOURCE_TYPES, type SiteResourcePublic } from '../../shared/siteResources.js';
+import { sanitizeResourceHtml } from '../../shared/resourceHtml.js';
 import { Btn, CountUp, DEMO_URL, EASE, Eyebrow, Marquee, Reveal, SectionHead, Stagger, StaggerItem, TiltCard, Ticks } from './SiteUI';
 import {
   AgentMock, AnalyticsMock, BuilderMock, CaptureMock, ChannelIcon, CrmMock, EmailTemplate, FlowMock, InboxMock, OrbitMock, PLATFORM_ITEMS,
@@ -789,7 +790,7 @@ export const ResourceDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
             <div className="sx-resource-byline">{resource.author}{resource.readingTime ? ' · ' + resource.readingTime : ''}{resource.publishedAt ? ' · ' + new Date(resource.publishedAt).toLocaleDateString() : ''}</div>
           </header>
           {resource.coverImageUrl && <img className="sx-resource-article-cover" src={resource.coverImageUrl} alt={resource.coverImageAlt} />}
-          {resource.content ? <ResourceMarkdown content={resource.content} /> : <div className="sx-resource-external"><p>Continue to the full resource.</p><a href={resource.destinationUrl} target="_blank" rel="noreferrer">{resource.ctaLabel || 'Open resource'} <ArrowUpRight size={15} /></a></div>}
+          {resource.content ? (resource.contentFormat === 'html' ? <div className="sx-resource-html-content" dangerouslySetInnerHTML={{ __html: sanitizeResourceHtml(resource.content) }} /> : <ResourceMarkdown content={resource.content} />) : <div className="sx-resource-external"><p>Continue to the full resource.</p><a href={resource.destinationUrl} target="_blank" rel="noreferrer">{resource.ctaLabel || 'Open resource'} <ArrowUpRight size={15} /></a></div>}
           <footer className="sx-resource-article-footer">
             <div><small>KEEP MOVING FORWARD</small><h2>Make the next conversation count.</h2></div>
             <a href={resource.ctaUrl || '/contact'}>{resource.ctaLabel || 'Talk to our team'} <ArrowUpRight size={15} /></a>

@@ -2,7 +2,7 @@ import { tenantRepo } from './tenantRepo.js';
 import type { TenantContext } from '../types/tenant.js';
 import type { CompanyAsset, AssetCategory } from '../types/index.js';
 import { isFirebaseConfigured, db } from '../firebase/config.js';
-import { getDoc, getDocs, setDoc, deleteDoc, query, orderBy } from './adminFirestore.js';
+import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, query, orderBy } from './adminFirestore.js';
 import { safeSetDoc } from './firestoreUtils.js';
 
 // In-memory cache for ultra-fast raw asset serving to email clients
@@ -186,6 +186,78 @@ export async function deleteTenantAsset(ctx: TenantContext, assetId: string): Pr
 }
 
 /**
+ * Platform Resources media uses the same asset record shape, raw URL route, cache and
+ * validation model as Company Assets, but lives in its own root collection. This keeps
+ * tenant-private assets isolated while allowing the public website to serve platform media.
+ */
+export type PlatformAssetView = Omit<CompanyAsset, 'dataUrl'>;
+
+const platformAssetsCollection = () => collection(db, 'platform_assets');
+
+export async function listPlatformAssets(): Promise<PlatformAssetView[]> {
+  if (!isFirebaseConfigured || !db) throw new Error('Asset storage is not configured.');
+  const snapshot = await getDocs(platformAssetsCollection());
+  const assets: PlatformAssetView[] = [];
+  snapshot.forEach((entry) => {
+    const data = entry.data() as CompanyAsset;
+    if (!data || data.tenantId !== 'platform' || !data.id || !data.dataUrl) return;
+    const base64Part = data.dataUrl.split(',')[1] || '';
+    const buffer = Buffer.from(base64Part, 'base64');
+    if (!buffer.length || buffer.length > 2 * 1024 * 1024) return;
+    assetMemoryCache.set(data.id, { asset: data, buffer, mimeType: data.mimeType || 'image/jpeg' });
+    const { dataUrl: _dataUrl, ...view } = data;
+    assets.push(view);
+  });
+  return assets.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function savePlatformAsset(
+  input: Partial<CompanyAsset> & { dataUrl?: string }
+): Promise<PlatformAssetView> {
+  if (!isFirebaseConfigured || !db) throw new Error('Asset storage is not configured.');
+  if (typeof input.dataUrl !== 'string') throw new Error('Choose an image file to upload.');
+  const match = input.dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) throw new Error('Use a PNG, JPG or WebP image.');
+  const mimeType = match[1].toLowerCase();
+  if (input.mimeType && input.mimeType.toLowerCase() !== mimeType) throw new Error('The image MIME type does not match its data.');
+  const buffer = Buffer.from(match[2], 'base64');
+  if (!buffer.length || buffer.length > 2 * 1024 * 1024) throw new Error('Platform images must be 2 MB or smaller.');
+  const png = mimeType === 'image/png' && buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const jpeg = mimeType === 'image/jpeg' && buffer.length >= 3 && buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255;
+  const webp = mimeType === 'image/webp' && buffer.length >= 12 && buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP';
+  if (!(png || jpeg || webp)) throw new Error('The uploaded file does not match its image type.');
+
+  const id = 'ast_platform__' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+  const now = new Date().toISOString();
+  const size = buffer.length;
+  const asset: CompanyAsset = {
+    id,
+    tenantId: 'platform',
+    name: String(input.name || 'Resource image').trim().slice(0, 120) || 'Resource image',
+    category: 'OTHER',
+    mimeType,
+    size,
+    sizeFormatted: formatBytes(size),
+    dimensions: input.dimensions || { width: 600, height: 400 },
+    url: '/api/assets/' + id + '/view',
+    dataUrl: input.dataUrl,
+    altText: String(input.altText || input.name || 'Resource image').trim().slice(0, 300),
+    createdAt: now,
+    updatedAt: now,
+  };
+  assetMemoryCache.set(id, { asset, buffer, mimeType });
+  try {
+    await safeSetDoc(doc(platformAssetsCollection(), id), asset, { merge: true });
+  } catch (err) {
+    assetMemoryCache.delete(id);
+    console.error('[AssetService] Platform asset write failed:', err);
+    throw new Error('Could not save the image in the platform library. Please try again.');
+  }
+  const { dataUrl: _dataUrl, ...view } = asset;
+  return view;
+}
+
+/**
  * Resolves a raw asset buffer by assetId.
  * Asset ID format: `ast_${tenantId}__${uniqueId}`
  */
@@ -206,6 +278,24 @@ export async function resolveAssetRaw(
   const separator = assetId.startsWith('ast_') ? assetId.indexOf('__', 4) : -1;
   const tenantId = separator > 4 ? assetId.slice(4, separator) : null;
   if (!tenantId || !/^[a-zA-Z0-9_-]{1,128}$/.test(tenantId) || !/^ast_[a-zA-Z0-9_-]+__[a-zA-Z0-9_-]+$/.test(assetId)) {
+    return null;
+  }
+
+  if (tenantId === 'platform' && isFirebaseConfigured && db) {
+    try {
+      const snap = await getDoc(doc(platformAssetsCollection(), assetId));
+      if (snap.exists()) {
+        const data = snap.data() as CompanyAsset;
+        if (data.tenantId !== 'platform' || !data.dataUrl) return null;
+        const base64Part = data.dataUrl.split(',')[1] || '';
+        const buf = Buffer.from(base64Part, 'base64');
+        if (!buf.length || buf.length > 2 * 1024 * 1024) return null;
+        assetMemoryCache.set(assetId, { asset: data, buffer: buf, mimeType: data.mimeType || 'image/jpeg' });
+        return { buffer: buf, mimeType: data.mimeType || 'image/jpeg', filename: data.name };
+      }
+    } catch (err) {
+      console.error('[AssetService] Platform asset lookup failed:', err);
+    }
     return null;
   }
 
