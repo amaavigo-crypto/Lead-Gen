@@ -2623,6 +2623,20 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
   const legalSlug = typeof window !== 'undefined' ? legalSlugFromPath(window.location.pathname) : null;
   if (legalSlug) return <LegalPage slug={legalSlug} />;
 
+  // The installed PWA is the application entry point; a normal browser keeps public marketing routes.
+  const isStandaloneApp = typeof window !== 'undefined' && (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
+  const pathname = typeof window !== 'undefined' ? window.location.pathname.replace(/\/+$/, '') || '/' : '/';
+  const isLoginRoute = pathname === '/login';
+
+  // Keep the public website at its normal browser URLs, even when an app session exists.
+  // The app is opened in a browser through /login and directly in the installed PWA.
+  if (!isStandaloneApp && !isLoginRoute) {
+    return <Suspense fallback={<ScreenLoading />}><MarketingWebsite /></Suspense>;
+  }
+
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500 text-sm">
@@ -2631,17 +2645,8 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
     );
   }
 
-  // The installed PWA is the application entry point; the normal browser keeps the public website.
-  const isStandaloneApp = typeof window !== 'undefined' && (
-    window.matchMedia('(display-mode: standalone)').matches ||
-    (window.navigator as Navigator & { standalone?: boolean }).standalone === true
-  );
   if (!currentUser) {
-    const pathname = typeof window !== 'undefined' ? window.location.pathname.replace(/\/+$/, '') || '/' : '/';
-    if (isStandaloneApp || pathname === '/login') {
-      return <LoginView isFirebaseActive={isFirebaseActive} initialError={authError} />;
-    }
-    return <Suspense fallback={<ScreenLoading />}><MarketingWebsite /></Suspense>;
+    return <LoginView isFirebaseActive={isFirebaseActive} initialError={authError} />;
   }
 
   if (session?.isPlatformAdmin) {
