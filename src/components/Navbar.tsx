@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   MessageSquare,
@@ -67,6 +67,20 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isMobileOpen, setIsMobileOpen] = useState<boolean>(false);
   const { unreadNotificationCount: agentTaskUnreadCount } = useAgent();
 
+  useEffect(() => {
+    if (!isMobileOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsMobileOpen(false);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [isMobileOpen]);
+
   const isModuleAccessible = (tabId: ActiveTab): boolean => {
     if (planLocked?.(tabId)) return false;
     if (tabId === 'dashboard' || tabId === 'database' || tabId === 'workspace' || tabId === 'company-profile') return true;
@@ -133,24 +147,58 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <>
-      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-white/10 bg-[#05051f] px-4 py-2.5 text-white shadow-2xs md:hidden">
+      <div className="app-mobile-nav sticky top-0 z-30 flex items-center justify-between border-b border-white/10 bg-[#05051f] px-4 py-2.5 text-white shadow-2xs lg:hidden">
         <button type="button" onClick={() => handleSelectTab('dashboard')} title="Go to Home dashboard" aria-label="Go to Home dashboard" className="rounded-md px-1 py-1"><Umrah360Logo size="sm" systemBadge="" showSubtitle={false} lightOnDark compactMark /></button>
         <div className="flex items-center gap-2">
           {unreadCount > 0 && <span className="rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold text-white">{unreadCount}</span>}
-          <button type="button" onClick={() => setIsMobileOpen(true)} className="rounded-xl border border-white/20 p-2 text-white hover:bg-white/10" aria-label="Open navigation">
+          <button type="button" onClick={() => setIsMobileOpen(true)} aria-expanded={isMobileOpen} aria-controls="app-mobile-navigation" className="rounded-xl border border-white/20 p-2 text-white hover:bg-white/10" aria-label="Open navigation">
             <Menu className="h-5 w-5" />
           </button>
         </div>
       </div>
 
-      <aside className="sticky top-0 z-40 hidden h-screen w-[56px] shrink-0 md:block">
+      <aside className="sticky top-0 z-40 hidden h-screen w-[56px] shrink-0 lg:block">
         {sidebarContent}
       </aside>
 
       {isMobileOpen && (
-        <div className="fixed inset-0 z-50 flex md:hidden">
-          <button type="button" aria-label="Close navigation" onClick={() => setIsMobileOpen(false)} className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px]" />
-          <div className="relative z-10 h-full w-[56px] shrink-0 shadow-2xl">{sidebarContent}</div>
+        <div className="app-mobile-drawer fixed inset-0 z-50 flex lg:hidden" role="presentation">
+          <button type="button" aria-label="Close navigation" onClick={() => setIsMobileOpen(false)} className="app-mobile-drawer-backdrop fixed inset-0 bg-slate-950/60 backdrop-blur-[3px]" />
+          <aside id="app-mobile-navigation" role="dialog" aria-modal="true" aria-label="Main navigation" className="app-mobile-drawer-panel relative z-10 flex h-full w-[min(320px,88vw)] max-w-full flex-col bg-[#05051f] text-white shadow-2xl">
+            <div className="flex min-h-[68px] shrink-0 items-center justify-between border-b border-white/10 px-5">
+              <button type="button" onClick={() => handleSelectTab('dashboard')} aria-label="Go to Home dashboard" className="flex items-center">
+                <Umrah360Logo size="sm" systemBadge="" showSubtitle={false} lightOnDark compactMark />
+              </button>
+              <button type="button" onClick={() => setIsMobileOpen(false)} aria-label="Close navigation" className="rounded-xl border border-white/15 p-2 text-slate-300 transition hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="border-b border-white/10 px-5 py-4">
+              <p className="text-[9px] font-bold uppercase tracking-[.18em] text-blue-300">Workspace navigation</p>
+              <p className="mt-1 truncate text-sm font-semibold text-white">{currentUser?.name || currentUser?.email || 'Your workspace'}</p>
+            </div>
+            <nav aria-label="Main modules" className="app-mobile-drawer-links flex-1 overflow-y-auto px-3 py-3">
+              {primaryItems.map((item) => {
+                const active = isItemActive(item);
+                const accessible = isItemAccessible(item);
+                const badgeCount = item.id === 'conversation' ? unreadCount : item.id === 'dashboard' ? agentTaskUnreadCount : 0;
+                return (
+                  <button key={item.id} type="button" onClick={() => handleSelectTab(item.route)} aria-current={active ? 'page' : undefined}
+                    className={'app-mobile-drawer-link flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition ' + (active ? 'bg-[#155eef] text-white shadow-[0_7px_22px_rgba(21,94,239,.22)]' : 'text-slate-300 hover:bg-white/10 hover:text-white') + (!accessible ? ' opacity-50' : '')}>
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[.07]">{item.icon}</span>
+                    <span className="min-w-0 flex-1 text-[13px] font-semibold">{item.label}</span>
+                    {badgeCount > 0 && <span className="min-w-6 rounded-full bg-rose-500 px-2 py-1 text-center text-[10px] font-bold text-white">{badgeCount > 99 ? '99+' : badgeCount}</span>}
+                    {!accessible && <Lock className="h-3.5 w-3.5 shrink-0 text-slate-500" />}
+                  </button>
+                );
+              })}
+            </nav>
+            {onLogout && (
+              <div className="shrink-0 border-t border-white/10 p-4" style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}>
+                <button type="button" onClick={() => { setIsMobileOpen(false); onLogout(); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-sm font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white">
+                  <LogOut className="h-4 w-4" /> Sign out
+                </button>
+              </div>
+            )}
+          </aside>
         </div>
       )}
     </>

@@ -356,9 +356,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const popoverButtonClass = 'inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/[.045] text-slate-300 transition hover:border-white/20 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400';
 
   return (
-    <header className="app-header-shell sticky top-0 z-30 shrink-0 border-b-0 bg-white">
-      <div className="app-global-topbar flex min-h-[56px] items-center justify-between gap-4 bg-[#05051f] px-4 text-white sm:px-6">
-        <div className="flex min-w-0 items-center gap-4">
+    <header className="app-header-shell app-header-bar sticky top-0 z-30 shrink-0 border-b-0 bg-white">
+      <div className="app-global-topbar app-header-main flex min-h-[56px] items-center justify-between gap-4 bg-[#05051f] px-4 text-white sm:px-6">
+        <div className="app-header-title flex min-w-0 items-center gap-4">
           <div className="min-w-0">
             <div className="mb-0.5 flex items-center gap-2 text-[8px] font-bold uppercase tracking-[0.2em] text-slate-400">
               <span className="truncate">{workspaceName}</span>
@@ -395,20 +395,20 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             </button>
           )}
           {activeTab !== 'inbox' && handoffCount > 0 && (
-            <button type="button" onClick={() => setActiveTab('inbox')} className="flex items-center gap-1.5 rounded-full border border-amber-300/25 bg-amber-400/10 px-2.5 py-1.5 text-[10px] font-bold text-amber-100">
+            <button type="button" onClick={() => setActiveTab('inbox')} className="app-header-handoff flex items-center gap-1.5 rounded-full border border-amber-300/25 bg-amber-400/10 px-2.5 py-1.5 text-[10px] font-bold text-amber-100">
               <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
               <span>{handoffCount} Handoff</span>
             </button>
           )}
 
-          <div ref={actionsRef} className="relative ml-1 flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <div ref={actionsRef} className="app-header-actions relative ml-1 flex shrink-0 items-center gap-1.5 sm:gap-2">
             <button type="button" onClick={() => openPopover('search')} className={popoverButtonClass} title="Global search" aria-label="Global search">
               <Search className="h-4 w-4" />
             </button>
-            <button type="button" onClick={() => openPopover('help')} className={popoverButtonClass} title="Help and shortcuts" aria-label="Help and shortcuts">
+            <button type="button" onClick={() => openPopover('help')} className={popoverButtonClass + ' app-header-hide-on-mobile'} title="Help and shortcuts" aria-label="Help and shortcuts">
               <CircleHelp className="h-4 w-4" />
             </button>
-            <button type="button" onClick={() => navigateAndClose('workspace')} className={popoverButtonClass} title="Workspace settings" aria-label="Workspace settings">
+            <button type="button" onClick={() => navigateAndClose('workspace')} className={popoverButtonClass + ' app-header-hide-on-mobile'} title="Workspace settings" aria-label="Workspace settings">
               <Settings className="h-4 w-4" />
             </button>
             <button type="button" onClick={() => openPopover('account')} aria-expanded={activePopover === 'account'} aria-label="Open account menu" title="Account"

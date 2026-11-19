@@ -378,6 +378,24 @@
   .av-live-plan-skeleton { animation:none; }
 }
 
+/* Amaavigo mobile polish: safe areas and predictable touch targets */
+@media(max-width:980px) {
+  .av-site {width:100%;overflow-x:clip}
+  .av-header {padding-top:env(safe-area-inset-top)}
+  .av-mobile-toggle {min-width:44px;min-height:44px}
+  .av-mobile-menu {padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+  .av-mobile-menu a {display:flex;min-height:44px;align-items:center}
+}
+@media(max-width:640px) {
+  .av-site {overflow-x:clip}
+  .av-container {width:calc(100% - 32px)}
+  .av-hero,.av-agent-section,.av-inbox-section,.av-campaign-section {overflow:hidden}
+  .av-hero-actions {align-items:stretch}
+  .av-hero-actions .av-button {min-height:44px}
+  .av-mobile-menu .av-mobile-demo {min-height:44px}
+  .av-footer-bottom {padding-bottom:env(safe-area-inset-bottom)}
+}
+
 
 /* Editorial hero refinement — generous layout inspired by Mailchimp's clear
    storytelling and merchandising, while retaining Amaavigo's own palette. */

@@ -5159,3 +5159,74 @@
     will-change: auto;
   }
 }
+
+
+/* Amaavigo responsive application layer — responsive shell for the current app frame. */
+@media(max-width:1023px) {
+  html,body,#root {width:100%;min-width:0;min-height:100%;overflow-x:clip}
+  body {overscroll-behavior-x:none}
+  .app-shell {display:flex!important;width:100%!important;height:100dvh!important;min-height:100dvh!important;max-height:100dvh!important;flex-direction:column!important;overflow:hidden!important}
+  .app-shell>.app-mobile-nav {position:relative!important;top:auto!important;z-index:40;flex:0 0 auto;min-height:54px;padding-top:calc(10px + env(safe-area-inset-top));padding-bottom:10px}
+  .app-shell-main {display:flex!important;width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;flex:1 1 auto!important;flex-direction:column!important;overflow:hidden!important}
+  .app-shell-main>.app-header-bar {position:relative!important;top:auto!important;z-index:30;flex:0 0 auto}
+  .app-header-main {min-height:54px!important;gap:9px!important;padding:8px 14px!important}
+  .app-header-title {flex:1 1 auto;min-width:0}
+  .app-header-actions {gap:6px!important}
+  .app-header-handoff {padding:6px 8px!important;font-size:9px!important}
+  .app-workspace-content {width:100%;min-width:0!important;min-height:0!important;max-height:none!important;flex:1 1 auto!important;overscroll-behavior:contain}
+  .app-workspace-content--with-module-nav {overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch}
+  .app-workspace-content--dark {overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch}
+  .app-workspace-content :where(img,video,canvas,svg) {max-width:100%}
+  .app-workspace-content :where(input,select,textarea) {max-width:100%;min-width:0}
+  .app-workspace-content button,.app-mobile-nav button {touch-action:manipulation}
+  .app-workspace-content [role="dialog"] {max-height:calc(100dvh - 24px - env(safe-area-inset-top))!important;overflow-y:auto;overscroll-behavior:contain}
+  .app-workspace-content .overflow-x-auto {max-width:100%;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+  .app-workspace-content table {max-width:100%}
+  .app-mobile-drawer {z-index:1000!important}
+  .app-mobile-drawer-backdrop {animation:amaavigoMobileFade .16s ease-out both}
+  .app-mobile-drawer-panel {animation:amaavigoMobileDrawer .22s cubic-bezier(.2,.75,.25,1) both}
+  .app-mobile-drawer-links {overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  .app-mobile-drawer-link {min-height:54px}
+  .app-mobile-drawer-link:focus-visible {outline:2px solid #8fb0f7;outline-offset:2px}
+  .app-header-bar nav {max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none}
+  .app-header-bar nav::-webkit-scrollbar {display:none}
+  .app-workspace-nav-frame {display:flex;min-width:0;min-height:48px;align-items:stretch;border-radius:0!important}
+  .app-workspace-nav-frame>div:first-child {display:none!important}
+  .app-workspace-nav-frame nav {display:flex;width:100%;min-width:0;flex:1 1 auto;gap:5px!important;padding:6px 10px!important}
+  .app-workspace-nav-frame nav>button {min-height:38px;padding:8px 11px!important;white-space:nowrap;flex:0 0 auto}
+  .app-workspace-content--standalone {min-width:0!important}
+}
+@keyframes amaavigoMobileFade {from{opacity:0}to{opacity:1}}
+@keyframes amaavigoMobileDrawer {from{opacity:.7;transform:translateX(-18px)}to{opacity:1;transform:translateX(0)}}
+@media(max-width:767px) {
+  .app-header-main {min-height:50px!important;gap:7px!important;padding:7px 10px!important}
+  .app-header-main .app-header-title>div>div:first-child {font-size:7px!important;letter-spacing:.12em!important}
+  .app-header-main .app-header-title h1 {font-size:12px!important}
+  .app-header-actions {gap:4px!important}
+  .app-header-hide-on-mobile {display:none!important}
+  .app-header-handoff {gap:5px!important;padding:5px 7px!important;font-size:8px!important}
+  .app-header-actions>button {width:34px!important;height:34px!important}
+  .app-workspace-content--with-module-nav {padding:10px!important}
+  .app-workspace-content--with-module-nav :where(input,select,textarea) {font-size:16px!important}
+  .app-workspace-content--with-module-nav :where(input,select) {min-height:40px}
+  .app-workspace-content--with-module-nav :where(textarea) {min-height:84px}
+  .app-workspace-content--with-module-nav :where(button) {touch-action:manipulation}
+  .app-workspace-content--with-module-nav :where(.fixed.inset-0) {padding:10px!important}
+  .app-workspace-content--with-module-nav :where([role="dialog"]) {width:100%;max-width:100%;max-height:calc(100dvh - 20px - env(safe-area-inset-top))!important;overflow-y:auto}
+  .app-workspace-content--with-module-nav :where(.grid-cols-2,.grid-cols-3,.grid-cols-4,.grid-cols-5,.grid-cols-6) {min-width:0}
+  .app-workspace-content--with-module-nav :where(.flex.items-center.justify-between) {min-width:0}
+  .app-workspace-content--with-module-nav :where(pre,code) {overflow-wrap:anywhere}
+  .app-workspace-content--with-module-nav :where(table) {font-size:10px}
+  .app-workspace-content--with-module-nav :where(.crm-workspace,.lead-database-shell,.knowledge-base-shell,.workspace-module,.marketing-studio-shell,.campaign-reports-module) {max-width:100%;min-width:0}
+  .app-workspace-content--with-module-nav :where(.workspace-module,.marketing-studio-shell,.campaign-reports-module,.lead-database-shell,.knowledge-base-shell) {padding:12px!important;gap:12px!important}
+  .app-workspace-content--with-module-nav :where(.workspace-module>.workspace-header,.marketing-studio-header,.knowledge-base-header) {padding:13px!important}
+}
+@media(max-width:640px) {
+  .app-workspace-content--with-module-nav :where(.grid-cols-2,.grid-cols-3,.grid-cols-4,.grid-cols-5,.grid-cols-6) {grid-template-columns:minmax(0,1fr)!important}
+}
+@media(max-width:420px) {
+  .app-header-main {padding-right:8px!important;padding-left:8px!important}
+  .app-header-handoff {max-width:82px;overflow:hidden;white-space:nowrap}
+  .app-workspace-content--with-module-nav {padding:8px!important}
+}
+@media(prefers-reduced-motion:reduce) {.app-mobile-drawer-backdrop,.app-mobile-drawer-panel {animation:none!important}}
