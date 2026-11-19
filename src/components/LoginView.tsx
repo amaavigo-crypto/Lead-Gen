@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { signIn, requestPasswordReset, friendlyAuthError } from '../services/authService';
+import { PwaInstallCard } from './PwaInstallCard';
 
 interface LoginViewProps {
   isFirebaseActive: boolean;
@@ -179,6 +180,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
             <a href="/aup" className="hover:text-orange-600 underline">Acceptable Use</a>
           </p>
         </div>
+        <PwaInstallCard variant="login" />
       </div>
     </div>
   );

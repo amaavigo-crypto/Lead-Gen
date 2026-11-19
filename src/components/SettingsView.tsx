@@ -18,6 +18,7 @@ import {
   Shield,
   ShieldCheck,
   SlidersHorizontal,
+  Smartphone,
   Users,
   Zap,
 } from 'lucide-react';
@@ -33,11 +34,12 @@ import { BillingView } from './BillingView';
 import { ConnectedChannelsPanel } from './ConnectedChannelsPanel';
 import { normalizeChannelMode } from '../shared/channelModes';
 import { ModuleShell, ModuleCard, ModuleChips } from './ModulePage';
+import { PwaInstallCard } from './PwaInstallCard';
 
 const CompanyProfilePanel = React.lazy(() => import('./BrandSettingsPanel').then((module) => ({ default: module.BrandSettingsPanel })));
 const WorkspaceAuditLogs = React.lazy(() => import('./AuditLogsView').then((module) => ({ default: module.AuditLogsView })));
 
-export type WorkspaceSection = 'overview' | 'company' | 'channels' | 'personas' | 'ai' | 'team' | 'billing' | 'audit';
+export type WorkspaceSection = 'overview' | 'app' | 'company' | 'channels' | 'personas' | 'ai' | 'team' | 'billing' | 'audit';
 
 interface SettingsViewProps {
   settings: SystemSettings;
@@ -243,6 +245,7 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
 
   const sectionItems = [
     { id: 'overview' as const, label: 'Overview', description: 'Workspace health and operational readiness', icon: <Activity className="h-4 w-4" /> },
+    { id: 'app' as const, label: 'App Installation', description: 'Install Amaavigo on your phone or desktop', icon: <Smartphone className="h-4 w-4" /> },
     { id: 'company' as const, label: 'Company Profile', description: 'Business identity, website, branding and assets', icon: <Building2 className="h-4 w-4" /> },
     ...(canAccessSettings ? [
       { id: 'channels' as const, label: 'Channels & Messaging', description: 'Connected channels, email and website integrations', icon: <Plug className="h-4 w-4" /> },
@@ -704,6 +707,17 @@ export const WorkspaceView: React.FC<SettingsViewProps> = ({
               </div>
             );
           })()}
+
+          {activeSection === 'app' && (
+            <div className="workspace-panel-stack space-y-5">
+              <section className="rounded-xl border border-slate-200 bg-white p-4">
+                <h3 className="text-sm font-bold text-slate-900">Your Amaavigo app</h3>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">Install the complete Lead Generation workspace as a Progressive Web App. It opens in its own window and continues to use your existing sign-in, tenant access and permissions.</p>
+              </section>
+              <PwaInstallCard variant="settings" />
+              <p className="text-[11px] leading-relaxed text-slate-500">For security, the app shell may be available offline after a visit, but customer records, conversations, credentials and API responses are always requested live and are never stored in the offline cache.</p>
+            </div>
+          )}
 
           {activeSection === 'ai' && (
             <div className="workspace-panel-stack space-y-5">

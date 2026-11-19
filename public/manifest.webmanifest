@@ -1,0 +1,36 @@
+{
+  "id": "/",
+  "name": "Amaavigo Lead Generation",
+  "short_name": "Amaavigo",
+  "description": "Your AI-powered lead engagement workspace.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0B132B",
+  "theme_color": "#0B132B",
+  "icons": [
+    {
+      "src": "/icons/amaavigo-app.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Unified Inbox",
+      "short_name": "Inbox",
+      "url": "/?tab=inbox",
+      "icons": [{ "src": "/icons/amaavigo-app.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/?tab=dashboard",
+      "icons": [{ "src": "/icons/amaavigo-app.svg", "sizes": "any", "type": "image/svg+xml" }]
+    }
+  ],
+  "lang": "en",
+  "categories": ["business", "productivity"]
+}
