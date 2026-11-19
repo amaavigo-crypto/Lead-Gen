@@ -59,9 +59,24 @@ export default function ResourceAssetLibrary({ onClose, onUse }: ResourceAssetLi
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
+  const getAbsoluteAssetUrl = (asset: PlatformSiteAsset) => new URL(asset.url, window.location.origin).toString();
+
   const copyUrl = async (asset: PlatformSiteAsset) => {
-    try { await navigator.clipboard.writeText(new URL(asset.url, window.location.origin).toString()); setNotice('Image URL copied.'); }
-    catch { setError('Could not copy the image URL in this browser.'); }
+    try {
+      await navigator.clipboard.writeText(getAbsoluteAssetUrl(asset));
+      setError('');
+      setNotice('Direct image URL copied. Paste it into any HTML src attribute.');
+    } catch { setError('Could not copy the image URL in this browser.'); }
+  };
+
+  const copyHtmlSnippet = async (asset: PlatformSiteAsset) => {
+    const escapeAttribute = (value: string) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const snippet = `<img src="${getAbsoluteAssetUrl(asset)}" alt="${escapeAttribute(asset.altText || asset.name)}">`;
+    try {
+      await navigator.clipboard.writeText(snippet);
+      setError('');
+      setNotice('HTML image tag copied. Paste it into your resource HTML.');
+    } catch { setError('Could not copy the HTML snippet in this browser.'); }
   };
 
   return (
@@ -92,7 +107,8 @@ export default function ResourceAssetLibrary({ onClose, onUse }: ResourceAssetLi
                   <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={() => onUse(asset, 'content')} className="flex-1 rounded-lg bg-indigo-600 px-2 py-2 text-[10px] font-semibold text-white">Insert in article</button>
                     <button type="button" onClick={() => onUse(asset, 'cover')} className="flex-1 rounded-lg border border-slate-200 px-2 py-2 text-[10px] font-semibold text-slate-700">Use as cover</button>
-                    <button type="button" onClick={() => void copyUrl(asset)} className="rounded-lg border border-slate-200 p-2 text-slate-500" title="Copy URL"><Copy size={13} /></button>
+                    <button type="button" onClick={() => void copyUrl(asset)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-2 text-[10px] font-semibold text-slate-700" title="Copy direct image URL"><Copy size={12} /> Copy URL</button>
+                    <button type="button" onClick={() => void copyHtmlSnippet(asset)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-2 text-[10px] font-semibold text-slate-700" title="Copy HTML img tag"><Copy size={12} /> Copy HTML</button>
                   </div>
                 </div>
               </article>)}
