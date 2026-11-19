@@ -1,10 +1,12 @@
-const CACHE_NAME = 'amaavigo-lead-shell-v1';
+const CACHE_NAME = 'amaavigo-lead-shell-v2';
 const SHELL_ASSETS = [
   '/',
   '/manifest.webmanifest',
   '/favicon.ico',
   '/amaavigo-logo.png',
-  '/icons/amaavigo-app.svg'
+  '/icons/amaavigo-app.svg',
+  '/icons/amaavigo-app-192.png',
+  '/icons/amaavigo-app-512.png'
 ];
 
 self.addEventListener('install', (event) => {
