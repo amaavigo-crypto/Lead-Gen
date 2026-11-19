@@ -5347,3 +5347,397 @@ div[class~="fixed"][class~="inset-0"][class~="z-50"][class~="flex"][class~="md:h
   .auth-login-card>p:last-child {display:flex;flex-wrap:wrap;justify-content:center;gap:7px 9px;line-height:1.6}
   .auth-login-page .auth-login-content>div:first-child p {max-width:320px;line-height:1.55}
 }
+
+/* --------------------------------------------------------------------------
+   Amaavigo authenticated app — website-style responsive layout layer.
+   Uses the public site's 1100 / 760 / 520 responsive rhythm. This layer only
+   changes presentation; module state, permissions, data and actions stay put.
+   -------------------------------------------------------------------------- */
+@media (max-width: 1100px) {
+  .app-shell-main,
+  .app-workspace-content,
+  .app-workspace-content--joined,
+  .app-workspace-content--dark { min-width:0!important; }
+
+  .app-workspace-content--joined :where(.mp-shell,.mp-main,.mp-content,.mp-card,.mp-inner),
+  .app-workspace-content--joined :where(.crm-workspace,.lead-database-shell,.knowledge-base-shell,.workspace-module),
+  .app-workspace-content--joined :where(.marketing-studio-shell,.campaign-reports-module,.demo-scheduling-workspace) {
+    min-width:0!important;
+    max-width:100%!important;
+  }
+
+  .app-workspace-content--joined :where(.mp-content,.af-panel-body) {
+    padding-left:18px;
+    padding-right:18px;
+  }
+
+  .app-workspace-content--joined :where(.mp-strip,.af-strip,.crm-table-heading) {
+    gap:12px;
+  }
+
+  .app-workspace-content--joined :where(.mp-strip-actions,.af-strip-actions) {
+    flex-wrap:wrap;
+  }
+
+  .app-workspace-content--joined :where(.crm-filter-toolbar,.lead-db-toolbar) {
+    align-items:stretch;
+    flex-wrap:wrap;
+  }
+
+  .app-workspace-content--joined :where(.crm-filter-controls,.lead-db-toolbar>div:last-child) {
+    flex-wrap:wrap;
+  }
+
+  .app-workspace-content--joined :where(.schedule-calendar-layout) {
+    grid-template-columns:minmax(0,1fr);
+  }
+
+  .app-workspace-content--joined :where(.schedule-calendar-sidebar) {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+
+  .app-workspace-content--joined :where(.schedule-calendar-toolbar,.schedule-calendar-title-group,.schedule-calendar-tools) {
+    flex-wrap:wrap;
+  }
+
+  .app-workspace-content--joined :where(.knowledge-base-shell .grid.grid-cols-1.lg\\:grid-cols-3) {
+    grid-template-columns:minmax(0,1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  /* Match the site's narrow, centered content column and generous mobile rhythm. */
+  html, body, #root { width:100%; min-width:0; overflow-x:clip; }
+  .app-shell { width:100%; }
+  .app-mobile-nav { min-height:58px!important; padding-right:16px!important; padding-left:16px!important; }
+  .app-mobile-nav button { min-width:42px; min-height:42px; }
+  .app-header-main { min-height:54px!important; padding:8px 12px!important; }
+  .app-header-main .app-header-title h1 { font-size:14px!important; line-height:1.25!important; }
+  .app-header-main .app-header-title>div>div:first-child { font-size:8px!important; letter-spacing:.13em!important; }
+  .app-header-actions>button { width:38px!important; height:38px!important; }
+  .app-header-handoff { min-height:32px; font-size:9px!important; }
+  .app-workspace-content--joined {
+    padding:12px!important;
+    padding-bottom:calc(22px + env(safe-area-inset-bottom))!important;
+  }
+  .app-workspace-content--dark {
+    padding-bottom:calc(22px + env(safe-area-inset-bottom))!important;
+  }
+
+  /* Home: one readable card per row rather than shrinking six metrics into columns. */
+  .dashboard-home-view { min-width:0; }
+  .dashboard-home-view .dashboard-ai-hero {
+    min-height:0!important;
+    border-radius:17px!important;
+  }
+  .dashboard-ai-hero > .relative.z-10 {
+    min-height:0!important;
+    padding:16px 15px 22px!important;
+  }
+  .dashboard-ai-hero > .relative.z-10 > div:nth-child(2) {
+    margin-top:28px!important;
+  }
+  .dashboard-ai-hero > .relative.z-10 > div:nth-child(2) > h1 {
+    font-size:clamp(27px,7.8vw,38px)!important;
+    line-height:1.08!important;
+    letter-spacing:-.055em!important;
+    overflow-wrap:anywhere;
+  }
+  .dashboard-ai-hero > .relative.z-10 > div:nth-child(2) > p {
+    max-width:34rem;
+    font-size:12px!important;
+    line-height:1.65!important;
+  }
+  .dashboard-ai-hero .dashboard-ai-prompt {
+    min-height:118px;
+    border-radius:16px!important;
+  }
+  .dashboard-ai-hero .dashboard-ai-prompt textarea {
+    min-height:70px;
+    font-size:16px!important;
+    line-height:1.5;
+  }
+  .dashboard-ai-hero .mt-3.flex.flex-wrap.items-center.justify-center.gap-2 {
+    justify-content:flex-start!important;
+    gap:7px!important;
+    overflow-x:auto;
+    flex-wrap:nowrap!important;
+    padding:3px 1px 7px;
+    scrollbar-width:none;
+  }
+  .dashboard-ai-hero .mt-3.flex.flex-wrap.items-center.justify-center.gap-2::-webkit-scrollbar { display:none; }
+  .dashboard-ai-hero .mt-3.flex.flex-wrap.items-center.justify-center.gap-2 button {
+    min-height:36px;
+    flex:0 0 auto;
+    white-space:nowrap;
+  }
+  .dashboard-home-content {
+    padding:18px 14px calc(28px + env(safe-area-inset-bottom))!important;
+    gap:16px!important;
+  }
+  .dashboard-home-content>.flex.flex-col.gap-3 {
+    align-items:stretch;
+  }
+  .dashboard-home-content>.flex.flex-col.gap-3>div:last-child {
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .dashboard-home-content>.flex.flex-col.gap-3>div:last-child button {
+    min-height:42px;
+    justify-content:center;
+  }
+  .dashboard-home-view .dashboard-kpis {
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:10px!important;
+  }
+  .dashboard-home-view .dashboard-metric-card {
+    min-height:0!important;
+    padding:15px!important;
+    border-radius:15px!important;
+  }
+  .dashboard-home-view .dashboard-metric-value { font-size:29px!important; }
+  .dashboard-home-view .dashboard-metric-label { font-size:12px!important; }
+  .dashboard-home-view .dashboard-metric-note { font-size:11px!important; line-height:1.45; }
+  .dashboard-home-content>.grid {
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:12px!important;
+  }
+  .dashboard-home-view .dashboard-content-card {
+    min-width:0;
+    padding:16px!important;
+    border-radius:15px!important;
+  }
+  .dashboard-home-view .dashboard-content-card h2 { font-size:14px!important; }
+  .dashboard-home-view .dashboard-activity-row { min-height:58px; padding:10px 5px!important; }
+  .dashboard-home-view .dashboard-recent-row { gap:8px!important; padding:12px 13px!important; }
+  .dashboard-home-view .dashboard-recent-name { font-size:12px!important; }
+  .dashboard-home-view .dashboard-recent-date,
+  .dashboard-home-view .dashboard-recent-score { font-size:10px!important; }
+  .dashboard-home-view .dashboard-recent-row { grid-template-columns:minmax(0,1fr) 72px 42px!important; }
+  .dashboard-home-view .dashboard-recent-row>span:nth-child(2) { display:none!important; }
+
+  /* Shared module shell and cards. */
+  .app-workspace-content--joined .mp-content {
+    padding:16px 13px 22px!important;
+    gap:16px!important;
+  }
+  .app-workspace-content--joined :where(.mp-strip,.af-strip) {
+    align-items:flex-start!important;
+    flex-wrap:wrap!important;
+    gap:11px!important;
+    padding:14px!important;
+  }
+  .app-workspace-content--joined :where(.mp-strip-id,.af-strip-id) {
+    flex:1 1 100%!important;
+    min-width:0!important;
+  }
+  .app-workspace-content--joined :where(.mp-strip-actions,.af-strip-actions) {
+    width:100%!important;
+    justify-content:flex-start!important;
+    gap:7px!important;
+  }
+  .app-workspace-content--joined :where(.mp-strip-actions button,.af-strip-actions button) {
+    min-height:40px;
+  }
+  .app-workspace-content--joined :where(.mp-intro-title) {
+    font-size:clamp(21px,6vw,28px)!important;
+    line-height:1.15!important;
+  }
+  .app-workspace-content--joined :where(.mp-intro-copy,.af-intro-copy) {
+    font-size:12px!important;
+    line-height:1.6!important;
+  }
+  .app-workspace-content--joined :where(.mp-stat,.mp-card,.af-panel) {
+    min-width:0!important;
+    border-radius:15px!important;
+  }
+  .app-workspace-content--joined :where(.mp-stat) { padding:14px!important; }
+  .app-workspace-content--joined :where(.mp-card>div:first-child) {
+    padding:14px!important;
+    gap:12px!important;
+  }
+  .app-workspace-content--joined :where(.mp-card-title,.af-card-title) { font-size:13px!important; }
+  .app-workspace-content--joined :where(.mp-main,.af-main) { min-height:0!important; }
+  .app-workspace-content--joined :where(.mp-inner,.workspace-panel-stack) { gap:13px!important; }
+  .app-workspace-content--joined :where(.mp-inner>*,.workspace-panel-stack>*) { min-width:0!important; }
+  .app-workspace-content--joined :where(.mp-shell [aria-label="Overview metrics"]) {
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    gap:9px!important;
+  }
+  .app-workspace-content--joined :where(.mp-shell [aria-label="Overview metrics"] .mp-stat) { padding:12px!important; }
+  .app-workspace-content--joined :where(.mp-shell [aria-label="Overview metrics"] .mp-stat .text-2xl) { font-size:22px!important; }
+
+  /* Horizontal section tabs remain swipeable; they never squeeze into tiny labels. */
+  .app-workspace-content--joined :where(.mp-shell [role="tablist"],.schedule-workspace-tabs,.lead-db-view-tabs,.lead-db-workspace-tabs) {
+    max-width:100%;
+    overflow-x:auto!important;
+    overscroll-behavior-x:contain;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+  }
+  .app-workspace-content--joined :where(.mp-shell [role="tablist"],.schedule-workspace-tabs,.lead-db-view-tabs,.lead-db-workspace-tabs)::-webkit-scrollbar { display:none; }
+  .app-workspace-content--joined :where(.mp-shell [role="tab"],.schedule-workspace-tabs>button,.lead-db-view-tabs button,.lead-db-workspace-tabs button) {
+    min-height:40px;
+    flex:0 0 auto;
+    white-space:nowrap;
+  }
+
+  /* Inbox keeps its existing two-step mobile conversation-list / active-thread flow. */
+  .app-workspace-content :where(.unified-inbox-shell,.unified-inbox-layout-root) { min-width:0!important; }
+  .app-workspace-content :where(.unified-inbox-thread-header) { gap:7px!important; }
+  .app-workspace-content :where(.unified-inbox-thread-header button) { min-width:36px; min-height:36px; }
+
+  /* CRM and data-heavy modules: stack controls, keep genuine tables scrollable. */
+  .app-workspace-content--joined .crm-workspace { padding-bottom:10px; }
+  .app-workspace-content--joined .crm-table-wrap,
+  .app-workspace-content--joined .lead-database-shell .overflow-x-auto {
+    max-width:100%;
+    overflow-x:auto!important;
+    overscroll-behavior-x:contain;
+    -webkit-overflow-scrolling:touch;
+  }
+  .app-workspace-content--joined .crm-leads-table { min-width:690px; }
+  .app-workspace-content--joined .lead-db-table { min-width:650px; }
+  .app-workspace-content--joined :where(.crm-table-heading) {
+    align-items:flex-start!important;
+    flex-wrap:wrap!important;
+    padding:14px!important;
+  }
+  .app-workspace-content--joined :where(.crm-filter-wrap,.crm-bulk-actions,.crm-table-wrap) {
+    padding-left:0!important;
+    padding-right:0!important;
+  }
+  .app-workspace-content--joined :where(.crm-filter-toolbar) {
+    display:flex!important;
+    flex-direction:column!important;
+    align-items:stretch!important;
+    gap:11px!important;
+    padding:12px!important;
+  }
+  .app-workspace-content--joined :where(.crm-filter-toolbar .crm-filter-controls) {
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px!important;
+  }
+  .app-workspace-content--joined :where(.crm-filter-toolbar .crm-search-input) {
+    min-height:44px;
+    width:100%;
+    font-size:16px!important;
+  }
+  .app-workspace-content--joined :where(.crm-card-controls .crm-stage-strip) {
+    gap:6px!important;
+    overflow-x:auto;
+    flex-wrap:nowrap!important;
+    scrollbar-width:none;
+  }
+  .app-workspace-content--joined :where(.crm-card-controls .crm-stage-strip button) { flex:0 0 auto; }
+  .app-workspace-content--joined :where(.lead-db-toolbar) {
+    display:flex!important;
+    flex-direction:column!important;
+    align-items:stretch!important;
+    gap:10px!important;
+  }
+  .app-workspace-content--joined :where(.lead-db-toolbar>div:last-child) {
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px!important;
+  }
+  .app-workspace-content--joined :where(.knowledge-base-shell .grid) {
+    grid-template-columns:minmax(0,1fr)!important;
+  }
+  .app-workspace-content--joined :where(.knowledge-base-shell [class*="h-[650px]"]) {
+    height:min(55dvh,460px)!important;
+    min-height:260px;
+  }
+
+  /* Calendar uses its own horizontal week scroller, with supporting panels below. */
+  .app-workspace-content--joined .demo-scheduling-workspace {
+    padding:14px 12px calc(22px + env(safe-area-inset-bottom))!important;
+  }
+  .app-workspace-content--joined .schedule-page-header,
+  .app-workspace-content--joined .schedule-calendar-toolbar,
+  .app-workspace-content--joined .schedule-calendar-title-group,
+  .app-workspace-content--joined .schedule-calendar-tools {
+    align-items:flex-start!important;
+    flex-wrap:wrap!important;
+    gap:9px!important;
+  }
+  .app-workspace-content--joined .schedule-stats-grid { grid-template-columns:repeat(2,minmax(0,1fr))!important; }
+  .app-workspace-content--joined .schedule-calendar-layout { grid-template-columns:minmax(0,1fr)!important; }
+  .app-workspace-content--joined .schedule-calendar-sidebar { grid-template-columns:repeat(2,minmax(0,1fr))!important; }
+  .app-workspace-content--joined .schedule-calendar-days { max-width:100%; }
+  .app-workspace-content--joined .schedule-calendar-day { min-width:116px; }
+  .app-workspace-content--joined .schedule-calendar-days.is-agenda .schedule-calendar-day { grid-template-columns:105px minmax(0,1fr); }
+
+  /* Workspace, settings, campaign forms and dialogs. */
+  .app-workspace-content--joined :where(.workspace-panel-stack,.workspace-module,.marketing-studio-shell,.campaign-reports-module,.company-profile-panel) {
+    min-width:0!important;
+    max-width:100%!important;
+  }
+  .app-workspace-content--joined :where(.workspace-panel-stack .grid,.workspace-module .grid,.company-profile-panel .grid) {
+    grid-template-columns:minmax(0,1fr)!important;
+  }
+  .app-workspace-content--joined :where(.workspace-panel-stack>section,.workspace-panel-stack>.bg-white,.workspace-module>section) {
+    padding:15px!important;
+  }
+  .app-workspace-content--joined :where(.fixed.inset-0) {
+    align-items:flex-end!important;
+    padding:8px!important;
+    padding-bottom:max(8px,env(safe-area-inset-bottom))!important;
+  }
+  .app-workspace-content--joined :where([role="dialog"]) {
+    width:100%!important;
+    max-width:100%!important;
+    max-height:calc(100dvh - 16px - env(safe-area-inset-top))!important;
+    margin:0!important;
+    border-radius:18px 18px 12px 12px!important;
+    overflow-y:auto!important;
+    overscroll-behavior:contain;
+  }
+  .app-workspace-content--joined :where([role="dialog"] .p-6) { padding:15px!important; }
+  .app-workspace-content--joined :where(input,select,textarea) {
+    max-width:100%;
+    min-width:0;
+    font-size:16px!important;
+  }
+  .app-workspace-content--joined :where(input,select) { min-height:42px; }
+  .app-workspace-content--joined :where(textarea) { min-height:90px; }
+  .app-workspace-content--joined :where(button) { touch-action:manipulation; }
+  .app-workspace-content--joined :where(pre,code) { max-width:100%; overflow-wrap:anywhere; }
+}
+
+@media (max-width: 520px) {
+  .app-mobile-nav { min-height:56px!important; padding-right:13px!important; padding-left:13px!important; }
+  .app-header-main { min-height:50px!important; padding:7px 9px!important; gap:6px!important; }
+  .app-header-main .app-header-title h1 { font-size:13px!important; }
+  .app-header-actions>button { width:35px!important; height:35px!important; }
+  .app-header-handoff { max-width:92px; overflow:hidden; white-space:nowrap; }
+  .app-workspace-content--joined { padding:9px!important; }
+  .app-workspace-content--dark { padding-left:0!important; padding-right:0!important; }
+  .dashboard-home-content { padding-left:12px!important; padding-right:12px!important; }
+  .dashboard-home-content>.flex.flex-col.gap-3>div:last-child { grid-template-columns:1fr 1fr; }
+  .dashboard-home-view .dashboard-content-card { padding:13px!important; }
+  .dashboard-home-view .dashboard-recent-row { grid-template-columns:minmax(0,1fr) 66px 38px!important; gap:6px!important; }
+  .app-workspace-content--joined .mp-content { padding:14px 10px 20px!important; }
+  .app-workspace-content--joined :where(.mp-strip,.af-strip) { padding:12px!important; }
+  .app-workspace-content--joined :where(.mp-shell [aria-label="Overview metrics"]) { grid-template-columns:minmax(0,1fr)!important; }
+  .app-workspace-content--joined :where(.schedule-stats-grid,.schedule-calendar-sidebar) { grid-template-columns:minmax(0,1fr)!important; }
+  .app-workspace-content--joined :where(.lead-db-modal-actions) { flex-direction:column!important; align-items:stretch!important; }
+  .app-workspace-content--joined :where(.lead-db-modal-actions button) { width:100%; justify-content:center; }
+  .app-workspace-content--joined :where(.crm-filter-toolbar .crm-filter-controls>*) { min-width:0; max-width:100%; }
+  .app-workspace-content--joined :where(.crm-filter-toolbar .crm-filter-controls select) { max-width:100%; }
+  .app-workspace-content--joined :where(.crm-table-heading-meta) { width:100%; flex-wrap:wrap; }
+  .app-workspace-content--joined :where(.workspace-panel-stack>section,.workspace-module>section) { padding:13px!important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-mobile-drawer-backdrop,
+  .app-mobile-drawer-panel,
+  .dashboard-ai-hero *,
+  .app-workspace-content--joined * {
+    scroll-behavior:auto!important;
+    transition-duration:.01ms!important;
+    animation-duration:.01ms!important;
+    animation-iteration-count:1!important;
+  }
+}
