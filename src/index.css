@@ -5104,3 +5104,58 @@
   }
 }
 
+
+
+/* Cursor-responsive Home hero copy — restrained parallax and a soft light field. */
+.dashboard-ai-hero-copy {
+  position: relative;
+  isolation: isolate;
+}
+
+.dashboard-ai-hero-copy::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 19%;
+  left: 50%;
+  width: min(580px, calc(100% - 12px));
+  height: 188px;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 34% 43%, rgba(145,59,255,.15), transparent 62%),
+    radial-gradient(ellipse at 69% 55%, rgba(8,123,255,.13), transparent 65%),
+    radial-gradient(ellipse at 51% 51%, rgba(0,200,255,.055), transparent 72%);
+  filter: blur(25px) saturate(1.06);
+  opacity: var(--hero-glow-opacity, 0);
+  transform: translate3d(
+    calc(-50% + var(--hero-glow-x, 0px)),
+    calc(-50% + var(--hero-glow-y, 0px)),
+    0
+  );
+  will-change: transform, opacity;
+}
+
+.dashboard-ai-hero-copy > h1 {
+  transform: translate3d(var(--hero-heading-x, 0px), var(--hero-heading-y, 0px), 0);
+  will-change: transform;
+}
+
+.dashboard-ai-hero-copy > p {
+  transform: translate3d(var(--hero-description-x, 0px), var(--hero-description-y, 0px), 0);
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-ai-hero-copy::before {
+    opacity: 0 !important;
+    transform: translate3d(-50%, -50%, 0) !important;
+    will-change: auto;
+  }
+
+  .dashboard-ai-hero-copy > h1,
+  .dashboard-ai-hero-copy > p {
+    transform: none !important;
+    will-change: auto;
+  }
+}
