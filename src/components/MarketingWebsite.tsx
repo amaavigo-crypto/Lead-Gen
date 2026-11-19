@@ -1,22 +1,13 @@
 import React, { useEffect } from 'react';
-import {
-  AboutPage,
-  ContactPage,
-  PricingPage,
-  SiteFooter,
-  SiteHeader,
-} from './LandingPage';
-import {
-  AIAgentMarketingPage,
-  CampaignBuilderMarketingPage,
-  CapabilityPage,
-  CrmMarketingPage,
-  FaqMarketingPage,
-  HomeMarketingPage,
-  HowItWorksMarketingPage,
-  UnifiedInboxMarketingPage,
-} from './MarketingPages';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { AboutPage, ContactPage, PricingPage } from './LandingPage';
+import { FaqMarketingPage, HowItWorksMarketingPage } from './MarketingPages';
+import { SiteFooter, SiteHeader } from './site/SiteChrome';
+import { SiteRouter, useSiteRouter } from './site/siteRouter';
+import { CampaignsPage, HomePage, IntegrationsPage, PlatformPage, ProductPage, ResourcesPage, SolutionsPage } from './site/pages';
+import { EASE } from './site/SiteUI';
 import './MarketingWebsite.css';
+import './site/site.css';
 
 const PAGE_META: Record<string, { title: string; description: string }> = {
   '/': {
@@ -112,10 +103,35 @@ function updateMeta(selector: string, attribute: string, value: string) {
   element.setAttribute(attribute, value);
 }
 
-export const MarketingWebsite: React.FC = () => {
-  const pathname = typeof window !== 'undefined'
-    ? (window.location.pathname.replace(/\/+$/, '').toLowerCase() || '/')
-    : '/';
+function renderPage(pathname: string): React.ReactNode {
+  switch (pathname) {
+    case '/': return <HomePage />;
+    case '/platform': return <PlatformPage />;
+    case '/ai-agent':
+    case '/ai-agents': return <ProductPage slug="ai-agent" />;
+    case '/unified-inbox': return <ProductPage slug="unified-inbox" />;
+    case '/campaigns': return <CampaignsPage />;
+    case '/whatsapp': return <CampaignsPage initial="whatsapp" />;
+    case '/crm': return <ProductPage slug="crm" />;
+    case '/lead-capture': return <ProductPage slug="lead-capture" />;
+    case '/demo-scheduling': return <ProductPage slug="demo-scheduling" />;
+    case '/analytics': return <ProductPage slug="analytics" />;
+    case '/integrations': return <IntegrationsPage />;
+    case '/solutions': return <SolutionsPage />;
+    case '/resources': return <ResourcesPage />;
+    case '/pricing': return <PricingPage />;
+    case '/how-it-works': return <HowItWorksMarketingPage />;
+    case '/faqs': return <FaqMarketingPage />;
+    case '/about': return <AboutPage />;
+    case '/contact':
+    case '/book-demo': return <ContactPage />;
+    default: return <HomePage />;
+  }
+}
+
+const SiteShell: React.FC = () => {
+  const { pathname } = useSiteRouter();
+  const reduced = useReducedMotion();
 
   useEffect(() => {
     const meta = PAGE_META[pathname] || PAGE_META['/'];
@@ -135,34 +151,30 @@ export const MarketingWebsite: React.FC = () => {
     canonical.href = window.location.origin + pathname;
   }, [pathname]);
 
-  let page: React.ReactNode;
-  if (pathname === '/') page = <HomeMarketingPage />;
-  else if (pathname === '/pricing') page = <PricingPage />;
-  else if (pathname === '/ai-agent' || pathname === '/ai-agents') page = <AIAgentMarketingPage />;
-  else if (pathname === '/unified-inbox') page = <UnifiedInboxMarketingPage />;
-  else if (pathname === '/campaigns' || pathname === '/whatsapp') {
-    page = <CampaignBuilderMarketingPage initialTab={pathname === '/whatsapp' ? 'whatsapp' : 'email'} />;
-  } else if (pathname === '/crm') page = <CrmMarketingPage />;
-  else if (pathname === '/lead-capture') page = <CapabilityPage kind="capture" path={pathname} />;
-  else if (pathname === '/demo-scheduling') page = <CapabilityPage kind="schedule" path={pathname} />;
-  else if (pathname === '/analytics') page = <CapabilityPage kind="analytics" path={pathname} />;
-  else if (pathname === '/integrations') page = <CapabilityPage kind="integrations" path={pathname} />;
-  else if (pathname === '/platform') page = <CapabilityPage kind="platform" path={pathname} />;
-  else if (pathname === '/solutions') page = <CapabilityPage kind="solutions" path={pathname} />;
-  else if (pathname === '/resources') page = <CapabilityPage kind="resources" path={pathname} />;
-  else if (pathname === '/how-it-works') page = <HowItWorksMarketingPage />;
-  else if (pathname === '/faqs') page = <FaqMarketingPage />;
-  else if (pathname === '/about') page = <AboutPage />;
-  else if (pathname === '/contact' || pathname === '/book-demo') page = <ContactPage />;
-  else page = <HomeMarketingPage />;
-
   return (
-    <div className="av-site avx-site-shell">
+    <div className="sx-shell av-site">
       <SiteHeader pathname={pathname} />
-      {page}
+      <AnimatePresence mode="wait" initial={false} onExitComplete={() => { if (!window.location.hash) window.scrollTo({ top: 0, behavior: 'auto' }); }}>
+        <motion.div
+          key={pathname}
+          className="sx-route"
+          initial={reduced ? false : { opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduced ? { opacity: 0 } : { opacity: 0, y: -8 }}
+          transition={{ duration: 0.28, ease: EASE }}
+        >
+          {renderPage(pathname)}
+        </motion.div>
+      </AnimatePresence>
       <SiteFooter />
     </div>
   );
 };
+
+export const MarketingWebsite: React.FC = () => (
+  <SiteRouter>
+    <SiteShell />
+  </SiteRouter>
+);
 
 export default MarketingWebsite;

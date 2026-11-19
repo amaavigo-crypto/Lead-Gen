@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Lock,
   Mail,
@@ -16,6 +16,7 @@ import {
   Check,
   Zap,
 } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
 import { signIn, requestPasswordReset, friendlyAuthError } from '../services/authService';
 import './LoginView.css';
 
@@ -37,6 +38,15 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
   const [error, setError] = useState<string | null>(initialError || null);
   const [info, setInfo] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [activeStep, setActiveStep] = useState(0);
+  const reduced = useReducedMotion();
+
+  // Walks the highlight through the three journey steps so the story panel feels alive.
+  useEffect(() => {
+    if (reduced) return;
+    const id = window.setInterval(() => setActiveStep((value) => (value + 1) % LOGIN_STEPS.length), 2200);
+    return () => window.clearInterval(id);
+  }, [reduced]);
 
   // onAuthStateChanged in App takes over after a successful sign-in.
   const handleSubmit = async (e: React.FormEvent) => {
@@ -73,24 +83,24 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
     setInfo('If an account exists for that email, a reset link has been sent.');
   };
 
+  const rise = (delay: number) => (reduced ? {} : { initial: { opacity: 0, y: 22 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.8, delay, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] } });
+
   return (
     <div className="av-login-root">
       <div className="av-login-ambient av-login-ambient-blue" aria-hidden="true" />
       <div className="av-login-ambient av-login-ambient-orange" aria-hidden="true" />
+      <div className="av-login-grid" aria-hidden="true" />
 
       <header className="av-login-header">
         <a href="/" className="av-login-brand" aria-label="Amaavigo homepage">
-          <img src="/amaavigo-logo.png" alt="Amaavigo" />
-          <span className="av-login-brand-divider" />
-          <span>AI GROWTH WORKSPACE</span>
+          <img src="/amaavigo-logo-white.png" alt="Amaavigo" />
         </a>
         <a href="/" className="av-login-back-link">Back to website <ArrowUpRight size={15} /></a>
       </header>
 
       <main className="av-login-layout">
         <section className="av-login-story">
-          <div className="av-login-story-glow" aria-hidden="true" />
-          <div className="av-login-story-content">
+          <motion.div className="av-login-story-content" {...rise(0.05)}>
             <div className="av-login-eyebrow"><i /> YOUR LEAD-TO-REVENUE WORKSPACE</div>
             <h1>Good to have you<br /><span>back in motion.</span></h1>
             <p className="av-login-story-intro">
@@ -106,13 +116,13 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
               <div className="av-login-journey-list">
                 {LOGIN_STEPS.map((step, index) => {
                   const Icon = step.icon;
+                  const state = index < activeStep ? 'done' : index === activeStep ? 'active' : '';
                   return (
-                    <div className="av-login-journey-step" key={step.number}>
-                      <span className="av-login-step-number">{step.number}</span>
-                      <span className="av-login-step-icon"><Icon size={17} /></span>
+                    <div className={'av-login-journey-step ' + state} key={step.number}>
+                      <span className="av-login-step-icon"><Icon size={18} /></span>
                       <span className="av-login-step-copy"><b>{step.label}</b><small>{step.detail}</small></span>
-                      <span className="av-login-step-check"><Check size={12} /></span>
-                      {index < LOGIN_STEPS.length - 1 && <span className="av-login-step-connector" />}
+                      <span className="av-login-step-check"><Check size={13} strokeWidth={3} /></span>
+                      {index < LOGIN_STEPS.length - 1 && <span className="av-login-step-connector"><i /></span>}
                     </div>
                   );
                 })}
@@ -124,12 +134,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
               <span><Zap size={14} /> Less manual follow-up</span>
               <span><Lock size={14} /> Workspace access protected</span>
             </div>
-          </div>
+          </motion.div>
         </section>
 
-        <section className="av-login-panel" aria-labelledby="av-login-title">
+        <motion.section className="av-login-panel" aria-labelledby="av-login-title" {...rise(0.18)}>
           <div className="av-login-panel-top">
-            <span className="av-login-panel-icon"><KeyRound size={19} /></span>
+            <span className="av-login-panel-icon"><KeyRound size={20} /></span>
             <span className="av-login-database-status">
               <i />
               <Database size={13} />
@@ -151,7 +161,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
           )}
 
           {error && (
-            <div className="av-login-alert av-login-alert-error" role="alert">
+            <div className="av-login-alert av-login-alert-error" role="alert" key={error}>
               <AlertCircle size={16} />
               <span>{error}</span>
             </div>
@@ -161,7 +171,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
             <div className="av-login-field">
               <label htmlFor="av-login-email">Work email</label>
               <div className="av-login-input-wrap">
-                <Mail size={17} />
+                <Mail size={18} />
                 <input
                   id="av-login-email"
                   type="email"
@@ -180,7 +190,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
                 <button type="button" onClick={handleForgot} className="av-login-forgot">Forgot password?</button>
               </div>
               <div className="av-login-input-wrap">
-                <Lock size={17} />
+                <Lock size={18} />
                 <input
                   id="av-login-password"
                   type={showPassword ? 'text' : 'password'}
@@ -197,18 +207,18 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   aria-pressed={showPassword}
                 >
-                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
             </div>
 
             <button type="submit" disabled={isLoading} className="av-login-submit">
-              {isLoading ? <span>Verifying your access…</span> : <><span>Sign in to workspace</span><ArrowRight size={17} /></>}
+              {isLoading ? <><span className="av-login-spinner" /><span>Verifying your access…</span></> : <><span>Sign in to workspace</span><ArrowRight size={18} /></>}
             </button>
           </form>
 
           <div className="av-login-security-note">
-            <ShieldCheck size={15} />
+            <ShieldCheck size={16} />
             <span>Your workspace access is protected by your organisation’s sign-in settings.</span>
           </div>
 
@@ -218,7 +228,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
             <a href="/dpa">DPA</a><span>·</span>
             <a href="/aup">Acceptable Use</a>
           </div>
-        </section>
+        </motion.section>
       </main>
 
       <footer className="av-login-footer">
