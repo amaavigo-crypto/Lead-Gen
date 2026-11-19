@@ -5,7 +5,6 @@ import {
   Eye,
   EyeOff,
   ArrowRight,
-  ArrowUpRight,
   Database,
   KeyRound,
   AlertCircle,
@@ -93,10 +92,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ isFirebaseActive, initialE
       <div className="av-login-grid" aria-hidden="true" />
 
       <header className="av-login-header">
-        <a href="/" className="av-login-brand" aria-label="Amaavigo homepage">
+        <a href="/" className="av-login-brand" aria-label="Amaavigo sign in">
           <img src="/amaavigo-logo-white.png" alt="Amaavigo" />
         </a>
-        <a href="/" className="av-login-back-link">Back to website <ArrowUpRight size={15} /></a>
       </header>
 
       <main className="av-login-layout">

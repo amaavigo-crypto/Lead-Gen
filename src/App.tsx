@@ -71,7 +71,6 @@ const AutoFollowUpDashboard = lazyNamed(() => import('./components/AutoFollowUpD
 const LeadDatabase = lazyNamed(() => import('./components/LeadDatabase'), 'LeadDatabase');
 const PlatformConsole = lazyNamed(() => import('./components/PlatformConsole'), 'PlatformConsole');
 const BillingView = lazyNamed(() => import('./components/BillingView'), 'BillingView');
-const MarketingWebsite = lazyNamed(() => import('./components/MarketingWebsite'), 'MarketingWebsite');
 
 function ScreenLoading() {
   return (
@@ -2631,12 +2630,10 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
     );
   }
 
+  // Signed-out visitors always enter through the workspace sign-in screen.
+  // The authenticated application is rendered immediately after Firebase restores a valid session.
   if (!currentUser) {
-    const pathname = typeof window !== 'undefined' ? window.location.pathname.replace(/\/+$/, '') || '/' : '/';
-    if (pathname === '/login') {
-      return <LoginView isFirebaseActive={isFirebaseActive} initialError={authError} />;
-    }
-    return <Suspense fallback={<ScreenLoading />}><MarketingWebsite /></Suspense>;
+    return <LoginView isFirebaseActive={isFirebaseActive} initialError={authError} />;
   }
 
   if (session?.isPlatformAdmin) {
