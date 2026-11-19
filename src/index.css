@@ -5009,3 +5009,98 @@
 .dashboard-ai-hero-glow::before,.dashboard-ai-hero-glow::after { display:none !important; animation:none !important; }
 .dashboard-ai-webgl-host { position:absolute; inset:0; z-index:0; overflow:hidden; pointer-events:none; }
 .dashboard-ai-webgl-host canvas { display:block; width:100%; height:100%; pointer-events:none !important; }
+
+/* Seamless Umrah360 hero-to-dashboard ambient transition. */
+/* Fade the lower canvas only; the Three.js animation and its cursor uniforms stay unchanged. */
+.dashboard-home-view .dashboard-ai-webgl-host {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 calc(100% - 164px),
+    rgba(0,0,0,.82) calc(100% - 112px),
+    rgba(0,0,0,.36) calc(100% - 48px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 calc(100% - 164px),
+    rgba(0,0,0,.82) calc(100% - 112px),
+    rgba(0,0,0,.36) calc(100% - 48px),
+    transparent 100%
+  );
+}
+
+/* Remove the last hard divider and let the ambient field continue past the hero. */
+.dashboard-home-view .dashboard-ai-hero {
+  border-bottom-color: transparent !important;
+  box-shadow: 0 8px 30px rgba(0,0,0,.075) !important;
+}
+
+/* A soft purple/blue bridge spans the final part of the hero and the first
+   ~175px of Overview. Its mask dissolves before the dashboard cards begin. */
+.dashboard-home-view .dashboard-home-content {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+}
+
+.dashboard-home-view .dashboard-home-content::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -180px;
+  left: -2.5rem;
+  right: -2.5rem;
+  height: 355px;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 48% 88% at 7% 48%, rgba(126,65,226,.17), transparent 74%),
+    radial-gradient(ellipse 48% 88% at 93% 46%, rgba(0,139,225,.16), transparent 74%),
+    radial-gradient(ellipse 40% 82% at 50% 45%, rgba(76,67,166,.085), transparent 76%);
+  mix-blend-mode: screen;
+  opacity: .9;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 48%,
+    rgba(0,0,0,.72) 72%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 48%,
+    rgba(0,0,0,.72) 72%,
+    transparent 100%
+  );
+}
+
+@media (max-width: 767px) {
+  .dashboard-home-view .dashboard-ai-webgl-host {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      #000 0%,
+      #000 calc(100% - 140px),
+      rgba(0,0,0,.8) calc(100% - 92px),
+      rgba(0,0,0,.3) calc(100% - 38px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      #000 0%,
+      #000 calc(100% - 140px),
+      rgba(0,0,0,.8) calc(100% - 92px),
+      rgba(0,0,0,.3) calc(100% - 38px),
+      transparent 100%
+    );
+  }
+
+  .dashboard-home-view .dashboard-home-content::before {
+    left: -1rem;
+    right: -1rem;
+    top: -150px;
+    height: 310px;
+  }
+}
+
