@@ -106,7 +106,11 @@ function particleCountFor(width: number) {
   return lowPower?Math.round(base*.68):base;
 }
 
-export const AiParticleEnvironment: React.FC = () => {
+interface AiParticleEnvironmentProps {
+  onPointerPosition?: (x: number, y: number, active: boolean) => void;
+}
+
+export const AiParticleEnvironment: React.FC<AiParticleEnvironmentProps> = ({ onPointerPosition }) => {
   const hostRef=useRef<HTMLDivElement|null>(null);
   useEffect(()=>{
     const host=hostRef.current, hero=host?.parentElement;
@@ -213,7 +217,7 @@ export const AiParticleEnvironment: React.FC = () => {
       canvas.addEventListener('webglcontextrestored',onRestored,false);
 
       const onPointerMove=(event:PointerEvent)=>{
-        if(reduced.matches)return;
+        if(reduced.matches || event.pointerType === 'touch')return;
         const rect=host.getBoundingClientRect();if(!rect.width||!rect.height)return;
         const x=((event.clientX-rect.left)/rect.width)*2-1;
         const y=1-((event.clientY-rect.top)/rect.height)*2;
@@ -221,8 +225,12 @@ export const AiParticleEnvironment: React.FC = () => {
         const dt=Math.max(12,now-(lastPointerAt||now-16)),speed=Math.min(1,travel/dt*8);
         targetPointer.set(x,y);pointerActiveTarget=1;cursorMotionTarget=Math.max(cursorMotionTarget,speed);
         rippleOrigin.set(x,y);rippleStart=elapsed;ripplePower=.32+speed*.68;lastPointerAt=now;
+        onPointerPosition?.((x+1)*.5,(1-y)*.5,true);
       };
-      const onPointerLeave=()=>{pointerActiveTarget=0;cursorMotionTarget=0;};
+      const onPointerLeave=()=>{
+        pointerActiveTarget=0;cursorMotionTarget=0;
+        onPointerPosition?.(.5,.5,false);
+      };
       hero.addEventListener('pointermove',onPointerMove,{passive:true});
       hero.addEventListener('pointerleave',onPointerLeave,{passive:true});
 
@@ -249,20 +257,20 @@ export const AiParticleEnvironment: React.FC = () => {
         if(visible&&!document.hidden){running=true;raf=window.requestAnimationFrame(tick);}
       };
       const onVisibility=()=>{if(document.hidden)stop();else start();};
-      const onReduced=()=>{if(reduced.matches){pointerActiveTarget=0;pointerActive=0;renderStatic();stop();}else start();};
+      const onReduced=()=>{if(reduced.matches){pointerActiveTarget=0;pointerActive=0;onPointerPosition?.(.5,.5,false);renderStatic();stop();}else start();};
       document.addEventListener('visibilitychange',onVisibility);
       reduced.addEventListener?.('change',onReduced);
       const ro=typeof ResizeObserver!=='undefined'?new ResizeObserver(resize):null;
       if(ro)ro.observe(host);else window.addEventListener('resize',resize);
       const io=typeof IntersectionObserver!=='undefined'?new IntersectionObserver((entries)=>{
         visible=entries.some(entry=>entry.isIntersecting);
-        if(!visible){pointerActiveTarget=0;stop();}else start();
+        if(!visible){pointerActiveTarget=0;onPointerPosition?.(.5,.5,false);stop();}else start();
       },{threshold:.01}):null;
       if(io)io.observe(host);
       resize();start();
 
       return ()=>{
-        disposed=true;stop();ro?.disconnect();io?.disconnect();
+        disposed=true;stop();onPointerPosition?.(.5,.5,false);ro?.disconnect();io?.disconnect();
         window.removeEventListener('resize',resize);
         document.removeEventListener('visibilitychange',onVisibility);
         reduced.removeEventListener?.('change',onReduced);
@@ -276,7 +284,7 @@ export const AiParticleEnvironment: React.FC = () => {
       renderer?.dispose?.();
       return ()=>{disposed=true;renderer?.dispose?.();};
     }
-  },[]);
+  },[onPointerPosition]);
 
   return <div ref={hostRef} className="dashboard-ai-webgl-host" aria-hidden="true" style={{
     position:'absolute',inset:0,zIndex:0,overflow:'hidden',pointerEvents:'none'

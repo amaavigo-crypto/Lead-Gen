@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Activity, ArrowUpRight, Bot, CalendarClock, History, Lightbulb, Loader2, MessageSquareText, PanelLeftClose, PanelLeftOpen, Plus, X } from 'lucide-react';
 import { useAgent } from '../context/AgentContext';
 import type { ActiveTab } from './Navbar';
@@ -19,165 +19,27 @@ const QUICK_TASKS = [
 
 export const DashboardAiHomeHero: React.FC<DashboardAiHomeHeroProps> = ({ userName, canUseAi, onNavigate }) => {
   const { conversations, sending, loading, error, sendMessage, newConversation, selectConversation, clearError } = useAgent();
-  const heroRef = useRef<HTMLElement | null>(null);
   const heroCopyRef = useRef<HTMLDivElement | null>(null);
 
-  // Cursor parallax is applied directly to CSS variables so pointer movement
-  // never causes React re-renders or competes with the Three.js particle loop.
-  useEffect(() => {
-    const hero = heroRef.current;
+  // Receives the same normalized (0–1) pointer coordinates used by the
+  // Three.js particle shaders. CSS individual transforms keep the original
+  // entrance animation intact while moving only the text a few pixels.
+  const handleParticlePointer = useCallback((x: number, y: number, active: boolean) => {
     const copy = heroCopyRef.current;
-    if (!hero || !copy) return;
+    if (!copy) return;
 
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    let frame = 0;
-    let lastFrameTime = 0;
+    const headingX = active ? (x - 0.5) * 10 : 0;
+    const headingY = active ? (y - 0.5) * 8 : 0;
+    const descriptionX = headingX * 0.42;
+    const descriptionY = headingY * 0.45;
 
-    let targetHeadingX = 0;
-    let targetHeadingY = 0;
-    let targetDescriptionX = 0;
-    let targetDescriptionY = 0;
-    let targetGlowX = 0;
-    let targetGlowY = 0;
-    let targetGlowOpacity = 0;
-
-    let headingX = 0;
-    let headingY = 0;
-    let descriptionX = 0;
-    let descriptionY = 0;
-    let glowX = 0;
-    let glowY = 0;
-    let glowOpacity = 0;
-
-    const writeValues = () => {
-      copy.style.setProperty('--hero-heading-x', headingX.toFixed(2) + 'px');
-      copy.style.setProperty('--hero-heading-y', headingY.toFixed(2) + 'px');
-      copy.style.setProperty('--hero-description-x', descriptionX.toFixed(2) + 'px');
-      copy.style.setProperty('--hero-description-y', descriptionY.toFixed(2) + 'px');
-      copy.style.setProperty('--hero-glow-x', glowX.toFixed(2) + 'px');
-      copy.style.setProperty('--hero-glow-y', glowY.toFixed(2) + 'px');
-      copy.style.setProperty('--hero-glow-opacity', glowOpacity.toFixed(3));
-    };
-
-    const clearValues = () => {
-      headingX = headingY = descriptionX = descriptionY = glowX = glowY = glowOpacity = 0;
-      targetHeadingX = targetHeadingY = targetDescriptionX = targetDescriptionY = targetGlowX = targetGlowY = targetGlowOpacity = 0;
-      lastFrameTime = 0;
-      copy.style.removeProperty('--hero-heading-x');
-      copy.style.removeProperty('--hero-heading-y');
-      copy.style.removeProperty('--hero-description-x');
-      copy.style.removeProperty('--hero-description-y');
-      copy.style.removeProperty('--hero-glow-x');
-      copy.style.removeProperty('--hero-glow-y');
-      copy.style.removeProperty('--hero-glow-opacity');
-    };
-
-    const animate = (time: number) => {
-      frame = 0;
-      if (reducedMotion.matches) {
-        clearValues();
-        return;
-      }
-
-      const delta = lastFrameTime ? Math.min((time - lastFrameTime) / 1000, 0.05) : 1 / 60;
-      lastFrameTime = time;
-      const headingEase = 1 - Math.exp(-delta * 7.2);
-      const glowEase = 1 - Math.exp(-delta * 5.4);
-
-      headingX += (targetHeadingX - headingX) * headingEase;
-      headingY += (targetHeadingY - headingY) * headingEase;
-      descriptionX += (targetDescriptionX - descriptionX) * headingEase;
-      descriptionY += (targetDescriptionY - descriptionY) * headingEase;
-      glowX += (targetGlowX - glowX) * glowEase;
-      glowY += (targetGlowY - glowY) * glowEase;
-      glowOpacity += (targetGlowOpacity - glowOpacity) * glowEase;
-
-      writeValues();
-
-      const settled =
-        Math.abs(targetHeadingX - headingX) < 0.015 &&
-        Math.abs(targetHeadingY - headingY) < 0.015 &&
-        Math.abs(targetDescriptionX - descriptionX) < 0.015 &&
-        Math.abs(targetDescriptionY - descriptionY) < 0.015 &&
-        Math.abs(targetGlowX - glowX) < 0.08 &&
-        Math.abs(targetGlowY - glowY) < 0.08 &&
-        Math.abs(targetGlowOpacity - glowOpacity) < 0.005;
-
-      if (settled) {
-        headingX = targetHeadingX;
-        headingY = targetHeadingY;
-        descriptionX = targetDescriptionX;
-        descriptionY = targetDescriptionY;
-        glowX = targetGlowX;
-        glowY = targetGlowY;
-        glowOpacity = targetGlowOpacity;
-        writeValues();
-        lastFrameTime = 0;
-        return;
-      }
-
-      frame = window.requestAnimationFrame(animate);
-    };
-
-    const scheduleFrame = () => {
-      if (!frame && !reducedMotion.matches) {
-        frame = window.requestAnimationFrame(animate);
-      }
-    };
-
-    const returnToRest = () => {
-      targetHeadingX = targetHeadingY = 0;
-      targetDescriptionX = targetDescriptionY = 0;
-      targetGlowX = targetGlowY = targetGlowOpacity = 0;
-      scheduleFrame();
-    };
-
-    const onPointerMove = (event: PointerEvent) => {
-      if (reducedMotion.matches || event.pointerType === 'touch') return;
-      const rect = hero.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-
-      const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-      const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
-      const offsetX = (x - 0.5) * 10;
-      const offsetY = (y - 0.5) * 7;
-
-      // The heading leads with a maximum 5px shift; the supporting copy
-      // follows at a smaller amplitude to create a restrained depth cue.
-      targetHeadingX = offsetX;
-      targetHeadingY = offsetY;
-      targetDescriptionX = offsetX * 0.58;
-      targetDescriptionY = offsetY * 0.58;
-
-      // Keep the glow soft and confined to the title area, with a longer,
-      // more atmospheric follow-through than the text movement.
-      targetGlowX = (x - 0.5) * 210;
-      targetGlowY = Math.max(-38, Math.min(48, (y - 0.4) * 90));
-      targetGlowOpacity = 0.72;
-      scheduleFrame();
-    };
-
-    const onMotionPreferenceChange = () => {
-      if (reducedMotion.matches) {
-        if (frame) window.cancelAnimationFrame(frame);
-        frame = 0;
-        clearValues();
-      }
-    };
-
-    hero.addEventListener('pointermove', onPointerMove, { passive: true });
-    hero.addEventListener('pointerleave', returnToRest, { passive: true });
-    window.addEventListener('blur', returnToRest);
-    reducedMotion.addEventListener?.('change', onMotionPreferenceChange);
-
-    return () => {
-      if (frame) window.cancelAnimationFrame(frame);
-      hero.removeEventListener('pointermove', onPointerMove);
-      hero.removeEventListener('pointerleave', returnToRest);
-      window.removeEventListener('blur', returnToRest);
-      reducedMotion.removeEventListener?.('change', onMotionPreferenceChange);
-      clearValues();
-    };
+    copy.style.setProperty('--hero-heading-x', headingX.toFixed(2) + 'px');
+    copy.style.setProperty('--hero-heading-y', headingY.toFixed(2) + 'px');
+    copy.style.setProperty('--hero-description-x', descriptionX.toFixed(2) + 'px');
+    copy.style.setProperty('--hero-description-y', descriptionY.toFixed(2) + 'px');
+    copy.style.setProperty('--hero-glow-x', (active ? (x - 0.5) * 180 : 0).toFixed(2) + 'px');
+    copy.style.setProperty('--hero-glow-y', (active ? Math.max(-34, Math.min(44, (y - 0.43) * 78)) : 0).toFixed(2) + 'px');
+    copy.style.setProperty('--hero-glow-opacity', active ? '0.56' : '0');
   }, []);
   const [prompt, setPrompt] = useState('');
   const [startingAgent, setStartingAgent] = useState(false);
@@ -241,9 +103,9 @@ export const DashboardAiHomeHero: React.FC<DashboardAiHomeHeroProps> = ({ userNa
   };
 
   return (
-    <section ref={heroRef} className="dashboard-ai-hero relative isolate overflow-hidden rounded-2xl border border-white/10 text-white">
+    <section className="dashboard-ai-hero relative isolate overflow-hidden rounded-2xl border border-white/10 text-white">
       <div className="dashboard-ai-hero-glow" aria-hidden="true" />
-      <AiParticleEnvironment />
+      <AiParticleEnvironment onPointerPosition={handleParticlePointer} />
       {showChatHistory && <>
         <button type="button" aria-label="Close chat history" onClick={() => setShowChatHistory(false)} className="dashboard-home-history-backdrop absolute inset-0 z-20 cursor-default bg-[#03031a]/65 backdrop-blur-[2px]" />
         <aside id="dashboard-home-history" aria-label="All conversations" className="dashboard-home-history-panel absolute inset-y-0 left-0 z-30 flex w-[min(340px,88vw)] flex-col border-r border-white/10 bg-[#090927]/[.98] p-4 shadow-2xl backdrop-blur-xl">
