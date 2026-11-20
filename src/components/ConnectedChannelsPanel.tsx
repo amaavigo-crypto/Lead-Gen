@@ -7,11 +7,18 @@ type Connection = {
   status?: string;
   webhookSubscriptionStatus?: 'subscribed' | 'needs_setup';
   displayPhoneNumber?: string;
+  phoneNumberId?: string;
+  wabaId?: string;
   verifiedName?: string;
   qualityRating?: string;
   pageName?: string;
   isTestConnection?: boolean;
   authorizationStatus?: string;
+  internalManaged?: boolean;
+  connectionMethod?: string;
+  isOnBusinessApp?: boolean;
+  platformType?: string;
+  connectedAt?: string;
 };
 type ChannelState = {
   connected: boolean;
@@ -372,13 +379,43 @@ export const ConnectedChannelsPanel: React.FC<Props> = ({ tenantId, canEdit }) =
           )}
           {wa.connected ? (
             <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-2.5 text-xs">
-              <p className="font-bold text-emerald-900">{wa.connection?.displayPhoneNumber || 'WhatsApp number'}</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-bold text-emerald-900">{wa.connection?.displayPhoneNumber || 'WhatsApp number'}</p>
+                {wa.connection?.internalManaged && (
+                  <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700">AMAAVIGO MANAGED</span>
+                )}
+              </div>
               {wa.connection?.verifiedName && <p className="text-emerald-700 mt-0.5">{wa.connection.verifiedName}</p>}
               {wa.connection?.qualityRating && <p className="text-emerald-700 mt-0.5">Quality: {wa.connection.qualityRating}</p>}
-              {wa.connection?.isTestConnection && <p className="mt-1 font-semibold text-amber-700">Meta test number (App Review only)</p>}
-              {wa.connection?.isTestConnection && wa.connection?.webhookSubscriptionStatus === 'needs_setup' && (
-                <p className="mt-1 font-semibold text-amber-700">Webhook subscription not confirmed. Sending works, but replies may not arrive until the Meta webhook is set up.</p>
+              {wa.connection?.isOnBusinessApp && String(wa.connection?.platformType || '').toUpperCase() === 'CLOUD_API' && (
+                <p className="text-emerald-700 mt-1">WhatsApp Business App + Cloud API (Coexistence)</p>
               )}
+              {wa.connection?.internalManaged && <p className="text-emerald-700 mt-1">Connected to this workspace by the Amaavigo platform administrator.</p>}
+              {wa.connection?.isTestConnection && <p className="mt-1 font-semibold text-amber-700">Meta test number (App Review only)</p>}
+              {wa.connection?.webhookSubscriptionStatus === 'needs_setup' && (
+                <p className="mt-1 font-semibold text-amber-700">Webhook subscription not confirmed. Sending may work, but replies may not arrive until the Meta webhook is set up.</p>
+              )}
+            </div>
+          ) : wa.connection ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-2.5 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-bold text-amber-950">Saved WhatsApp connection</p>
+                <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                  {wa.connection.authorizationStatus === 'reauthorization_required'
+                    ? 'RECONNECT REQUIRED'
+                    : String(wa.connection.status || '').toLowerCase() === 'disconnected'
+                      ? 'DISCONNECTED'
+                      : 'NEEDS REVIEW'}
+                </span>
+              </div>
+              <p className="mt-1 font-bold text-amber-900">
+                {wa.connection.displayPhoneNumber || (wa.connection.phoneNumberId ? `Phone Number ID: ${wa.connection.phoneNumberId}` : 'WhatsApp number details unavailable')}
+              </p>
+              {wa.connection.verifiedName && <p className="mt-0.5 text-amber-800">{wa.connection.verifiedName}</p>}
+              {wa.connection.internalManaged && <p className="mt-1 text-amber-800">This connection was managed by the Amaavigo platform administrator.</p>}
+              <p className="mt-1 leading-relaxed text-amber-800">
+                This saved connection belongs to this workspace. Reconnect it or connect a replacement number; other workspaces are not affected.
+              </p>
             </div>
           ) : (
             missingNote(wa) || (

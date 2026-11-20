@@ -1040,9 +1040,29 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
 
       const existingSnap = await getDoc(targetRepo.integrationDoc('whatsapp'));
       const existing = existingSnap.exists() ? (existingSnap.data() as any)?.connection : null;
-      if (existing?.phoneNumberId && String(existing.phoneNumberId) !== phoneNumberId) {
+      const existingPhoneNumberId = String(existing?.phoneNumberId || '');
+      const existingStatus = String(existing?.status || '').toLowerCase();
+      const hasDifferentExistingNumber = Boolean(existingPhoneNumberId && existingPhoneNumberId !== phoneNumberId);
+
+      // Never replace an active or ambiguous connection silently. The tenant Channels & Messaging
+      // panel reads this same tenant-scoped record and displays the current number and its state.
+      if (hasDifferentExistingNumber && existingStatus !== 'disconnected') {
+        const existingDisplay = String(existing?.displayPhoneNumber || '').trim() || `Phone Number ID ${existingPhoneNumberId}`;
+        const stateDescription = existingStatus === 'connected' ? 'is already connected' : 'has a saved connection that needs review';
         res.statusCode = 409;
-        res.end(JSON.stringify({ error: 'The Amaavigo tenant already has a different WhatsApp number connected. Disconnect or review that connection before replacing it.' }));
+        res.end(JSON.stringify({
+          code: 'WHATSAPP_NUMBER_ALREADY_CONNECTED',
+          error: `The Amaavigo tenant WhatsApp number ${existingDisplay} ${stateDescription}. Review it in Workspace → Channels & Messaging. Disconnect it there before replacing it. This change affects only the Amaavigo tenant.`,
+          existingConnection: {
+            phoneNumberId: existingPhoneNumberId,
+            displayPhoneNumber: String(existing?.displayPhoneNumber || ''),
+            verifiedName: String(existing?.verifiedName || ''),
+            status: existingStatus || 'needs_review',
+            connectedAt: String(existing?.connectedAt || ''),
+            internalManaged: existing?.internalManaged === true,
+            connectionMethod: String(existing?.connectionMethod || ''),
+          },
+        }));
         return true;
       }
 
@@ -1050,6 +1070,14 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       // Subscribe this app to its webhook updates; this operation is idempotent.
       // Webhook field subscriptions remain configured in the Meta dashboard.
       await callMeta(`${encodeURIComponent(wabaId)}/subscribed_apps`, { method: 'POST' });
+
+      if (hasDifferentExistingNumber && existingStatus === 'disconnected') {
+        const staleRouteRef = doc(db, 'channel_routes', existingPhoneNumberId);
+        const staleRouteSnap = await getDoc(staleRouteRef);
+        if (staleRouteSnap.exists() && String((staleRouteSnap.data() as any)?.tenantId || '') === targetTenantId) {
+          await deleteDoc(staleRouteRef);
+        }
+      }
 
       const now = new Date().toISOString();
       const phoneDisplay = String(phoneInfo?.display_phone_number || '');
