@@ -1005,15 +1005,22 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
         return true;
       }
 
-      const phoneList = await callMeta(`${encodeURIComponent(wabaId)}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating`);
-      const selectedPhone = (Array.isArray(phoneList?.data) ? phoneList.data : []).find((item: any) => String(item?.id || '') === phoneNumberId);
-      if (!selectedPhone) {
+      // Graph API v27.0 does not support GET on /{WABA_ID}/phone_numbers.
+      // Validate the Messaging Account node and the supplied phone-number node separately.
+      // The platform admin supplies both IDs; Meta verifies that this token can access each one.
+      const wabaInfo = await callMeta(`${encodeURIComponent(wabaId)}?fields=id,name`);
+      if (String(wabaInfo?.id || '') !== wabaId) {
         res.statusCode = 422;
-        res.end(JSON.stringify({ error: 'The selected Phone Number ID does not belong to the Amaavigo WhatsApp Business Account.' }));
+        res.end(JSON.stringify({ error: 'Meta did not confirm the supplied WhatsApp Business Account ID.' }));
         return true;
       }
 
       const phoneInfo = await callMeta(`${encodeURIComponent(phoneNumberId)}?fields=id,display_phone_number,verified_name,quality_rating,is_on_biz_app,platform_type`);
+      if (String(phoneInfo?.id || '') !== phoneNumberId) {
+        res.statusCode = 422;
+        res.end(JSON.stringify({ error: 'Meta did not confirm the supplied Phone Number ID.' }));
+        return true;
+      }
       if (phoneInfo?.is_on_biz_app !== true || String(phoneInfo?.platform_type || '').toUpperCase() !== 'CLOUD_API') {
         res.statusCode = 422;
         res.end(JSON.stringify({ error: 'Meta has not confirmed this number as active on both WhatsApp Business App and Cloud API. No connection was saved.' }));
@@ -1048,9 +1055,9 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       await callMeta(`${encodeURIComponent(wabaId)}/subscribed_apps`, { method: 'POST' });
 
       const now = new Date().toISOString();
-      const phoneDisplay = String(phoneInfo?.display_phone_number || selectedPhone?.display_phone_number || '+91 87798 10010');
-      const verifiedName = String(phoneInfo?.verified_name || selectedPhone?.verified_name || 'Amaavigo Digital Solutions');
-      const qualityRating = phoneInfo?.quality_rating || selectedPhone?.quality_rating;
+      const phoneDisplay = String(phoneInfo?.display_phone_number || '');
+      const verifiedName = String(phoneInfo?.verified_name || 'Amaavigo Digital Solutions');
+      const qualityRating = phoneInfo?.quality_rating;
       const connection: Record<string, any> = {
         phoneNumberId,
         wabaId,
