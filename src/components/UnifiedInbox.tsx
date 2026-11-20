@@ -1089,7 +1089,7 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
 
                         <span className="font-medium">
                           {isIncoming && (msg.channel === 'INSTAGRAM' || msg.channel === 'FACEBOOK')
-                            ? (activeContact.socialProfileName || [activeContact.firstName, activeContact.lastName].filter(Boolean).join(' ') || msg.senderName)
+                            ? ([activeContact.socialProfileName, [activeContact.firstName, activeContact.lastName].filter((part) => part && !/^(u|messenger|facebook|user)$/i.test(String(part).trim())).join(' '), msg.senderName].find((name) => name && !/^(u|messenger user|facebook user|messenger|facebook|user)$/i.test(String(name).trim())) || 'Messenger user')
                             : (msg.senderName || (isIncoming ? activeContact.firstName : `${brand.companyName} Agent`))}
                         </span>
                         {isAi && (
