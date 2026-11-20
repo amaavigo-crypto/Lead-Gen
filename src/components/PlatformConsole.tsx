@@ -150,6 +150,8 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
   const [showCreate, setShowCreate] = useState(false);
   const [view, setView] = useState<'workspaces' | 'feedback' | 'plans' | 'legal' | 'seo' | 'resources'>('workspaces');
   const [internalWhatsAppTenantId, setInternalWhatsAppTenantId] = useState('');
+  const [internalWhatsAppWabaId, setInternalWhatsAppWabaId] = useState('1099005263137931');
+  const [internalWhatsAppPhoneNumberId, setInternalWhatsAppPhoneNumberId] = useState('1360665160467566');
   const [internalWhatsAppToken, setInternalWhatsAppToken] = useState('');
   const [internalWhatsAppBusy, setInternalWhatsAppBusy] = useState(false);
   const [internalWhatsAppMessage, setInternalWhatsAppMessage] = useState<string | null>(null);
@@ -238,7 +240,7 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
 
   const connectInternalWhatsApp = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!internalWhatsAppTenantId || !internalWhatsAppToken.trim()) return;
+    if (!internalWhatsAppTenantId || !internalWhatsAppWabaId.trim() || !internalWhatsAppPhoneNumberId.trim() || !internalWhatsAppToken.trim()) return;
     setInternalWhatsAppBusy(true);
     setInternalWhatsAppMessage(null);
     setInternalWhatsAppError(null);
@@ -249,8 +251,8 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
           method: 'POST',
           body: JSON.stringify({
             targetTenantId: internalWhatsAppTenantId,
-            wabaId: '1099005263137931',
-            phoneNumberId: '1360665160467566',
+            wabaId: internalWhatsAppWabaId.trim(),
+            phoneNumberId: internalWhatsAppPhoneNumberId.trim(),
             accessToken: internalWhatsAppToken.trim(),
           }),
         }
@@ -403,15 +405,36 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-xs font-semibold text-slate-700">
                   WhatsApp Business Account ID
-                  <input readOnly value="1099005263137931" className={`${inputCls} mt-1 bg-slate-50 font-mono`} />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={internalWhatsAppWabaId}
+                    onChange={(event) => setInternalWhatsAppWabaId(event.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    required
+                    placeholder="Enter the WhatsApp Business Account ID"
+                    className={`${inputCls} mt-1 font-mono`}
+                  />
                 </label>
                 <label className="block text-xs font-semibold text-slate-700">
                   Phone Number ID
-                  <input readOnly value="1360665160467566" className={`${inputCls} mt-1 bg-slate-50 font-mono`} />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={internalWhatsAppPhoneNumberId}
+                    onChange={(event) => setInternalWhatsAppPhoneNumberId(event.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    required
+                    placeholder="Enter the Phone Number ID"
+                    className={`${inputCls} mt-1 font-mono`}
+                  />
                 </label>
               </div>
               <label className="block text-xs font-semibold text-slate-700">
                 System User access token
+                <span className="mt-1 block font-normal text-slate-500">Enter or replace the token for the selected WABA. The saved token is never shown again.</span>
                 <input
                   type="password"
                   value={internalWhatsAppToken}
@@ -426,7 +449,7 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="submit"
-                  disabled={internalWhatsAppBusy || !internalWhatsAppTenantId || !internalWhatsAppToken.trim()}
+                  disabled={internalWhatsAppBusy || !internalWhatsAppTenantId || !internalWhatsAppWabaId.trim() || !internalWhatsAppPhoneNumberId.trim() || !internalWhatsAppToken.trim()}
                   className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {internalWhatsAppBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}

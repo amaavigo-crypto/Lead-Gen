@@ -926,15 +926,11 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       const phoneNumberId = String(body?.phoneNumberId || '').trim();
       const accessToken = String(body?.accessToken || '').trim();
 
-      // This route is intentionally pinned to the platform owner's known WABA and number.
-      if (wabaId !== '1099005263137931' || phoneNumberId !== '1360665160467566') {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ error: 'This internal connector only supports the registered Amaavigo WhatsApp Business Account and phone number.' }));
-        return true;
-      }
+      // Platform admins may connect the selected Amaavigo-owned WABA and phone number.
+      // The IDs must be numeric; Meta verifies the phone-number-to-WABA relationship below.
       if (!targetTenantId || !/^\d{5,30}$/.test(wabaId) || !/^\d{5,30}$/.test(phoneNumberId)) {
         res.statusCode = 400;
-        res.end(JSON.stringify({ error: 'Choose the Amaavigo tenant and provide valid WhatsApp account identifiers.' }));
+        res.end(JSON.stringify({ error: 'Choose the Amaavigo tenant and enter valid numeric WhatsApp Business Account and Phone Number IDs (5–30 digits each).' }));
         return true;
       }
       if (accessToken.length < 40 || /\s/.test(accessToken)) {
@@ -983,6 +979,12 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
           const error: any = new Error(String(metaError.message || 'Meta rejected the WhatsApp connection request.'));
           error.status = response.status >= 500 ? 502 : 400;
           error.metaCode = Number(metaError.code || 0) || undefined;
+          error.metaSubcode = Number(metaError.error_subcode || 0) || undefined;
+          error.metaType = String(metaError.type || '');
+          error.metaEndpoint = path.split('?')[0];
+          error.metaUserTitle = String(metaError.error_user_title || '');
+          error.metaUserMessage = String(metaError.error_user_msg || '');
+          error.fbtraceId = String(metaError.fbtrace_id || '');
           throw error;
         }
         return payload;
@@ -1099,13 +1101,24 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       }));
       return true;
     } catch (err: any) {
+      const metaDetails = [
+        err?.metaEndpoint ? `Meta endpoint: ${err.metaEndpoint}` : '',
+        err?.metaCode ? `Meta code: ${err.metaCode}` : '',
+        err?.metaSubcode ? `Meta subcode: ${err.metaSubcode}` : '',
+        err?.metaUserTitle,
+        err?.metaUserMessage,
+        err?.fbtraceId ? `Meta trace: ${err.fbtraceId}` : '',
+      ].filter(Boolean).join(' | ');
       console.error('[Platform WhatsApp] Internal connection failed:', {
         status: err?.status || 500,
         metaCode: err?.metaCode,
+        metaSubcode: err?.metaSubcode,
+        metaEndpoint: err?.metaEndpoint,
+        fbtraceId: err?.fbtraceId,
         message: String(err?.message || 'Unknown error').slice(0, 300),
       });
       res.statusCode = err?.status || 500;
-      res.end(JSON.stringify({ error: err?.message || 'Could not connect the internal Amaavigo WhatsApp account.' }));
+      res.end(JSON.stringify({ error: [err?.message || 'Could not connect the internal Amaavigo WhatsApp account.', metaDetails].filter(Boolean).join(' — ') }));
       return true;
     }
   }
