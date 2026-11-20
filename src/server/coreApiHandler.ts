@@ -981,7 +981,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
           error.metaCode = Number(metaError.code || 0) || undefined;
           error.metaSubcode = Number(metaError.error_subcode || 0) || undefined;
           error.metaType = String(metaError.type || '');
-          error.metaEndpoint = path.split('?')[0];
+          error.metaEndpoint = `${String(init.method || "GET").toUpperCase()} ${path.split("?")[0]}`;
           error.metaUserTitle = String(metaError.error_user_title || '');
           error.metaUserMessage = String(metaError.error_user_msg || '');
           error.fbtraceId = String(metaError.fbtrace_id || '');
@@ -1005,16 +1005,11 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
         return true;
       }
 
-      // Graph API v27.0 does not support GET on /{WABA_ID}/phone_numbers.
-      // Validate the Messaging Account node and the supplied phone-number node separately.
-      // The platform admin supplies both IDs; Meta verifies that this token can access each one.
-      const wabaInfo = await callMeta(`${encodeURIComponent(wabaId)}?fields=id,name`);
-      if (String(wabaInfo?.id || '') !== wabaId) {
-        res.statusCode = 422;
-        res.end(JSON.stringify({ error: 'Meta did not confirm the supplied WhatsApp Business Account ID.' }));
-        return true;
-      }
-
+      // Meta's evolved account model separates phone-number data (WhatsApp Account)
+      // from templates, billing and webhook subscriptions (Messaging Account).
+      // Validate the phone-number node directly. Do not GET the legacy WABA/Messaging
+      // Account node here: the required webhook subscription below is the supported
+      // operation against that ID and is the meaningful check for this integration.
       const phoneInfo = await callMeta(`${encodeURIComponent(phoneNumberId)}?fields=id,display_phone_number,verified_name,quality_rating,is_on_biz_app,platform_type`);
       if (String(phoneInfo?.id || '') !== phoneNumberId) {
         res.statusCode = 422;
@@ -1051,7 +1046,9 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
         return true;
       }
 
-      // App subscription is idempotent; webhook field subscriptions remain configured in the Meta dashboard.
+      // The legacy WABA ID is the Messaging Account ID in Meta's evolved model.
+      // Subscribe this app to its webhook updates; this operation is idempotent.
+      // Webhook field subscriptions remain configured in the Meta dashboard.
       await callMeta(`${encodeURIComponent(wabaId)}/subscribed_apps`, { method: 'POST' });
 
       const now = new Date().toISOString();
