@@ -2150,8 +2150,12 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   // Backfill sender identities for existing Instagram and Messenger conversations.
   // Authentication above resolves the tenant; contact IDs are re-read only inside that tenant.
   if (url === '/api/social-profiles/backfill' && req.method === 'POST') {
-    const contactIds = Array.isArray(body?.contactIds)
-      ? Array.from(new Set(body.contactIds.map((id: any) => String(id || '').trim()).filter(Boolean))).slice(0, 25)
+    const contactIds: string[] = Array.isArray(body?.contactIds)
+      ? Array.from(new Set<string>(
+          (body.contactIds as unknown[])
+            .map((id: unknown) => String(id ?? '').trim())
+            .filter((id: string) => id.length > 0)
+        )).slice(0, 25)
       : [];
     if (!contactIds.length) {
       res.statusCode = 400;
