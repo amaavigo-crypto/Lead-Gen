@@ -319,6 +319,12 @@ export interface Contact {
   whatsappUserId?: string;
   instagramUserId?: string;
   facebookUserId?: string;
+  /** Display identity returned by Meta's Instagram / Messenger User Profile APIs. */
+  socialProfileName?: string;
+  socialUsername?: string;
+  instagramUsername?: string;
+  profilePictureUrl?: string;
+  socialProfileFetchedAt?: string;
   whatsappId?: string;
   linkedinUserId?: string;
   apolloPersonId?: string;

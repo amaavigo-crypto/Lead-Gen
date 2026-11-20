@@ -1064,6 +1064,25 @@ type InboundEvent = {
   timestamp: string;
 };
 
+async function fetchMessengerSenderProfile(ctx: TenantContext, senderId: string): Promise<{ name?: string; firstName?: string; lastName?: string; profilePictureUrl?: string } | null> {
+  try {
+    const pageToken = await getSecret(ctx, 'messenger_page_token');
+    const profileUrl = new URL(`${GRAPH}/${encodeURIComponent(senderId)}`);
+    profileUrl.searchParams.set('fields', 'first_name,last_name,profile_pic');
+    profileUrl.searchParams.set('access_token', pageToken);
+    const profile = await graphJson(profileUrl.toString());
+    const firstName = String(profile.first_name || '').trim();
+    const lastName = String(profile.last_name || '').trim();
+    const name = [firstName, lastName].filter(Boolean).join(' ').trim();
+    const profilePictureUrl = String(profile.profile_pic || '').trim();
+    if (!name && !profilePictureUrl) return null;
+    return { name: name || undefined, firstName: firstName || undefined, lastName: lastName || undefined, profilePictureUrl: profilePictureUrl || undefined };
+  } catch (error: any) {
+    console.warn('[Messenger] Sender profile lookup unavailable:', error?.message || 'Meta profile lookup failed');
+    return null;
+  }
+}
+
 async function processInbound(tenantId: string, event: InboundEvent, eventId: string): Promise<void> {
   const eventRef = doc(db, 'meta_inbound_events', eventId);
   const ctx: TenantContext = { tenantId, uid: 'meta-webhook', email: '', role: 'admin' };
@@ -1085,22 +1104,37 @@ async function processInbound(tenantId: string, event: InboundEvent, eventId: st
     return;
   }
 
-  const displayName = event.senderName?.trim() || `${label} user`;
-  const [firstName, ...rest] = displayName.split(' ');
   const contactSnap = await getDoc(repo.contactDoc(contactId));
-  const base = contactSnap.exists()
-    ? (contactSnap.data() as any)
+  const existingContact: any = contactSnap.exists()
+    ? contactSnap.data()
     : {
-        contactId, firstName: firstName || label, lastName: rest.join(' '), email: '',
+        contactId, firstName: isWA ? (event.senderName?.trim() || 'WhatsApp') : 'Messenger',
+        lastName: isWA ? '' : 'User', email: '',
         phone: isWA ? `+${event.senderId}` : '', companyName: `${label} contact`,
         tags: [isWA ? 'WHATSAPP' : 'MESSENGER'], notes: '', createdAt: now,
       };
-  await setDoc(repo.contactDoc(contactId), {
-    ...base,
+  const fetchedAt = Date.parse(String(existingContact.socialProfileFetchedAt || ''));
+  const profileIsStale = !isWA && (!Number.isFinite(fetchedAt) || Date.now() - fetchedAt > 3 * 24 * 60 * 60 * 1000);
+  const socialProfile = profileIsStale ? await fetchMessengerSenderProfile(ctx, event.senderId) : null;
+  const socialProfileName = socialProfile?.name || existingContact.socialProfileName || event.senderName?.trim() || '';
+  const isPlaceholderName = !existingContact.firstName || /^(messenger|facebook|user)$/i.test(String(existingContact.firstName)) ||
+    /^(messenger|facebook|user)$/i.test(String(existingContact.lastName || ''));
+  const [profileFirstName, ...profileLastParts] = socialProfileName.split(/\s+/);
+  const displayName = socialProfileName || event.senderName?.trim() || `${label} user`;
+  const base = {
+    ...existingContact,
+    ...(!isWA && socialProfile && isPlaceholderName ? {
+      firstName: socialProfile.firstName || profileFirstName || existingContact.firstName,
+      lastName: socialProfile.lastName || profileLastParts.join(' '),
+    } : {}),
+    ...(!isWA && socialProfileName ? { socialProfileName } : {}),
+    ...(!isWA && socialProfile?.profilePictureUrl ? { profilePictureUrl: socialProfile.profilePictureUrl } : {}),
+    ...(!isWA && socialProfile ? { socialProfileFetchedAt: now } : {}),
     ...(isWA ? { whatsappId: event.senderId } : { facebookUserId: event.senderId }),
     updatedAt: now,
     lastActivityAt: event.timestamp,
-  }, { merge: true });
+  };
+  await setDoc(repo.contactDoc(contactId), base, { merge: true });
 
   const prevSnap = await getDoc(repo.conversationDoc(conversationId));
   const previous = prevSnap.exists() ? (prevSnap.data() as any) : null;

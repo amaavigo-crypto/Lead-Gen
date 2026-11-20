@@ -329,6 +329,26 @@ function isValidMetaSignature(req: any): boolean {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+async function fetchInstagramSenderProfile(ctx: TenantContext, senderId: string): Promise<{ name?: string; username?: string; profilePictureUrl?: string } | null> {
+  try {
+    const accessToken = await getAccessToken(ctx);
+    const profileUrl = new URL(`https://graph.instagram.com/${GRAPH_VERSION}/${encodeURIComponent(senderId)}`);
+    profileUrl.searchParams.set('fields', 'name,username,profile_pic');
+    profileUrl.searchParams.set('access_token', accessToken);
+    const response = await fetch(profileUrl);
+    const profile: any = await response.json().catch(() => ({}));
+    if (!response.ok || profile?.error) return null;
+    const username = String(profile.username || '').trim();
+    const name = String(profile.name || username || '').trim();
+    const profilePictureUrl = String(profile.profile_pic || '').trim();
+    if (!name && !username && !profilePictureUrl) return null;
+    return { name: name || undefined, username: username || undefined, profilePictureUrl: profilePictureUrl || undefined };
+  } catch (error: any) {
+    console.warn('[Instagram] Sender profile lookup unavailable:', error?.message || 'Meta profile lookup failed');
+    return null;
+  }
+}
+
 async function processInstagramMessageEvent(tenantId: string, accountId: string, event: any, eventId: string): Promise<void> {
   const senderId = String(event?.sender?.id || '');
   const externalMessageId = String(event?.message?.mid || event?.id || eventId);
@@ -358,12 +378,32 @@ async function processInstagramMessageEvent(tenantId: string, accountId: string,
     return;
   }
   const contactSnap = await getDoc(repo.contactDoc(contactId));
-  const contact = contactSnap.exists() ? contactSnap.data() : {
+  const existingContact: any = contactSnap.exists() ? contactSnap.data() : {
     contactId, firstName: 'Instagram', lastName: 'User', email: '', phone: '',
     companyName: 'Instagram contact', instagramUserId: senderId, tags: ['INSTAGRAM_DM'],
     notes: '', createdAt: now, updatedAt: now,
   };
-  await setDoc(repo.contactDoc(contactId), { ...contact, instagramUserId: senderId, updatedAt: now, lastActivityAt: timestamp }, { merge: true });
+  const fetchedAt = Date.parse(String(existingContact.socialProfileFetchedAt || ''));
+  const profileIsStale = !Number.isFinite(fetchedAt) || Date.now() - fetchedAt > 3 * 24 * 60 * 60 * 1000;
+  const socialProfile = profileIsStale ? await fetchInstagramSenderProfile(ctx, senderId) : null;
+  const socialProfileName = socialProfile?.name || existingContact.socialProfileName || existingContact.socialUsername || '';
+  const useSocialName = Boolean(socialProfileName) &&
+    (!existingContact.firstName || /^(instagram|user)$/i.test(String(existingContact.firstName)) ||
+      /^(instagram|user)$/i.test(String(existingContact.lastName || '')));
+  const [profileFirstName, ...profileLastParts] = socialProfileName.split(/\s+/);
+  const contact = {
+    ...existingContact,
+    ...(useSocialName ? { firstName: profileFirstName || existingContact.firstName, lastName: profileLastParts.join(' ') || '' } : {}),
+    ...(socialProfileName ? { socialProfileName } : {}),
+    ...(socialProfile?.username ? { socialUsername: socialProfile.username, instagramUsername: socialProfile.username } : {}),
+    ...(socialProfile?.profilePictureUrl ? { profilePictureUrl: socialProfile.profilePictureUrl } : {}),
+    ...(socialProfile ? { socialProfileFetchedAt: now } : {}),
+    instagramUserId: senderId,
+    updatedAt: now,
+    lastActivityAt: timestamp,
+  };
+  await setDoc(repo.contactDoc(contactId), contact, { merge: true });
+  const senderDisplayName = socialProfileName || 'Instagram user';
   const conversationSnap = await getDoc(repo.conversationDoc(conversationId));
   const previous = conversationSnap.exists() ? conversationSnap.data() as any : null;
   const conversation = {
@@ -378,7 +418,7 @@ async function processInstagramMessageEvent(tenantId: string, accountId: string,
   await setDoc(repo.conversationDoc(conversationId), conversation, { merge: true });
   await setDoc(repo.messageDoc(messageId), {
     messageId, externalMessageId, conversationId, channel: 'INSTAGRAM', senderType: 'CUSTOMER',
-    senderName: 'Instagram user', instagramUserId: senderId, text: incomingText, direction: 'INBOUND',
+    senderName: senderDisplayName, instagramUserId: senderId, text: incomingText, direction: 'INBOUND',
     timestamp, receivedAt: now, createdAt: now, aiReplied: false, aiProcessed: true,
   });
   if (event?.__test !== true) {

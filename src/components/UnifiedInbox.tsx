@@ -764,9 +764,13 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
                   <div className="flex items-start justify-between">
                     <div className="flex items-center space-x-2">
                       {renderChannelIcon(conv.channel, 4)}
-                      <span className="uinbox-mobile-avatar" aria-hidden="true">{(contact?.firstName?.[0] || '?') + (contact?.lastName?.[0] || '')}</span>
+                      {contact?.profilePictureUrl ? (
+                        <img src={contact.profilePictureUrl} alt="" referrerPolicy="no-referrer" className="uinbox-mobile-avatar object-cover" />
+                      ) : (
+                        <span className="uinbox-mobile-avatar" aria-hidden="true">{(contact?.firstName?.[0] || '?') + (contact?.lastName?.[0] || '')}</span>
+                      )}
                       <span className={`text-xs ${isUnread ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'}`}>
-                        {contact?.firstName} {contact?.lastName}
+                        {contact?.socialProfileName || [contact?.firstName, contact?.lastName].filter(Boolean).join(' ') || 'Contact'}
                       </span>
                       {isUnread && (
                         <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" title="Unread Message" />
@@ -781,7 +785,9 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
                   </div>
 
                   <p className="text-[11px] text-slate-500 font-medium mt-0.5 truncate">
-                    {contact?.companyName}
+                    {contact?.socialUsername ? `@${contact.socialUsername.replace(/^@/, '')} · Instagram` :
+                      conv.channel === 'FACEBOOK' ? 'Facebook Messenger' :
+                      conv.channel === 'INSTAGRAM' ? 'Instagram' : contact?.companyName}
                   </p>
 
                   <p className={`text-xs mt-1 line-clamp-2 leading-relaxed ${isUnread ? 'text-slate-900 font-bold' : 'text-slate-700 font-normal'}`}>
@@ -870,9 +876,12 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
             <div className="unified-inbox-thread-header p-3.5 border-b border-slate-200/80 bg-white flex items-center justify-between shrink-0">
               <button type="button" onClick={() => setIsMobileThreadOpen(false)} aria-label="Back to conversations" className="uinbox-mobile-back"><ChevronLeft size={19} /></button>
               <div className="flex items-center space-x-3">
-                <div className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-800 text-sm shadow-2xs">
-                  {activeContact.firstName?.[0]}
-                  {activeContact.lastName?.[0]}
+                <div className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-800 text-sm shadow-2xs overflow-hidden shrink-0">
+                  {activeContact.profilePictureUrl ? (
+                    <img src={activeContact.profilePictureUrl} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                  ) : (
+                    <>{activeContact.firstName?.[0]}{activeContact.lastName?.[0]}</>
+                  )}
                 </div>
                 <div>
                   <div className="flex items-center space-x-2">
@@ -891,9 +900,11 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
                     )}
                   </div>
                   <p className="text-xs text-slate-500 font-medium">
-                    {activeContact.jobTitle || 'Decision Maker'} at{' '}
-                    <span className="text-slate-800 font-bold">{activeContact.companyName}</span> •{' '}
-                    {activeContact.email}
+                    {activeConversation.channel === 'INSTAGRAM'
+                      ? (activeContact.socialUsername ? `@${activeContact.socialUsername.replace(/^@/, '')} · Instagram` : 'Instagram')
+                      : activeConversation.channel === 'FACEBOOK'
+                      ? 'Facebook Messenger'
+                      : <>{activeContact.jobTitle || 'Decision Maker'} at <span className="text-slate-800 font-bold">{activeContact.companyName}</span> • {activeContact.email}</>}
                   </p>
                 </div>
               </div>
@@ -1357,12 +1368,24 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
                 </button>
               )}
             </div>
-            <h4 className="font-extrabold text-sm text-slate-900 mt-2">
-              {activeContact.firstName} {activeContact.lastName}
-            </h4>
-            <div className="flex items-center space-x-1.5 text-xs text-slate-600 mt-0.5">
-              <Building className="w-3.5 h-3.5 text-slate-400" />
-              <span>{activeContact.companyName}</span>
+            <div className="flex items-center gap-2 mt-2">
+              <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-700 shrink-0">
+                {activeContact.profilePictureUrl ? (
+                  <img src={activeContact.profilePictureUrl} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                ) : (
+                  <>{activeContact.firstName?.[0]}{activeContact.lastName?.[0]}</>
+                )}
+              </div>
+              <div className="min-w-0">
+                <h4 className="font-extrabold text-sm text-slate-900 truncate">
+                  {activeContact.socialProfileName || [activeContact.firstName, activeContact.lastName].filter(Boolean).join(' ')}
+                </h4>
+                <p className="text-xs text-slate-500 truncate">
+                  {activeConversation.channel === 'INSTAGRAM' && activeContact.socialUsername
+                    ? `@${activeContact.socialUsername.replace(/^@/, '')}`
+                    : activeConversation.channel === 'FACEBOOK' ? 'Facebook Messenger' : activeContact.companyName}
+                </p>
+              </div>
             </div>
           </div>
 
