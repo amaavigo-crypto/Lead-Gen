@@ -1955,7 +1955,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
             <div className="bg-orange-500 text-white p-4 flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <Plus className="w-5 h-5" />
-                <h3 className="font-bold text-sm">Add Lead to CRM</h3>
+                <h3 className="font-bold text-sm !text-white">Add Lead to CRM</h3>
               </div>
               <button
                 onClick={() => setIsAddLeadModalOpen(false)}
