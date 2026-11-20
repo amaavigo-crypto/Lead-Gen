@@ -104,6 +104,12 @@ function requireConfigured(channel: MetaChannel) {
   }
 }
 
+function isGenericMessengerName(value: unknown): boolean {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[._-]+/g, ' ');
+  return !normalized || normalized.length <= 1 ||
+    /^(messenger|messenger user|facebook|facebook user|user|unknown|u nknown|n a)$/.test(normalized);
+}
+
 function metaGraphError(status: number, body: any, fallback: string): MetaChannelError {
   const metaError = body?.error || {};
   const code = Number(metaError.code || 0);
@@ -1119,8 +1125,8 @@ async function processInbound(tenantId: string, event: InboundEvent, eventId: st
   const profileIsStale = !isWA && (!Number.isFinite(lastLookupAt) || Date.now() - lastLookupAt > 3 * 24 * 60 * 60 * 1000);
   const socialProfile = profileIsStale ? await fetchMessengerSenderProfile(ctx, event.senderId) : null;
   const socialProfileName = socialProfile?.name || existingContact.socialProfileName || event.senderName?.trim() || '';
-  const isPlaceholderName = !existingContact.firstName || /^(messenger|facebook|user)$/i.test(String(existingContact.firstName)) ||
-    /^(messenger|facebook|user)$/i.test(String(existingContact.lastName || ''));
+  const isPlaceholderName = isGenericMessengerName(existingContact.firstName) ||
+    isGenericMessengerName(existingContact.lastName);
   const [profileFirstName, ...profileLastParts] = socialProfileName.split(/\s+/);
   const displayName = socialProfileName || event.senderName?.trim() || `${label} user`;
   const base = {
@@ -1541,8 +1547,8 @@ export async function refreshMessengerContactProfiles(ctx: TenantContext, contac
         };
         if (profileName) {
           patch.socialProfileName = profileName;
-          const placeholder = !contact.firstName || /^(messenger|facebook|user)$/i.test(String(contact.firstName)) ||
-            /^(messenger|facebook|user)$/i.test(String(contact.lastName || ''));
+          const placeholder = isGenericMessengerName(contact.firstName) ||
+            isGenericMessengerName(contact.lastName);
           if (placeholder) {
             patch.firstName = profile?.firstName || profileName;
             patch.lastName = profile?.lastName || '';
