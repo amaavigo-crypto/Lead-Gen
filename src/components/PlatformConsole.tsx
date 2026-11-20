@@ -149,6 +149,11 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [view, setView] = useState<'workspaces' | 'feedback' | 'plans' | 'legal' | 'seo' | 'resources'>('workspaces');
+  const [internalWhatsAppTenantId, setInternalWhatsAppTenantId] = useState('');
+  const [internalWhatsAppToken, setInternalWhatsAppToken] = useState('');
+  const [internalWhatsAppBusy, setInternalWhatsAppBusy] = useState(false);
+  const [internalWhatsAppMessage, setInternalWhatsAppMessage] = useState<string | null>(null);
+  const [internalWhatsAppError, setInternalWhatsAppError] = useState<string | null>(null);
   const [feedbackItems, setFeedbackItems] = useState<FeedbackSubmission[]>([]);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
@@ -198,7 +203,19 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
     try {
       const params = new URLSearchParams({ from: appliedDateRange.from, to: appliedDateRange.to });
       const data = await api<{ tenants: Tenant[] }>(`/api/tenants?${params.toString()}`);
-      setTenants(data.tenants || []);
+      const nextTenants = data.tenants || [];
+      setTenants(nextTenants);
+      const amaavigoTenants = nextTenants.filter((tenant) =>
+        `${tenant.id} ${tenant.name || ''}`.toLowerCase().includes('amaavigo')
+      );
+      const preferredTenant = amaavigoTenants.find((tenant) =>
+        String(tenant.name || '').toLowerCase().includes('amaavigo digital solutions')
+      ) || amaavigoTenants[0];
+      setInternalWhatsAppTenantId((current) =>
+        current && amaavigoTenants.some((tenant) => tenant.id === current)
+          ? current
+          : preferredTenant?.id || ''
+      );
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -217,6 +234,34 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
     }
     setError(null);
     setAppliedDateRange({ from: dateFrom, to: dateTo });
+  };
+
+  const connectInternalWhatsApp = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!internalWhatsAppTenantId || !internalWhatsAppToken.trim()) return;
+    setInternalWhatsAppBusy(true);
+    setInternalWhatsAppMessage(null);
+    setInternalWhatsAppError(null);
+    try {
+      const result = await api<{ success: boolean; tenant: { id: string; name: string }; connection: { displayPhoneNumber: string; verifiedName: string } ; message?: string }>(
+        '/api/platform/whatsapp/direct-connect',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            targetTenantId: internalWhatsAppTenantId,
+            wabaId: '1099005263137931',
+            phoneNumberId: '1360665160467566',
+            accessToken: internalWhatsAppToken.trim(),
+          }),
+        }
+      );
+      setInternalWhatsAppToken('');
+      setInternalWhatsAppMessage(result.message || `Connected ${result.connection.displayPhoneNumber} to ${result.tenant.name}.`);
+    } catch (connectError: any) {
+      setInternalWhatsAppError(connectError?.message || 'Could not connect the internal WhatsApp account.');
+    } finally {
+      setInternalWhatsAppBusy(false);
+    }
   };
 
   const filtered = useMemo(() => {
@@ -303,18 +348,103 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-5">
         <div className="inline-flex rounded-lg bg-slate-200/60 p-1 text-sm font-semibold">
-          {(['workspaces', 'feedback', 'plans', 'legal', 'seo', 'resources'] as const).map((v) => (
+          {(['workspaces', 'feedback', 'plans', 'legal', 'seo', 'resources', 'internal-whatsapp'] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
               className={`px-4 py-1.5 rounded-md capitalize ${view === v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
             >
-              {v === 'feedback' ? 'Ideas & Bugs' : v === 'seo' ? 'Website SEO' : v === 'resources' ? 'Resources' : v}
+              {v === 'feedback' ? 'Ideas & Bugs' : v === 'seo' ? 'Website SEO' : v === 'resources' ? 'Resources' : v === 'internal-whatsapp' ? 'Internal WhatsApp' : v}
               {v === 'feedback' && feedbackItems.some((item) => item.status === 'NEW') && <span className="ml-1.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-bold text-rose-700">{feedbackItems.filter((item) => item.status === 'NEW').length}</span>}
             </button>
           ))}
         </div>
       </div>
+
+      {view === 'internal-whatsapp' && (
+        <main className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+          <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-5 w-5 text-emerald-600" />
+              <h1 className="text-base font-bold text-slate-900">Amaavigo internal WhatsApp connection</h1>
+            </div>
+            <p className="text-xs leading-relaxed text-slate-600">
+              Connect Amaavigo's own WhatsApp Business Account directly to its tenant using the System User token.
+              This platform-admin-only setup is separate from customer Embedded Signup.
+            </p>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
+              The token is sent directly to the authenticated server and stored encrypted in the selected tenant's secret store.
+              It is never displayed again after saving. This action does not request one-time contact or chat-history sync.
+            </div>
+            {internalWhatsAppError && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">{internalWhatsAppError}</div>
+            )}
+            {internalWhatsAppMessage && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{internalWhatsAppMessage}</div>
+            )}
+            <form onSubmit={connectInternalWhatsApp} className="space-y-3">
+              <label className="block text-xs font-semibold text-slate-700">
+                Amaavigo tenant
+                <select
+                  value={internalWhatsAppTenantId}
+                  onChange={(event) => setInternalWhatsAppTenantId(event.target.value)}
+                  required
+                  className={`${inputCls} mt-1`}
+                >
+                  <option value="">Select Amaavigo tenant</option>
+                  {tenants.filter((tenant) => `${tenant.id} ${tenant.name || ''}`.toLowerCase().includes('amaavigo')).map((tenant) => (
+                    <option key={tenant.id} value={tenant.id}>{tenant.name || tenant.id} ({tenant.id})</option>
+                  ))}
+                </select>
+                {tenants.every((tenant) => !`${tenant.id} ${tenant.name || ''}`.toLowerCase().includes('amaavigo')) && (
+                  <span className="mt-1 block font-normal text-amber-700">No Amaavigo tenant was found. Create or activate the Amaavigo tenant first, then refresh this console.</span>
+                )}
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs font-semibold text-slate-700">
+                  WhatsApp Business Account ID
+                  <input readOnly value="1099005263137931" className={`${inputCls} mt-1 bg-slate-50 font-mono`} />
+                </label>
+                <label className="block text-xs font-semibold text-slate-700">
+                  Phone Number ID
+                  <input readOnly value="1360665160467566" className={`${inputCls} mt-1 bg-slate-50 font-mono`} />
+                </label>
+              </div>
+              <label className="block text-xs font-semibold text-slate-700">
+                System User access token
+                <input
+                  type="password"
+                  value={internalWhatsAppToken}
+                  onChange={(event) => setInternalWhatsAppToken(event.target.value)}
+                  autoComplete="new-password"
+                  spellCheck={false}
+                  required
+                  placeholder="Paste the Amaavigo WhatsApp Integration system-user token"
+                  className={`${inputCls} mt-1 font-mono`}
+                />
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={internalWhatsAppBusy || !internalWhatsAppTenantId || !internalWhatsAppToken.trim()}
+                  className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {internalWhatsAppBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
+                  {internalWhatsAppBusy ? 'Verifying and connecting…' : 'Connect Amaavigo WhatsApp'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setInternalWhatsAppToken(''); setInternalWhatsAppError(null); setInternalWhatsAppMessage(null); }}
+                  disabled={internalWhatsAppBusy}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Clear token
+                </button>
+              </div>
+            </form>
+          </section>
+        </main>
+      )}
 
       {view === 'plans' && (
         <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
