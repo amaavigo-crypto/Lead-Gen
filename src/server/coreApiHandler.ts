@@ -911,6 +911,205 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   // =========================================================================
   // MULTI-TENANT PLATFORM & TENANT MANAGEMENT (Phase P1 / P4 / P6)
   // =========================================================================
+  // Internal first-party WhatsApp connection for the platform owner's own Amaavigo tenant.
+  // This route is deliberately unavailable to customer workspaces and does not alter Embedded Signup.
+  if (url === '/api/platform/whatsapp/direct-connect' && req.method === 'POST') {
+    if (!isPlatformAdmin) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ error: 'Platform administrator access is required.' }));
+      return true;
+    }
+
+    try {
+      const targetTenantId = String(body?.targetTenantId || '').trim();
+      const wabaId = String(body?.wabaId || '').trim();
+      const phoneNumberId = String(body?.phoneNumberId || '').trim();
+      const accessToken = String(body?.accessToken || '').trim();
+
+      // This route is intentionally pinned to the platform owner's known WABA and number.
+      if (wabaId !== '1099005263137931' || phoneNumberId !== '1360665160467566') {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: 'This internal connector only supports the registered Amaavigo WhatsApp Business Account and phone number.' }));
+        return true;
+      }
+      if (!targetTenantId || !/^\d{5,30}$/.test(wabaId) || !/^\d{5,30}$/.test(phoneNumberId)) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: 'Choose the Amaavigo tenant and provide valid WhatsApp account identifiers.' }));
+        return true;
+      }
+      if (accessToken.length < 40 || /\s/.test(accessToken)) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: 'Paste the complete System User access token. It must not contain spaces or line breaks.' }));
+        return true;
+      }
+      if (!process.env.META_APP_ID || !process.env.META_APP_SECRET) {
+        res.statusCode = 503;
+        res.end(JSON.stringify({ error: 'The platform Meta app credentials are not configured.' }));
+        return true;
+      }
+      if (!process.env.SECRETS_MASTER_KEY && !process.env.TENANT_MASTER_KEY) {
+        res.statusCode = 503;
+        res.end(JSON.stringify({ error: 'Secure tenant secret storage is not configured. The token has not been saved.' }));
+        return true;
+      }
+
+      const tenantSnap = await getDoc(globalTenantDoc(targetTenantId));
+      if (!tenantSnap.exists()) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ error: 'The selected Amaavigo tenant was not found.' }));
+        return true;
+      }
+      const targetTenant = tenantSnap.data() as Record<string, any>;
+      const tenantIdentity = [targetTenantId, targetTenant?.id, targetTenant?.slug, targetTenant?.name].filter(Boolean).join(' ').toLowerCase();
+      if (!tenantIdentity.includes('amaavigo')) {
+        res.statusCode = 403;
+        res.end(JSON.stringify({ error: 'This internal WhatsApp connection can only be assigned to an Amaavigo-owned tenant.' }));
+        return true;
+      }
+      if (targetTenant?.status === 'suspended') {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ error: 'The Amaavigo tenant is suspended and cannot receive a channel connection.' }));
+        return true;
+      }
+
+      const graphVersion = String(process.env.META_GRAPH_API_VERSION || 'v27.0').trim();
+      const graphBase = `https://graph.facebook.com/${graphVersion}`;
+      const authHeader = { Authorization: `Bearer ${accessToken}` };
+      const callMeta = async (path: string, init: RequestInit = {}) => {
+        const response = await fetch(`${graphBase}/${path}`, { ...init, headers: { ...authHeader, ...(init.headers || {}) } });
+        const payload: any = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const metaError = payload?.error || {};
+          const error: any = new Error(String(metaError.message || 'Meta rejected the WhatsApp connection request.'));
+          error.status = response.status >= 500 ? 502 : 400;
+          error.metaCode = Number(metaError.code || 0) || undefined;
+          throw error;
+        }
+        return payload;
+      };
+
+      // Confirm the token is valid for this exact Meta app and has the two required WhatsApp scopes.
+      const debugUrl = new URL(`${graphBase}/debug_token`);
+      debugUrl.searchParams.set('input_token', accessToken);
+      debugUrl.searchParams.set('access_token', `${process.env.META_APP_ID}|${process.env.META_APP_SECRET}`);
+      const debugResult = await fetch(debugUrl.toString());
+      const debugPayload: any = await debugResult.json().catch(() => ({}));
+      const tokenInfo = debugPayload?.data || {};
+      const scopes: string[] = Array.isArray(tokenInfo.scopes) ? tokenInfo.scopes.map((scope: unknown) => String(scope)) : [];
+      if (!debugResult.ok || tokenInfo.is_valid !== true || String(tokenInfo.app_id || '') !== String(process.env.META_APP_ID) ||
+          !scopes.includes('whatsapp_business_management') || !scopes.includes('whatsapp_business_messaging')) {
+        res.statusCode = 422;
+        res.end(JSON.stringify({ error: 'Meta did not validate this System User token for the Amaavigo app with both required WhatsApp permissions. Check the app assignment, WABA assignment and token scopes.' }));
+        return true;
+      }
+
+      const phoneList = await callMeta(`${encodeURIComponent(wabaId)}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating`);
+      const selectedPhone = (Array.isArray(phoneList?.data) ? phoneList.data : []).find((item: any) => String(item?.id || '') === phoneNumberId);
+      if (!selectedPhone) {
+        res.statusCode = 422;
+        res.end(JSON.stringify({ error: 'The selected Phone Number ID does not belong to the Amaavigo WhatsApp Business Account.' }));
+        return true;
+      }
+
+      const phoneInfo = await callMeta(`${encodeURIComponent(phoneNumberId)}?fields=id,display_phone_number,verified_name,quality_rating,is_on_biz_app,platform_type`);
+      if (phoneInfo?.is_on_biz_app !== true || String(phoneInfo?.platform_type || '').toUpperCase() !== 'CLOUD_API') {
+        res.statusCode = 422;
+        res.end(JSON.stringify({ error: 'Meta has not confirmed this number as active on both WhatsApp Business App and Cloud API. No connection was saved.' }));
+        return true;
+      }
+
+      const targetCtx: TenantContext = {
+        tenantId: targetTenantId,
+        uid: userUid,
+        email: userEmail,
+        role: 'admin',
+        isPlatformAdmin: true,
+      };
+      const targetRepo = tenantRepo(targetCtx);
+      const routeRef = doc(db, 'channel_routes', phoneNumberId);
+      const routeSnap = await getDoc(routeRef);
+      if (routeSnap.exists() && String((routeSnap.data() as any).tenantId || '') !== targetTenantId) {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ error: 'This WhatsApp number is already routed to another tenant. No existing route was changed.' }));
+        return true;
+      }
+
+      const existingSnap = await getDoc(targetRepo.integrationDoc('whatsapp'));
+      const existing = existingSnap.exists() ? (existingSnap.data() as any)?.connection : null;
+      if (existing?.phoneNumberId && String(existing.phoneNumberId) !== phoneNumberId) {
+        res.statusCode = 409;
+        res.end(JSON.stringify({ error: 'The Amaavigo tenant already has a different WhatsApp number connected. Disconnect or review that connection before replacing it.' }));
+        return true;
+      }
+
+      // App subscription is idempotent; webhook field subscriptions remain configured in the Meta dashboard.
+      await callMeta(`${encodeURIComponent(wabaId)}/subscribed_apps`, { method: 'POST' });
+
+      const now = new Date().toISOString();
+      const phoneDisplay = String(phoneInfo?.display_phone_number || selectedPhone?.display_phone_number || '+91 87798 10010');
+      const verifiedName = String(phoneInfo?.verified_name || selectedPhone?.verified_name || 'Amaavigo Digital Solutions');
+      const qualityRating = phoneInfo?.quality_rating || selectedPhone?.quality_rating;
+      const connection: Record<string, any> = {
+        phoneNumberId,
+        wabaId,
+        displayPhoneNumber: phoneDisplay,
+        verifiedName,
+        isOnBusinessApp: true,
+        platformType: 'CLOUD_API',
+        webhookSubscriptionStatus: 'subscribed',
+        internalManaged: true,
+        connectionMethod: 'system_user_direct',
+        status: 'connected',
+        connectedAt: existing?.connectedAt || now,
+        updatedAt: now,
+      };
+      if (qualityRating) connection.qualityRating = String(qualityRating);
+
+      await safeSetDoc(targetRepo.secretDoc('whatsapp_access_token'), {
+        name: 'whatsapp_access_token',
+        ...encryptSecret(accessToken),
+        createdAt: now,
+        updatedAt: now,
+      }, { merge: true });
+      await safeSetDoc(targetRepo.integrationDoc('whatsapp'), { channel: 'whatsapp', connection }, { merge: true });
+      await safeSetDoc(routeRef, {
+        phoneNumberId,
+        tenantId: targetTenantId,
+        businessAccountId: wabaId,
+        channel: 'whatsapp',
+        coexistence: true,
+        internalManaged: true,
+        createdAt: existing?.connectedAt || now,
+      }, { merge: true });
+
+      res.statusCode = 200;
+      res.end(JSON.stringify({
+        success: true,
+        tenant: { id: targetTenantId, name: String(targetTenant?.name || targetTenantId) },
+        connection: {
+          phoneNumberId,
+          wabaId,
+          displayPhoneNumber: phoneDisplay,
+          verifiedName,
+          isOnBusinessApp: true,
+          platformType: 'CLOUD_API',
+          webhookSubscriptionStatus: 'subscribed',
+        },
+        message: 'Amaavigo WhatsApp is connected to its internal tenant. No contact or history sync was requested.',
+      }));
+      return true;
+    } catch (err: any) {
+      console.error('[Platform WhatsApp] Internal connection failed:', {
+        status: err?.status || 500,
+        metaCode: err?.metaCode,
+        message: String(err?.message || 'Unknown error').slice(0, 300),
+      });
+      res.statusCode = err?.status || 500;
+      res.end(JSON.stringify({ error: err?.message || 'Could not connect the internal Amaavigo WhatsApp account.' }));
+      return true;
+    }
+  }
+
   if (url === '/api/tenants' || url.startsWith('/api/tenants/')) {
     const tm = url.match(/^\/api\/tenants\/([^/?]+)/);
     const targetId = tm ? tm[1] : null;
