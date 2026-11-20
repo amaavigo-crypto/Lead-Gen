@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useBrand } from '../context/BrandContext';
 import {
   Send,
@@ -2269,14 +2270,19 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
 
 
 
-      {/* CREATE CAMPAIGN MODAL (WIZARD) */}
-      {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl text-slate-900">
+      {/* CREATE CAMPAIGN MODAL (WIZARD) — rendered at document level to escape workspace stacking contexts. */}
+      {isCreateModalOpen && createPortal(
+        <div
+          className="fixed inset-0 z-[1000] bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="campaign-create-title"
+        >
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-5xl max-h-[92dvh] flex flex-col overflow-hidden shadow-2xl text-slate-900">
             {/* Modal Header */}
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-slate-900">Create New Campaign</h3>
+                <h3 id="campaign-create-title" className="text-base font-bold text-slate-900">Create New Campaign</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Configure campaign details, upload leads file, and select template
                 </p>
@@ -3039,7 +3045,8 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* RESTART CAMPAIGN CONFIRMATION MODAL & ALL-QUALIFIED POPUP */}
