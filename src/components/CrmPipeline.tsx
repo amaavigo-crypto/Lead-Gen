@@ -1952,14 +1952,14 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
         <div className="crm-modal-overlay fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95">
             {/* Modal Header with Single / Bulk Toggle */}
-            <div className="bg-orange-500 text-white p-4 flex items-center justify-between">
+            <div className="bg-[#05051f] border-b border-white/10 text-white p-4 flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <Plus className="w-5 h-5" />
                 <h3 className="font-bold text-sm !text-white">Add Lead to CRM</h3>
               </div>
               <button
                 onClick={() => setIsAddLeadModalOpen(false)}
-                className="text-white/80 hover:text-white"
+                className="p-2 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2048,78 +2048,78 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
 
                   setIsAddLeadModalOpen(false);
                 }}
-                className="p-5 space-y-3.5 max-h-[70vh] overflow-y-auto"
+                className="p-5 sm:p-6 space-y-5 max-h-[70vh] overflow-y-auto"
               >
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                    <label className="amaavigo-form-label">
                       First Name *
                     </label>
                     <input
                       name="firstName"
                       required
                       placeholder="First name"
-                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                      className="amaavigo-form-field"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                    <label className="amaavigo-form-label">
                       Last Name
                     </label>
                     <input
                       name="lastName"
                       placeholder="e.g. Khan"
-                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                      className="amaavigo-form-field"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                    <label className="amaavigo-form-label">
                       Phone Number *
                     </label>
                     <input
                       name="phone"
                       required
                       placeholder="+91 98100 23456"
-                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 font-mono"
+                      className="amaavigo-form-field"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                    <label className="amaavigo-form-label">
                       Email Address
                     </label>
                     <input
                       name="email"
                       type="email"
                       placeholder="tariq@example.com"
-                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                      className="amaavigo-form-field"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3">
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                    <label className="amaavigo-form-label">
                       City / Location
                     </label>
                     <input
                       name="city"
                       placeholder="e.g. Hyderabad"
-                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                      className="amaavigo-form-field"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                    <label className="amaavigo-form-label">
                       Assign Telecaller
                     </label>
                     <select
                       name="caller"
-                      className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                      className="amaavigo-form-field"
                     >
                       <option value="">Unassigned</option>
                       {telecallers.map((c) => (
@@ -2130,12 +2130,12 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                    <label className="amaavigo-form-label">
                       Status
                     </label>
                     <select
                       name="status"
-                      className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                      className="amaavigo-form-field"
                     >
                       <option value="NEW">Fresh / New</option>
                       <option value="CONTACTED">Contacted</option>
@@ -2144,12 +2144,12 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                    <label className="amaavigo-form-label">
                       Source
                     </label>
                     <select
                       name="source"
-                      className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                      className="amaavigo-form-field"
                     >
                       <option value="MANUAL">Manual / Walk-in</option>
                       <option value="WHATSAPP">WhatsApp</option>
@@ -2160,14 +2160,14 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                  <label className="amaavigo-form-label">
                     Inquiry Notes
                   </label>
                   <textarea
                     name="notes"
                     rows={2}
                     placeholder="E.g. Wants 4 star hotels near Haram for 3 pax in November..."
-                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                    className="amaavigo-form-textarea"
                   />
                 </div>
 

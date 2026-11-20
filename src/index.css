@@ -5751,3 +5751,79 @@ div[class~="fixed"][class~="inset-0"][class~="z-50"][class~="flex"][class~="md:h
 .resource-html-editor h2,
 .resource-html-editor h3 { color: #101b36; font-weight: 750; margin: 1.25rem 0 .5rem; }
 .resource-html-editor blockquote { border-left: 3px solid #9bb4ff; padding-left: 1rem; color: #64748b; }
+
+
+/* Consistent Amaavigo form controls shared by CRM, Lead Database and Knowledge Base. */
+.amaavigo-form-label {
+  display:block!important;
+  margin:0 0 6px!important;
+  color:#475569!important;
+  font-size:12px!important;
+  font-weight:600!important;
+  line-height:1.4!important;
+  letter-spacing:.08em!important;
+  text-transform:uppercase;
+}
+.amaavigo-form-field,
+.amaavigo-form-select,
+.amaavigo-form-textarea {
+  display:block;
+  box-sizing:border-box;
+  width:100%!important;
+  min-height:38px;
+  padding:8px 14px!important;
+  border:1px solid #e2e8f0!important;
+  border-radius:8px!important;
+  background:#f8fafc!important;
+  color:#0f172a!important;
+  font-family:var(--font-sans)!important;
+  font-size:14px!important;
+  font-weight:500!important;
+  line-height:1.4!important;
+  outline:none;
+  transition:border-color .16s ease,box-shadow .16s ease,background-color .16s ease;
+}
+.amaavigo-form-textarea {
+  min-height:84px;
+  padding:10px 14px!important;
+  resize:vertical;
+}
+.amaavigo-form-field::placeholder,
+.amaavigo-form-textarea::placeholder {color:#94a3b8!important;opacity:1}
+.amaavigo-form-field:focus,
+.amaavigo-form-select:focus,
+.amaavigo-form-textarea:focus {
+  border-color:#155eef!important;
+  background:#fff!important;
+  box-shadow:0 0 0 3px rgba(21,94,239,.08)!important;
+  outline:none!important;
+}
+.lead-db-modal-form {gap:20px;padding:20px 24px}
+.lead-db-modal-form .amaavigo-form-label > .amaavigo-form-field,
+.lead-db-modal-form .amaavigo-form-label > .amaavigo-form-textarea {margin-top:7px}
+.lead-db-optional {
+  color:#94a3b8!important;
+  font-size:11px!important;
+  font-weight:500!important;
+  letter-spacing:0!important;
+  text-transform:none;
+}
+.lead-db-modal--brand-header > header {
+  background:#05051f;
+  border-bottom:1px solid rgba(255,255,255,.1);
+}
+.lead-db-modal--brand-header > header span {color:#a9c5ff!important}
+.lead-db-modal--brand-header > header h2 {color:#fff!important}
+.lead-db-modal--brand-header > header button {
+  background:rgba(255,255,255,.1);
+  color:#e2e8f0;
+}
+.lead-db-modal--brand-header > header button:hover {background:rgba(255,255,255,.18);color:#fff}
+.knowledge-article-modal > div:first-child {border-color:rgba(255,255,255,.1)}
+.knowledge-article-modal .amaavigo-form-label {margin-bottom:6px!important}
+.knowledge-article-modal .amaavigo-form-field,
+.knowledge-article-modal .amaavigo-form-textarea {font-size:14px!important}
+@media(max-width:640px) {
+  .lead-db-modal-form {padding:18px!important}
+  .amaavigo-form-label {font-size:11px!important}
+}

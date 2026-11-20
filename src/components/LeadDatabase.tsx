@@ -626,10 +626,10 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
         </div>}
       </>}
 
-      {createOpen && <Modal title="Create a lead database" eyebrow="NEW COLLECTION" onClose={() => setCreateOpen(false)}>
+      {createOpen && <Modal title="Create a lead database" eyebrow="NEW COLLECTION" onClose={() => setCreateOpen(false)} brandHeader>
         <form className="lead-db-modal-form" onSubmit={handleCreateDatabase}>
-          <label>Database name<input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="e.g. Mumbai travel agencies" maxLength={100} required /></label>
-          <label>Description <span className="lead-db-optional">Optional</span><textarea rows={3} value={newDescription} onChange={(event) => setNewDescription(event.target.value)} placeholder="What type of leads does this collection contain?" maxLength={500} /></label>
+          <label className="amaavigo-form-label">Database name<input className="amaavigo-form-field" autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="e.g. Mumbai travel agencies" maxLength={100} required /></label>
+          <label className="amaavigo-form-label">Description <span className="lead-db-optional">Optional</span><textarea className="amaavigo-form-textarea" rows={3} value={newDescription} onChange={(event) => setNewDescription(event.target.value)} placeholder="What type of leads does this collection contain?" maxLength={500} /></label>
           <div className="lead-db-modal-note"><Info size={15} /> Databases are separate from CRM contacts. You can import leads after creating the collection.</div>
           <div className="lead-db-modal-actions"><button type="button" className="lead-db-button lead-db-button--secondary" onClick={() => setCreateOpen(false)}>Cancel</button><button type="submit" className="lead-db-button lead-db-button--primary" disabled={isCreating || !newName.trim()}>{isCreating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Create database</button></div>
         </form>
@@ -732,9 +732,9 @@ const LeadTable: React.FC<{ leads: LeadRecord[]; allLeads?: boolean; loading?: b
 const Pagination: React.FC<{ nextCursor: string | null; loading: boolean; onMore: () => void }> = ({ nextCursor, loading, onMore }) => (
   <div className="lead-db-pagination"><span>Records are loaded 50 at a time</span>{nextCursor ? <button onClick={onMore} disabled={loading}>{loading ? <Loader2 size={14} className="animate-spin" /> : <ChevronDown size={15} />} Load more</button> : <span className="lead-db-end-of-list">End of list</span>}</div>
 );
-const Modal: React.FC<{ title: string; eyebrow: string; onClose: () => void; wide?: boolean; children: React.ReactNode }> = ({ title, eyebrow, onClose, wide = false, children }) => (
+const Modal: React.FC<{ title: string; eyebrow: string; onClose: () => void; wide?: boolean; brandHeader?: boolean; children: React.ReactNode }> = ({ title, eyebrow, onClose, wide = false, brandHeader = false, children }) => (
   <div className="lead-db-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className={'lead-db-modal ' + (wide ? 'lead-db-modal--wide' : '')} role="dialog" aria-modal="true" aria-label={title}>
+    <section className={'lead-db-modal ' + (wide ? 'lead-db-modal--wide' : '') + (brandHeader ? ' lead-db-modal--brand-header' : '')} role="dialog" aria-modal="true" aria-label={title}>
       <header><div><span>{eyebrow}</span><h2>{title}</h2></div><button onClick={onClose} aria-label="Close dialog"><X size={18} /></button></header>{children}
     </section>
   </div>

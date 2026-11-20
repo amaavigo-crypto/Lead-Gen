@@ -625,49 +625,49 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
 
       {/* Modal for Add / Edit Article */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-slate-900 text-base flex items-center space-x-2">
-                <BookOpen className="w-5 h-5 text-orange-500" />
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[1000] flex items-center justify-center p-4" role="presentation">
+          <div className="knowledge-article-modal bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95" role="dialog" aria-modal="true" aria-label={editingDoc.id ? "Edit knowledge article" : "Create knowledge article"}>
+            <div className="flex items-center justify-between -mx-6 -mt-6 mb-1 px-6 py-4 border-b border-white/10 bg-[#05051f] rounded-t-2xl">
+              <h3 className="font-extrabold !text-white text-base flex items-center space-x-2">
+                <BookOpen className="w-5 h-5 text-white" />
                 <span>{editingDoc.id ? 'Edit Knowledge Document Master' : 'New Document Master'}</span>
               </h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg">
+              <button onClick={() => setIsModalOpen(false)} className="p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 text-lg transition-colors">
                 ✕
               </button>
             </div>
 
-            <div className="space-y-3.5 text-xs">
+            <div className="space-y-5 text-xs">
               <div>
-                <label className="text-slate-700 block mb-1 font-bold">Document Title *</label>
+                <label className="amaavigo-form-label">Document Title *</label>
                 <input
                   type="text"
                   value={editingDoc.title || ''}
                   onChange={(e) => setEditingDoc({ ...editingDoc, title: e.target.value })}
                   placeholder="e.g. Pricing & Plans, Refund Policy, Product Overview"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:border-orange-500 font-medium"
+                  className="amaavigo-form-field"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-slate-700 block mb-1 font-bold">Category</label>
+                  <label className="amaavigo-form-label">Category</label>
                   <input
                     list="knowledge-category-suggestions"
                     value={editingDoc.category || ''}
                     onChange={(e) => setEditingDoc({ ...editingDoc, category: e.target.value })}
                     placeholder="Enter a category"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-semibold focus:outline-none"
+                    className="amaavigo-form-field"
                   />
                   <datalist id="knowledge-category-suggestions">{categories.map((category) => <option key={category} value={category} />)}</datalist>
                 </div>
 
                 <div>
-                  <label className="text-slate-700 block mb-1 font-bold">Status</label>
+                  <label className="amaavigo-form-label">Status</label>
                   <select
                     value={editingDoc.status || 'PUBLISHED'}
                     onChange={(e) => setEditingDoc({ ...editingDoc, status: e.target.value as any })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-semibold focus:outline-none"
+                    className="amaavigo-form-field"
                   >
                     <option value="PUBLISHED">PUBLISHED (Active in RAG)</option>
                     <option value="DRAFT">DRAFT</option>
@@ -676,13 +676,13 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
               </div>
 
               <div>
-                <label className="text-slate-700 block mb-1 font-bold">Content & Guidelines *</label>
+                <label className="amaavigo-form-label">Content & Guidelines *</label>
                 <textarea
                   rows={8}
                   value={editingDoc.content || ''}
                   onChange={(e) => setEditingDoc({ ...editingDoc, content: e.target.value })}
                   placeholder="Factual documentation cited by AI in automated emails, WhatsApp, and leads..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-900 leading-relaxed resize-none focus:outline-none focus:border-orange-500 font-medium"
+                  className="amaavigo-form-textarea"
                 />
               </div>
             </div>
