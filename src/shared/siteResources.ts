@@ -5,7 +5,7 @@ import { sanitizeResourceHtml } from './resourceHtml.js';
  */
 export const RESOURCE_CATEGORIES = [
   'Guides', 'Use cases', 'Insights', 'Case studies', 'Playbooks',
-  'Templates', 'Videos', 'Reports', 'Product updates',
+  'Templates', 'Videos', 'Reports', 'Product updates', 'External links',
 ] as const;
 
 export type ResourceCategory = (typeof RESOURCE_CATEGORIES)[number];

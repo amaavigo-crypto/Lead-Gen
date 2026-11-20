@@ -5,7 +5,7 @@ import {
   Users, Workflow, Zap, type LucideIcon,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { RESOURCE_CATEGORIES, RESOURCE_TYPES, type SiteResourcePublic } from '../../shared/siteResources.js';
+import { RESOURCE_CATEGORIES, type SiteResourcePublic } from '../../shared/siteResources.js';
 import { sanitizeResourceHtml } from '../../shared/resourceHtml.js';
 import { Btn, CountUp, DEMO_URL, EASE, Eyebrow, Marquee, Reveal, SectionHead, Stagger, StaggerItem, TiltCard, Ticks } from './SiteUI';
 import {
@@ -699,7 +699,6 @@ export const ResourcesPage: React.FC = () => {
               <AnimatePresence mode="popLayout">
                 {shown.map((resource) => {
                   const Icon = RESOURCE_ICON_MAP[resource.icon] || BookOpen;
-                  const typeLabel = RESOURCE_TYPES.find((item) => item.value === resource.type)?.label || 'Resource';
                   const isDirectLink = resource.type === 'link' || resource.type === 'video';
                   const href = isDirectLink ? resource.destinationUrl : '/resources/' + resource.slug;
                   const external = /^https:\/\//i.test(href);
@@ -709,10 +708,10 @@ export const ResourcesPage: React.FC = () => {
                         <div className="sx-resource-art">
                           {resource.coverImageUrl ? <img src={resource.coverImageUrl} alt={resource.coverImageAlt} loading="lazy" /> : <><Icon size={30} /><i /><i /></>}
                         </div>
-                        <div className="sx-resource-meta"><small>{resource.category}</small><span>{typeLabel}</span></div>
+                        <div className="sx-resource-meta"><small>{resource.category}</small></div>
                         <h3>{resource.title}</h3>
                         <p>{resource.summary}</p>
-                        <em>{resource.ctaLabel || (isDirectLink ? 'Explore resource' : 'Read resource')} <ArrowUpRight size={13} /></em>
+                        <em>{isDirectLink ? 'Explore resource' : 'Read resource'} <ArrowUpRight size={13} /></em>
                       </a>
                     </motion.div>
                   );
@@ -777,14 +776,13 @@ export const ResourceDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
   if (loading) return <main className="sx-resource-detail"><div className="sx-wrap sx-resource-detail-loading">Loading resource…</div></main>;
   if (!resource || error) return <main className="sx-resource-detail"><div className="sx-wrap sx-resource-not-found"><Eyebrow>RESOURCE</Eyebrow><h1>We could not find that resource.</h1><p>{error || 'It may have been unpublished or moved.'}</p><a href="/resources">Back to all resources <ArrowUpRight size={14} /></a></div></main>;
 
-  const typeLabel = RESOURCE_TYPES.find((item) => item.value === resource.type)?.label || 'Resource';
   return (
     <main className="sx-resource-detail">
       <div className="sx-wrap">
         <nav className="sx-resource-breadcrumb" aria-label="Breadcrumb"><a href="/">Home</a><span>/</span><a href="/resources">Resources</a><span>/</span><span>{resource.title}</span></nav>
         <article className="sx-resource-article">
           <header className="sx-resource-article-head">
-            <div className="sx-resource-meta"><small>{resource.category}</small><span>{typeLabel}</span></div>
+            <div className="sx-resource-meta"><small>{resource.category}</small></div>
             <h1>{resource.title}</h1>
             <p className="sx-resource-article-summary">{resource.summary}</p>
             <div className="sx-resource-byline">{resource.author}{resource.readingTime ? ' · ' + resource.readingTime : ''}{resource.publishedAt ? ' · ' + new Date(resource.publishedAt).toLocaleDateString() : ''}</div>
@@ -793,7 +791,7 @@ export const ResourceDetailPage: React.FC<{ slug: string }> = ({ slug }) => {
           {resource.content ? (resource.contentFormat === 'html' ? <div className="sx-resource-html-content" dangerouslySetInnerHTML={{ __html: sanitizeResourceHtml(resource.content) }} /> : <ResourceMarkdown content={resource.content} />) : <div className="sx-resource-external"><p>Continue to the full resource.</p><a href={resource.destinationUrl} target="_blank" rel="noreferrer">{resource.ctaLabel || 'Open resource'} <ArrowUpRight size={15} /></a></div>}
           <footer className="sx-resource-article-footer">
             <div><small>KEEP MOVING FORWARD</small><h2>Make the next conversation count.</h2></div>
-            <a href={resource.ctaUrl || '/contact'}>{resource.ctaLabel || 'Talk to our team'} <ArrowUpRight size={15} /></a>
+            <a href="/contact">Talk to our team <ArrowUpRight size={15} /></a>
           </footer>
         </article>
       </div>
