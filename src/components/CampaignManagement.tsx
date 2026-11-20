@@ -2278,25 +2278,25 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
           aria-modal="true"
           aria-labelledby="campaign-create-title"
         >
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-5xl max-h-[92dvh] flex flex-col overflow-hidden shadow-2xl text-slate-900">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-5xl max-h-[92dvh] flex flex-col overflow-hidden shadow-[0_28px_90px_rgba(5,5,31,0.32)] text-slate-900">
             {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+            <div className="px-6 py-4 border-b border-white/10 bg-[#05051f] flex items-center justify-between">
               <div>
-                <h3 id="campaign-create-title" className="text-base font-bold text-slate-900">Create New Campaign</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <h3 id="campaign-create-title" className="text-base font-bold tracking-tight text-white">Create New Campaign</h3>
+                <p className="text-xs text-slate-300 mt-0.5">
                   Configure campaign details, upload leads file, and select template
                 </p>
               </div>
               <button
                 onClick={() => setIsCreateModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
+                className="p-2 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Scrollable Content */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+            <div className="flex-1 overflow-y-auto bg-white p-5 sm:p-6 space-y-5">
               {/* Campaign Name */}
               <div id="campaign-create-basics" className="scroll-mt-20" />
               <div>
@@ -2308,7 +2308,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                   placeholder="e.g. Q4 Outreach - Key Accounts"
                   value={newCampaignName}
                   onChange={(e) => setNewCampaignName(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-orange-500"
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#155eef]"
                 />
               </div>
 
@@ -2322,11 +2322,11 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     onClick={() => setNewCampaignType('EMAIL')}
                     className={`p-3 rounded-xl border cursor-pointer transition flex items-center gap-2 ${
                       newCampaignType === 'EMAIL'
-                        ? 'bg-orange-50 border-orange-500 text-orange-700 font-semibold'
+                        ? 'bg-blue-50 border-[#155eef] text-[#0848ef] font-semibold'
                         : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'
                     }`}
                   >
-                    <Mail className="w-4 h-4 text-orange-500" />
+                    <Mail className="w-4 h-4 text-[#155eef]" />
                     <div>
                       <div className="text-xs font-semibold">EMAIL</div>
                       <div className="text-[10px] text-slate-500">SMTP Active</div>
@@ -2353,7 +2353,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     Add Campaign Leads *
                   </label>
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                    leadSummary.unique > 0 ? 'bg-orange-50 text-orange-700 border border-orange-200' : 'bg-slate-100 text-slate-500'
+                    leadSummary.unique > 0 ? 'bg-blue-50 text-[#0848ef] border border-blue-200' : 'bg-slate-100 text-slate-500'
                   }`}>
                     {leadInputMethod === 'DATABASE' ? (selectedLeadDatabase?.emailEligibleCount || 0) : leadSummary.unique} Lead{(leadInputMethod === 'DATABASE' ? (selectedLeadDatabase?.emailEligibleCount || 0) : leadSummary.unique) === 1 ? '' : 's'} Ready
                   </span>
@@ -2365,7 +2365,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     onClick={() => setLeadInputMethod('UPLOAD')}
                     className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
                       leadInputMethod === 'UPLOAD'
-                        ? 'bg-orange-500 text-white shadow-xs'
+                        ? 'bg-[#0848ef] text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
@@ -2377,7 +2377,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     type="button"
                     onClick={() => setLeadInputMethod('DATABASE')}
                     className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
-                      leadInputMethod === 'DATABASE' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                      leadInputMethod === 'DATABASE' ? 'bg-[#0848ef] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     <Database className="w-3.5 h-3.5" />
@@ -2389,7 +2389,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     onClick={() => setLeadInputMethod('PASTE')}
                     className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
                       leadInputMethod === 'PASTE'
-                        ? 'bg-orange-500 text-white shadow-xs'
+                        ? 'bg-[#0848ef] text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
@@ -2406,7 +2406,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     }}
                     className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
                       leadInputMethod === 'SAMPLE'
-                        ? 'bg-orange-500 text-white shadow-xs'
+                        ? 'bg-[#0848ef] text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
@@ -2417,14 +2417,14 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                 </div>
 
                 {leadInputMethod === 'DATABASE' && (
-                  <div className="p-4 rounded-xl border border-orange-200 bg-orange-50/40 space-y-3">
+                  <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/70 space-y-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1.5">Select Saved Database *</label>
                       <select
                         value={selectedLeadDatabaseId}
                         onChange={(event) => setSelectedLeadDatabaseId(event.target.value)}
                         disabled={isLoadingLeadDatabases || savedLeadDatabases.length === 0}
-                        className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-orange-500 disabled:opacity-60"
+                        className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#155eef] disabled:opacity-60"
                       >
                         <option value="">{isLoadingLeadDatabases ? 'Loading databases…' : savedLeadDatabases.length ? 'Choose a database' : 'No saved databases yet'}</option>
                         {savedLeadDatabases.map((database) => (
@@ -2435,7 +2435,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                       </select>
                     </div>
                     {selectedLeadDatabase && (
-                      <div className="rounded-lg bg-white border border-orange-100 p-3 text-xs space-y-1">
+                      <div className="rounded-lg bg-white border border-blue-100 p-3 text-xs space-y-1">
                         <div className="flex justify-between"><span className="text-slate-500">Total saved leads</span><strong>{selectedLeadDatabase.totalLeads}</strong></div>
                         <div className="flex justify-between"><span className="text-slate-500">Valid email recipients</span><strong>{selectedLeadDatabase.emailEligibleCount}</strong></div>
                         <p className="text-[11px] text-slate-500 pt-1">The campaign gets its own snapshot at creation. Later database changes will not alter this campaign. Records without valid email addresses are excluded from email campaigns.</p>
@@ -2458,12 +2458,12 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
 
                     <div
                       onClick={() => fileInputRef.current?.click()}
-                      className="border-2 border-dashed border-slate-300 hover:border-orange-500 rounded-xl p-5 text-center cursor-pointer bg-slate-50/50 transition group"
+                      className="border-2 border-dashed border-slate-300 hover:border-[#155eef] rounded-xl p-5 text-center cursor-pointer bg-slate-50/50 transition group"
                     >
-                      <FileSpreadsheet className="w-8 h-8 mx-auto mb-2 text-slate-400 group-hover:text-orange-500 transition" />
+                      <FileSpreadsheet className="w-8 h-8 mx-auto mb-2 text-slate-400 group-hover:text-[#155eef] transition" />
                       {uploadedFileName && leadInputMethod === 'UPLOAD' ? (
                         <div>
-                          <p className="text-sm font-semibold text-orange-600">{uploadedFileName}</p>
+                          <p className="text-sm font-semibold text-[#155eef]">{uploadedFileName}</p>
                           <p className="text-xs text-slate-500 mt-1">
                             Found {leadSummary.unique} unique lead{leadSummary.unique === 1 ? '' : 's'} in {leadSummary.total} row{leadSummary.total === 1 ? '' : 's'}. Click to change file.
                           </p>
@@ -2491,7 +2491,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                       <button
                         type="button"
                         onClick={() => handleParsePastedLeads(`tariq@mansoorhajj.com, Tariq Al-Mansoor, Al-Mansoor Hajj Mumbai\nrashid@haramainjourneys.in, Rashid Farooqui, Haramain Journeys\nfarhan@malikpilgrimages.co.uk, Farhan Malik, Malik Pilgrimages UK`)}
-                        className="text-orange-600 hover:underline text-[10px] font-semibold"
+                        className="text-[#155eef] hover:underline text-[10px] font-semibold"
                       >
                         Paste Example Format
                       </button>
@@ -2502,23 +2502,23 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                       value={pastedLeadsText}
                       onChange={(e) => handleParsePastedLeads(e.target.value)}
                       placeholder={isUmrah ? `e.g.:\nahmed@safwatravels.in, Ahmed Khan, Al-Safwa Travels\ncontact@delhiumrah.in, Irfan Siddiqui, Delhi Consolidators\nbooking@alnoortours.ae, Bilal Qureshi, Al-Noor Tours` : `e.g.:\njane@example.com, Jane Doe, Example Co.\njohn@acme.com, John Smith, Acme Inc.`}
-                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:border-orange-500"
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#155eef]"
                     />
                   </div>
                 )}
 
                 {/* TAB 3: 1-CLICK SAMPLE LEADS */}
                 {leadInputMethod === 'SAMPLE' && (
-                  <div className="p-4 bg-orange-50/50 border border-orange-200 rounded-xl space-y-3">
+                  <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-orange-500" />
+                        <Sparkles className="w-4 h-4 text-[#155eef]" />
                         <span className="text-xs font-bold text-slate-900">5 Verified Pilgrimage Tour Operator Leads</span>
                       </div>
                       <button
                         type="button"
                         onClick={handleLoadSampleLeads}
-                        className="px-3 py-1 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-xs font-semibold transition"
+                        className="px-3 py-1 bg-[#0848ef] hover:bg-[#063dcc] text-white rounded-lg text-xs font-semibold transition"
                       >
                         Reload 5 Leads
                       </button>
@@ -2647,7 +2647,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                       <div className="mt-1 space-y-1">
                         {parsedPreviewLeads.filter((l) => l.isValid).slice(0, 3).map((l, i) => (
                           <div key={i} className="flex items-center gap-2 text-slate-700">
-                            <span className="text-orange-600 font-mono">{l.email}</span>
+                            <span className="text-[#155eef] font-mono">{l.email}</span>
                             <span>•</span>
                             <span>{l.name}</span>
                             <span>•</span>
@@ -2671,12 +2671,12 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     onClick={() => setCampaignMode('PREDEFINED')}
                     className={`p-3.5 rounded-xl border cursor-pointer transition ${
                       campaignMode === 'PREDEFINED'
-                        ? 'bg-orange-50 border-orange-500 text-slate-900'
+                        ? 'bg-blue-50 border-[#155eef] text-slate-900'
                         : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     <div className="flex items-center gap-2 font-semibold text-xs text-slate-900">
-                      <FileText className="w-4 h-4 text-orange-500" />
+                      <FileText className="w-4 h-4 text-[#155eef]" />
                       <span>Predefined Template</span>
                     </div>
                     <p className="text-[11px] text-slate-500 mt-1">
@@ -2688,12 +2688,12 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     onClick={() => setCampaignMode('AI_GENERATED')}
                     className={`p-3.5 rounded-xl border cursor-pointer transition ${
                       campaignMode === 'AI_GENERATED'
-                        ? 'bg-orange-50 border-orange-500 text-slate-900'
+                        ? 'bg-blue-50 border-[#155eef] text-slate-900'
                         : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     <div className="flex items-center gap-2 font-semibold text-xs text-slate-900">
-                      <Sparkles className="w-4 h-4 text-orange-500 animate-pulse" />
+                      <Sparkles className="w-4 h-4 text-[#155eef] animate-pulse" />
                       <span>AI Intelligent Personalization</span>
                     </div>
                     <p className="text-[11px] text-slate-500 mt-1">
@@ -2716,7 +2716,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                         <span>Database Synced</span>
                       </span>
                     </div>
-                    <span className="text-[11px] text-orange-600 font-semibold">
+                    <span className="text-[11px] text-[#155eef] font-semibold">
                       {templates.length} templates in database
                     </span>
                   </div>
@@ -2725,7 +2725,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                   <select
                     value={selectedTemplateId || (templates.length > 0 ? templates[0].templateId : '')}
                     onChange={(e) => handleSelectTemplate(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-orange-500 transition"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-[#155eef] transition"
                   >
                     {templates.map((tpl) => (
                       <option key={tpl.templateId} value={tpl.templateId}>
@@ -2748,14 +2748,14 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                             onClick={() => handleSelectTemplate(tpl.templateId)}
                             className={`p-3 rounded-xl border cursor-pointer transition text-left relative flex flex-col justify-between ${
                               isSelected
-                                ? 'bg-orange-50 border-orange-500 ring-1 ring-orange-500/30 shadow-2xs'
+                                ? 'bg-blue-50 border-[#155eef] ring-1 ring-blue-500/30 shadow-2xs'
                                 : 'bg-slate-50 border-slate-200 hover:border-slate-300 text-slate-600'
                             }`}
                           >
                             <div>
                               <div className="flex items-start justify-between gap-2">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <h4 className={`text-xs font-bold leading-tight ${isSelected ? 'text-orange-600' : 'text-slate-900'}`}>
+                                  <h4 className={`text-xs font-bold leading-tight ${isSelected ? 'text-[#155eef]' : 'text-slate-900'}`}>
                                     {tpl.name}
                                   </h4>
                                   {(() => {
@@ -2787,7 +2787,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                                   )}
                                 </div>
                                 <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
-                                  isSelected ? 'border-orange-500 bg-orange-500 text-white' : 'border-slate-300'
+                                  isSelected ? 'border-[#155eef] bg-[#0848ef] text-white' : 'border-slate-300'
                                 }`}>
                                   {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
                                 </div>
@@ -2800,7 +2800,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                               </p>
                             </div>
                             <div className="mt-2 pt-2 border-t border-slate-200 flex items-center justify-between text-[10px]">
-                              <span className={isSelected ? 'text-orange-600 font-semibold' : 'text-slate-400'}>
+                              <span className={isSelected ? 'text-[#155eef] font-semibold' : 'text-slate-400'}>
                                 {isSelected ? '✓ ACTIVE SELECTION' : 'Click to select from DB'}
                               </span>
                               <span className="text-slate-400 font-mono text-[9px]">DB Doc: {tpl.templateId.slice(0, 14)}</span>
@@ -2819,15 +2819,15 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                       : templates.find((t) => t.templateId === currentId);
                     if (!activeTpl) return null;
                     return (
-                      <div className="p-3.5 bg-orange-50/40 border border-orange-200 rounded-xl text-xs space-y-2.5">
-                        <div className="flex items-center justify-between border-b border-orange-100 pb-2">
+                      <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl text-xs space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-blue-100 pb-2">
                           <div className="flex items-center gap-2">
-                            <Database className="w-4 h-4 text-orange-500" />
-                            <span className="text-[11px] font-bold text-orange-700 uppercase tracking-wider">
+                            <Database className="w-4 h-4 text-[#155eef]" />
+                            <span className="text-[11px] font-bold text-[#0848ef] uppercase tracking-wider">
                               Retrieved from Database:
                             </span>
                             {isLoadingTemplateFromDb && (
-                              <RefreshCw className="w-3 h-3 text-orange-500 animate-spin" />
+                              <RefreshCw className="w-3 h-3 text-[#155eef] animate-spin" />
                             )}
                           </div>
                           <div className="flex items-center gap-2">
@@ -2837,7 +2837,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                                 <span>{activeTpl.attachments.length} File(s) Attached</span>
                               </span>
                             )}
-                            <span className="text-[11px] text-orange-700 font-bold bg-orange-100 px-2.5 py-0.5 rounded border border-orange-200 font-mono">
+                            <span className="text-[11px] text-[#0848ef] font-bold bg-blue-100 px-2.5 py-0.5 rounded border border-blue-200 font-mono">
                               {activeTpl.name}
                             </span>
                           </div>
@@ -2856,7 +2856,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                               Email Message Body (from DB):
                             </span>
                             <span className="text-[10px] text-slate-500">
-                              (Placeholders like <code className="text-orange-600 font-mono">{"{{name}}"}</code> & <code className="text-orange-600 font-mono">{"{{company}}"}</code> will be auto-filled)
+                              (Placeholders like <code className="text-[#155eef] font-mono">{"{{name}}"}</code> & <code className="text-[#155eef] font-mono">{"{{company}}"}</code> will be auto-filled)
                             </span>
                           </div>
                           <div className="max-h-36 overflow-y-auto bg-white p-3 rounded-lg border border-slate-200 text-slate-800 text-xs leading-relaxed shadow-2xs">
@@ -2908,11 +2908,11 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                   })()}
                 </div>
               ) : (
-                <div className="p-4 bg-orange-50/50 border border-orange-200 rounded-xl space-y-3">
+                <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
-                        <Sparkles className="w-4 h-4 text-orange-500" />
+                        <Sparkles className="w-4 h-4 text-[#155eef]" />
                         <span>AI Personalization Engine Ready</span>
                       </h4>
                       <p className="text-[11px] text-slate-600 mt-0.5">
@@ -2924,7 +2924,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                       onClick={handlePreviewAiEmails}
                       disabled={aiPreviewLoading || parsedPreviewLeads.length === 0 || leadInputMethod === 'DATABASE'}
                       title={leadInputMethod === 'DATABASE' ? 'AI personalization will be generated during campaign dispatch for the saved database snapshot.' : undefined}
-                      className="px-3.5 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shrink-0 shadow-xs"
+                      className="px-3.5 py-2 bg-[#0848ef] hover:bg-[#063dcc] disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shrink-0 shadow-xs"
                     >
                       {aiPreviewLoading ? (
                         <>
@@ -2964,7 +2964,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                             setScheduleLocal(utcToZonedLocal(Date.now() + 60 * 60 * 1000, timezone));
                           }
                         }}
-                        className="w-4 h-4 text-orange-500 focus:ring-orange-500 border-slate-300"
+                        className="w-4 h-4 text-[#155eef] focus:ring-blue-500 border-slate-300"
                       />
                       <span>{label}</span>
                     </label>
@@ -2980,7 +2980,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                         setScheduleLocal(e.target.value);
                         setCreateCampaignError(null);
                       }}
-                      className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-orange-500"
+                      className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-[#155eef]"
                     />
                     <span className="text-xs text-slate-500">
                       {tzShort} (workspace time)
@@ -3003,7 +3003,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
 
             <div id="campaign-create-review" className="scroll-mt-20" />
             {/* Modal Actions */}
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
+            <div className="px-6 py-4 border-t border-slate-200 bg-white flex items-center justify-between gap-3">
               <div className="text-xs text-slate-500">
                 {leadSummary.unique > 0 ? (
                   <span className="text-emerald-700 font-medium">
@@ -3028,7 +3028,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                   type="button"
                   onClick={handleCreateCampaignSubmit}
                   disabled={loading}
-                  className="px-5 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition flex items-center gap-2 shadow-xs"
+                  className="px-5 py-2 bg-[#0848ef] hover:bg-[#063dcc] disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition flex items-center gap-2 shadow-xs"
                 >
                   {loading ? (
                     <>
