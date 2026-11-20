@@ -530,3 +530,49 @@
 .resource-html-editor h2,
 .resource-html-editor h3 { color: #101b36; font-weight: 750; margin: 1.25rem 0 .5rem; }
 .resource-html-editor blockquote { border-left: 3px solid #9bb4ff; padding-left: 1rem; color: #64748b; }
+
+/* Published Resources use a dark navy article shell, so imported HTML needs its
+   own light reading surface. The stronger scoped text palette prevents future
+   HTML inline/theme colors from making headings and body copy disappear. */
+.sx-resource-article > .sx-resource-html-content {
+  width:100%;
+  max-width:820px;
+  margin:34px auto 0;
+  padding:clamp(20px,3.2vw,36px);
+  border:1px solid rgba(148,163,184,.28);
+  border-radius:18px;
+  background:#fff;
+  color:#334155!important;
+  color-scheme:light;
+  box-shadow:0 14px 38px rgba(0,0,0,.13);
+}
+.sx-resource-article > .sx-resource-html-content :where(p,li,dd,dt,figcaption,td,div,span,section,article,small,summary,caption) {
+  color:#334155!important;
+}
+.sx-resource-article > .sx-resource-html-content :where(h1,h2,h3,h4,h5,h6,strong,b,th) {
+  color:#101b36!important;
+}
+.sx-resource-article > .sx-resource-html-content a {
+  color:#244fc7!important;
+  text-decoration:underline;
+  text-underline-offset:3px;
+}
+.sx-resource-article > .sx-resource-html-content blockquote {
+  background:#f6f8ff;
+  color:#334155!important;
+}
+.sx-resource-article > .sx-resource-html-content pre {
+  background:#111827!important;
+  color:#e5e7eb!important;
+}
+.sx-resource-article > .sx-resource-html-content th {
+  background:#f8fafc;
+}
+@media(max-width:760px) {
+  .sx-resource-article > .sx-resource-html-content {
+    margin-top:24px;
+    padding:18px 14px;
+    border-radius:13px;
+  }
+}
+
