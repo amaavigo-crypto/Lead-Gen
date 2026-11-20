@@ -113,6 +113,55 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
     conversations[0]?.conversationId || ''
   );
   const [isMobileThreadOpen, setIsMobileThreadOpen] = useState<boolean>(false);
+  const requestedSocialProfileBackfillsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!tenantId || !contacts.length || !conversations.length) return;
+    const activeSocialContactIds = new Set(
+      conversations
+        .filter((conversation) => conversation.channel === 'INSTAGRAM' || conversation.channel === 'FACEBOOK')
+        .map((conversation) => conversation.contactId)
+    );
+    const now = Date.now();
+    const candidates = contacts.filter((contact) => {
+      if (!activeSocialContactIds.has(contact.contactId)) return false;
+      const kind = contact.instagramUserId ? 'instagram' : contact.facebookUserId ? 'messenger' : '';
+      if (!kind) return false;
+      const key = tenantId + ':' + contact.contactId;
+      if (requestedSocialProfileBackfillsRef.current.has(key)) return false;
+      const fetchedAt = Date.parse(String(contact.socialProfileFetchedAt || ''));
+      const attemptedAt = Date.parse(String(contact.socialProfileLookupAttemptedAt || ''));
+      const complete = Boolean(contact.socialProfileName && contact.profilePictureUrl);
+      const fresh = complete && Number.isFinite(fetchedAt) && now - fetchedAt < 3 * 24 * 60 * 60 * 1000;
+      const coolingDown = Number.isFinite(attemptedAt) && now - attemptedAt < 6 * 60 * 60 * 1000;
+      return !fresh && !coolingDown;
+    });
+    if (!candidates.length) return;
+
+    const contactIds = candidates.map((contact) => contact.contactId);
+    for (let i = 0; i < contactIds.length; i += 25) {
+      const batch = contactIds.slice(i, i + 25);
+      batch.forEach((id) => requestedSocialProfileBackfillsRef.current.add(tenantId + ':' + id));
+      void fetch('/api/social-profiles/backfill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactIds: batch }),
+      }).then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload?.success !== true) {
+          batch.forEach((id) => requestedSocialProfileBackfillsRef.current.delete(tenantId + ':' + id));
+          console.warn('[UnifiedInbox] Existing social profile backfill was not completed:', payload?.error || response.status);
+          return;
+        }
+        const totals = [payload.instagram, payload.messenger].filter(Boolean);
+        const updated = totals.reduce((sum: number, item: any) => sum + Number(item.updated || 0), 0);
+        const unavailable = totals.reduce((sum: number, item: any) => sum + Number(item.unavailable || 0), 0);
+        if (unavailable) console.info('[UnifiedInbox] Some Meta sender profiles were unavailable for this tenant:', { updated, unavailable });
+      }).catch((error) => {
+        batch.forEach((id) => requestedSocialProfileBackfillsRef.current.delete(tenantId + ':' + id));
+        console.warn('[UnifiedInbox] Existing social profile backfill request failed:', error);
+      });
+    }
+  }, [tenantId, contacts, conversations]);
   useEffect(() => {
     const onGlobalSearchResult = (event: Event) => {
       const detail = (event as CustomEvent<any>).detail;
@@ -1039,7 +1088,9 @@ export const UnifiedInbox: React.FC<UnifiedInboxProps> = ({
                         </span>
 
                         <span className="font-medium">
-                          {msg.senderName || (isIncoming ? activeContact.firstName : `${brand.companyName} Agent`)}
+                          {isIncoming && (msg.channel === 'INSTAGRAM' || msg.channel === 'FACEBOOK')
+                            ? (activeContact.socialProfileName || [activeContact.firstName, activeContact.lastName].filter(Boolean).join(' ') || msg.senderName)
+                            : (msg.senderName || (isIncoming ? activeContact.firstName : `${brand.companyName} Agent`))}
                         </span>
                         {isAi && (
                           <span className="px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-400 font-semibold border border-blue-500/30 flex items-center space-x-1">

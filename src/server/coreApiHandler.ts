@@ -2147,6 +2147,37 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   }
 
   // =========================================================================
+  // Backfill sender identities for existing Instagram and Messenger conversations.
+  // Authentication above resolves the tenant; contact IDs are re-read only inside that tenant.
+  if (url === '/api/social-profiles/backfill' && req.method === 'POST') {
+    const contactIds = Array.isArray(body?.contactIds)
+      ? Array.from(new Set(body.contactIds.map((id: any) => String(id || '').trim()).filter(Boolean))).slice(0, 25)
+      : [];
+    if (!contactIds.length) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ success: false, error: 'At least one tenant contact ID is required.' }));
+      return true;
+    }
+    try {
+      const [ig, meta] = await Promise.all([
+        import('./instagramIntegrationService.js'),
+        import('./metaChannelsService.js'),
+      ]);
+      const [instagram, messenger] = await Promise.all([
+        ig.refreshInstagramContactProfiles(activeTenantCtx, contactIds),
+        meta.refreshMessengerContactProfiles(activeTenantCtx, contactIds),
+      ]);
+      res.statusCode = 200;
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(JSON.stringify({ success: true, instagram, messenger }));
+    } catch (err: any) {
+      console.error('[Social profiles] Tenant contact backfill failed:', err?.message || err);
+      res.statusCode = 500;
+      res.end(JSON.stringify({ success: false, error: 'Could not refresh social sender profiles for this workspace.' }));
+    }
+    return true;
+  }
+
   // CONNECTED CHANNELS (WhatsApp / Instagram / Messenger) - per-workspace status & Instagram connect
   // =========================================================================
   if (url === '/api/channels/status' && req.method === 'GET') {

@@ -384,7 +384,9 @@ async function processInstagramMessageEvent(tenantId: string, accountId: string,
     notes: '', createdAt: now, updatedAt: now,
   };
   const fetchedAt = Date.parse(String(existingContact.socialProfileFetchedAt || ''));
-  const profileIsStale = !Number.isFinite(fetchedAt) || Date.now() - fetchedAt > 3 * 24 * 60 * 60 * 1000;
+  const attemptedAt = Date.parse(String(existingContact.socialProfileLookupAttemptedAt || ''));
+  const lastLookupAt = Number.isFinite(attemptedAt) ? attemptedAt : fetchedAt;
+  const profileIsStale = !Number.isFinite(lastLookupAt) || Date.now() - lastLookupAt > 3 * 24 * 60 * 60 * 1000;
   const socialProfile = profileIsStale ? await fetchInstagramSenderProfile(ctx, senderId) : null;
   const socialProfileName = socialProfile?.name || existingContact.socialProfileName || existingContact.socialUsername || '';
   const useSocialName = Boolean(socialProfileName) &&
@@ -398,6 +400,8 @@ async function processInstagramMessageEvent(tenantId: string, accountId: string,
     ...(socialProfile?.username ? { socialUsername: socialProfile.username, instagramUsername: socialProfile.username } : {}),
     ...(socialProfile?.profilePictureUrl ? { profilePictureUrl: socialProfile.profilePictureUrl } : {}),
     ...(socialProfile ? { socialProfileFetchedAt: now } : {}),
+    socialProfileLookupAttemptedAt: now,
+    socialProfileLookupStatus: socialProfile ? 'available' : 'unavailable',
     instagramUserId: senderId,
     updatedAt: now,
     lastActivityAt: timestamp,
@@ -543,6 +547,71 @@ async function processInstagramMessageEvent(tenantId: string, accountId: string,
   await updateDoc(repo.messageDoc(messageId), { aiReplied: true, repliedAt: sentAt, repliedByMessageId: outboundId, aiProcessed: true });
   await updateDoc(repo.conversationDoc(conversationId), { lastMessageAt: sentAt, lastMessageText: bubbles[bubbles.length - 1] || replyText, updatedAt: sentAt });
   await updateDoc(eventRef, { status: 'replied', processedAt: sentAt, conversationId, outboundMessageId: outboundId, outboundMessageIds: outboundIds });
+}
+
+/**
+ * Enrich already-saved Instagram contacts in this workspace. Contact IDs are re-read
+ * under the authenticated tenant and the token is always resolved from that tenant.
+ */
+export async function refreshInstagramContactProfiles(ctx: TenantContext, contactIds: string[]) {
+  const repo = tenantRepo(ctx);
+  const ids = Array.from(new Set((Array.isArray(contactIds) ? contactIds : [])
+    .map((id) => String(id || '').trim()).filter(Boolean))).slice(0, 25);
+  const result = { attempted: 0, updated: 0, unavailable: 0, skipped: 0, missing: 0 };
+  const nowMs = Date.now();
+  for (let offset = 0; offset < ids.length; offset += 5) {
+    await Promise.all(ids.slice(offset, offset + 5).map(async (contactId) => {
+      try {
+        const snap = await getDoc(repo.contactDoc(contactId));
+        if (!snap.exists()) { result.missing++; return; }
+        const contact: any = snap.data();
+        const senderId = String(contact.instagramUserId || '').trim();
+        if (!senderId) { result.skipped++; return; }
+        const fetchedAt = Date.parse(String(contact.socialProfileFetchedAt || ''));
+        const attemptedAt = Date.parse(String(contact.socialProfileLookupAttemptedAt || ''));
+        const profileIsFresh = Boolean(contact.socialProfileName && contact.profilePictureUrl) &&
+          Number.isFinite(fetchedAt) && nowMs - fetchedAt < 3 * 24 * 60 * 60 * 1000;
+        const recentlyAttempted = Number.isFinite(attemptedAt) && nowMs - attemptedAt < 6 * 60 * 60 * 1000;
+        if (profileIsFresh || recentlyAttempted) { result.skipped++; return; }
+
+        result.attempted++;
+        const profile = await fetchInstagramSenderProfile(ctx, senderId);
+        const profileName = String(profile?.name || profile?.username || '').trim();
+        const patch: Record<string, any> = {
+          socialProfileLookupAttemptedAt: new Date().toISOString(),
+          socialProfileLookupStatus: profile ? 'available' : 'unavailable',
+          updatedAt: new Date().toISOString(),
+        };
+        if (profileName) {
+          patch.socialProfileName = profileName;
+          if (profile?.username) {
+            patch.socialUsername = profile.username;
+            patch.instagramUsername = profile.username;
+          }
+          const placeholder = !contact.firstName || /^(instagram|user)$/i.test(String(contact.firstName)) ||
+            /^(instagram|user)$/i.test(String(contact.lastName || ''));
+          if (placeholder) {
+            const [firstName, ...lastParts] = profileName.split(/\s+/);
+            patch.firstName = firstName || profileName;
+            patch.lastName = lastParts.join(' ');
+          }
+        }
+        if (profile?.profilePictureUrl) patch.profilePictureUrl = profile.profilePictureUrl;
+        if (profileName || profile?.profilePictureUrl) {
+          patch.socialProfileFetchedAt = new Date().toISOString();
+          await setDoc(repo.contactDoc(contactId), patch, { merge: true });
+          result.updated++;
+        } else {
+          await setDoc(repo.contactDoc(contactId), patch, { merge: true });
+          result.unavailable++;
+        }
+      } catch (error: any) {
+        result.unavailable++;
+        console.warn('[Instagram profile backfill] Contact lookup failed:', contactId, error?.message || 'unknown error');
+      }
+    }));
+  }
+  return result;
 }
 
 export async function handleInstagramWebhook(req: any, res: any): Promise<boolean> {

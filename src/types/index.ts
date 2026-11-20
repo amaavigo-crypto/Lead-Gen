@@ -325,6 +325,8 @@ export interface Contact {
   instagramUsername?: string;
   profilePictureUrl?: string;
   socialProfileFetchedAt?: string;
+  socialProfileLookupAttemptedAt?: string;
+  socialProfileLookupStatus?: 'available' | 'unavailable';
   whatsappId?: string;
   linkedinUserId?: string;
   apolloPersonId?: string;
