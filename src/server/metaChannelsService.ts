@@ -28,6 +28,8 @@ export type MetaChannel = 'whatsapp' | 'messenger';
 type WhatsAppConnection = {
   phoneNumberId: string;
   wabaId: string;
+  /** Meta "Messaging Account" that owns templates when it differs from wabaId (first-party / evolved account model). */
+  messagingAccountId?: string;
   displayPhoneNumber: string;
   verifiedName: string;
   qualityRating?: string;
@@ -480,7 +482,7 @@ export async function listWhatsAppTemplatesForManagement(ctx: TenantContext): Pr
   const connection = await getWhatsAppConnection(ctx);
   if (!connection || connection.status !== 'connected') throw new MetaChannelError(409, 'WhatsApp is not connected.');
   const token = await getSecret(ctx, 'whatsapp_access_token');
-  const firstUrl = new URL(`${GRAPH}/${encodeURIComponent(connection.wabaId)}/message_templates`);
+  const firstUrl = new URL(`${GRAPH}/${encodeURIComponent(connection.messagingAccountId || connection.wabaId)}/message_templates`);
   firstUrl.searchParams.set('fields', 'id,name,language,status,category,components,quality_score,parameter_format');
   firstUrl.searchParams.set('limit', '100');
 
@@ -819,7 +821,7 @@ export async function createWhatsAppTemplate(
   }
 
   const token = await getSecret(ctx, 'whatsapp_access_token');
-  const result = await graphJson(GRAPH + '/' + encodeURIComponent(connection.wabaId) + '/message_templates', {
+  const result = await graphJson(GRAPH + '/' + encodeURIComponent(connection.messagingAccountId || connection.wabaId) + '/message_templates', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, language, category, parameter_format: 'POSITIONAL', components }),

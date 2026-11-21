@@ -148,10 +148,11 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [view, setView] = useState<'workspaces' | 'feedback' | 'plans' | 'legal' | 'seo' | 'resources'>('workspaces');
+  const [view, setView] = useState<'workspaces' | 'feedback' | 'plans' | 'legal' | 'seo' | 'resources' | 'internal-whatsapp'>('workspaces');
   const [internalWhatsAppTenantId, setInternalWhatsAppTenantId] = useState('');
   const [internalWhatsAppWabaId, setInternalWhatsAppWabaId] = useState('1099005263137931');
   const [internalWhatsAppPhoneNumberId, setInternalWhatsAppPhoneNumberId] = useState('1360665160467566');
+  const [internalWhatsAppMessagingAccountId, setInternalWhatsAppMessagingAccountId] = useState('2331807770889588');
   const [internalWhatsAppToken, setInternalWhatsAppToken] = useState('');
   const [internalWhatsAppBusy, setInternalWhatsAppBusy] = useState(false);
   const [internalWhatsAppMessage, setInternalWhatsAppMessage] = useState<string | null>(null);
@@ -253,6 +254,7 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
             targetTenantId: internalWhatsAppTenantId,
             wabaId: internalWhatsAppWabaId.trim(),
             phoneNumberId: internalWhatsAppPhoneNumberId.trim(),
+            messagingAccountId: internalWhatsAppMessagingAccountId.trim(),
             accessToken: internalWhatsAppToken.trim(),
           }),
         }
@@ -432,6 +434,20 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
                   />
                 </label>
               </div>
+              <label className="block text-xs font-semibold text-slate-700">
+                Messaging Account ID (templates)
+                <span className="block font-normal text-slate-500">Meta&apos;s Paid Message / Messaging Account that owns templates. Leave empty to use the WhatsApp Business Account ID.</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={internalWhatsAppMessagingAccountId}
+                  onChange={(event) => setInternalWhatsAppMessagingAccountId(event.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Optional"
+                  className={`${inputCls} mt-1 font-mono`}
+                />
+              </label>
               <label className="block text-xs font-semibold text-slate-700">
                 System User access token
                 <span className="mt-1 block font-normal text-slate-500">Enter or replace the token for the selected WABA. The saved token is never shown again.</span>

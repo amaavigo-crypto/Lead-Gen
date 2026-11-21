@@ -924,6 +924,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       const targetTenantId = String(body?.targetTenantId || '').trim();
       const wabaId = String(body?.wabaId || '').trim();
       const phoneNumberId = String(body?.phoneNumberId || '').trim();
+      const messagingAccountId = String(body?.messagingAccountId || '').trim();
       const accessToken = String(body?.accessToken || '').trim();
 
       // Platform admins may connect the selected Amaavigo-owned WABA and phone number.
@@ -931,6 +932,11 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       if (!targetTenantId || !/^\d{5,30}$/.test(wabaId) || !/^\d{5,30}$/.test(phoneNumberId)) {
         res.statusCode = 400;
         res.end(JSON.stringify({ error: 'Choose the Amaavigo tenant and enter valid numeric WhatsApp Business Account and Phone Number IDs (5–30 digits each).' }));
+        return true;
+      }
+      if (messagingAccountId && !/^\d{5,30}$/.test(messagingAccountId)) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: 'Messaging Account ID must contain digits only.' }));
         return true;
       }
       if (accessToken.length < 40 || /\s/.test(accessToken)) {
@@ -1106,6 +1112,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
         webhookSubscriptionStatus: webhookSubscribed ? 'subscribed' : 'needs_setup',
         internalManaged: true,
         connectionMethod: 'system_user_direct',
+        ...(messagingAccountId ? { messagingAccountId } : {}),
         // The save below merges into any earlier connection; clear a stale App Review test-number flag.
         isTestConnection: false,
         status: 'connected',
