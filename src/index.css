@@ -5827,3 +5827,125 @@ div[class~="fixed"][class~="inset-0"][class~="z-50"][class~="flex"][class~="md:h
   .lead-db-modal-form {padding:18px!important}
   .amaavigo-form-label {font-size:11px!important}
 }
+
+
+/* CRM Add Lead is portalled to document.body, so its own scope must own its layout and type. */
+.crm-add-lead-dialog {
+  position:fixed;
+  inset:0;
+  z-index:1000;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:16px;
+  background:rgba(14,27,49,.48);
+  backdrop-filter:blur(4px);
+  -webkit-backdrop-filter:blur(4px);
+}
+.crm-add-lead-dialog__panel {
+  width:min(576px,100%);
+  max-height:calc(100dvh - 32px);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  border:1px solid #e1e7f0;
+  border-radius:16px;
+  background:#fff;
+  box-shadow:0 24px 70px rgba(14,28,52,.22);
+}
+.crm-add-lead-dialog__header {
+  flex:0 0 auto;
+  padding:16px 20px;
+  background:#05051f;
+  border-bottom:1px solid rgba(255,255,255,.1);
+}
+.crm-add-lead-dialog__heading {
+  margin:0;
+  color:#fff!important;
+  font-family:var(--font-display)!important;
+  font-size:16px!important;
+  line-height:1.3!important;
+  font-weight:700!important;
+}
+.crm-add-lead-dialog__header button {
+  display:grid;
+  place-items:center;
+  width:32px;
+  height:32px;
+}
+.crm-add-lead-dialog__tabs {
+  flex:0 0 auto;
+  gap:8px;
+  padding:8px;
+  background:#f1f5f9;
+  border-bottom:1px solid #e2e8f0;
+}
+.crm-add-lead-dialog__tabs button {
+  min-height:38px;
+  padding:8px 12px;
+  border-radius:8px;
+  font-family:var(--font-sans);
+  font-size:12px!important;
+  line-height:1.4;
+  font-weight:600;
+}
+.crm-add-lead-dialog .amaavigo-form-label {
+  display:block!important;
+  margin:0 0 6px!important;
+  color:#475569!important;
+  font-family:var(--font-sans)!important;
+  font-size:12px!important;
+  font-weight:600!important;
+  line-height:1.4!important;
+  letter-spacing:.05em!important;
+  text-transform:uppercase;
+}
+.crm-add-lead-dialog .amaavigo-form-field,
+.crm-add-lead-dialog .amaavigo-form-textarea {
+  display:block;
+  box-sizing:border-box;
+  width:100%!important;
+  min-height:38px!important;
+  padding:8px 14px!important;
+  border:1px solid #e2e8f0!important;
+  border-radius:8px!important;
+  background:#f8fafc!important;
+  color:#0f172a!important;
+  font-family:var(--font-sans)!important;
+  font-size:14px!important;
+  font-weight:500!important;
+  line-height:20px!important;
+  outline:none;
+  transition:border-color .16s ease,box-shadow .16s ease,background-color .16s ease;
+}
+.crm-add-lead-dialog .amaavigo-form-textarea {
+  min-height:84px!important;
+  padding:10px 14px!important;
+  resize:vertical;
+}
+.crm-add-lead-dialog .amaavigo-form-field::placeholder,
+.crm-add-lead-dialog .amaavigo-form-textarea::placeholder {
+  color:#94a3b8!important;
+  font-size:14px!important;
+  font-weight:500!important;
+  opacity:1;
+}
+.crm-add-lead-dialog .amaavigo-form-field:focus,
+.crm-add-lead-dialog .amaavigo-form-textarea:focus {
+  border-color:#155eef!important;
+  background:#fff!important;
+  box-shadow:0 0 0 3px rgba(21,94,239,.08)!important;
+  outline:none!important;
+}
+.crm-add-lead-dialog .amaavigo-form-field:disabled {
+  background:#f1f5f9!important;
+  color:#64748b!important;
+}
+.crm-add-lead-dialog form {
+  overscroll-behavior:contain;
+}
+@media(max-width:640px) {
+  .crm-add-lead-dialog {padding:10px}
+  .crm-add-lead-dialog__panel {max-height:calc(100dvh - 20px)}
+  .crm-add-lead-dialog .amaavigo-form-label {font-size:11px!important}
+}

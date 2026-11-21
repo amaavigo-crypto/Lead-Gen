@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useBrand } from '../context/BrandContext';
 import { ModuleShell, ModuleStatGrid } from './ModulePage';
 import {
@@ -1948,14 +1949,14 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
       )}
 
       {/* 10. Add New Lead Modal (Single or Bulk Excel/CSV upload) */}
-      {isAddLeadModalOpen && (
-        <div className="crm-modal-overlay fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95">
+      {isAddLeadModalOpen && createPortal(
+        <div className="crm-add-lead-dialog crm-modal-overlay" role="presentation">
+          <div className="crm-add-lead-dialog__panel bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 max-h-[calc(100dvh-32px)] flex flex-col">
             {/* Modal Header with Single / Bulk Toggle */}
-            <div className="bg-[#05051f] border-b border-white/10 text-white p-4 flex items-center justify-between">
+            <div className="crm-add-lead-dialog__header bg-[#05051f] border-b border-white/10 text-white p-4 flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <Plus className="w-5 h-5" />
-                <h3 className="font-bold text-sm !text-white">Add Lead to CRM</h3>
+                <h3 className="crm-add-lead-dialog__heading font-bold text-sm !text-white">Add Lead to CRM</h3>
               </div>
               <button
                 onClick={() => setIsAddLeadModalOpen(false)}
@@ -1966,7 +1967,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
             </div>
 
             {/* Mode Selector Tabs */}
-            <div className="bg-slate-100 p-2 border-b border-slate-200 flex items-center space-x-2">
+            <div className="crm-add-lead-dialog__tabs bg-slate-100 p-2 border-b border-slate-200 flex items-center space-x-2">
               <button
                 onClick={() => setAddLeadMode('SINGLE')}
                 className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
@@ -2048,7 +2049,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
 
                   setIsAddLeadModalOpen(false);
                 }}
-                className="p-5 sm:p-6 space-y-5 max-h-[70vh] overflow-y-auto"
+                className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-6 space-y-5"
               >
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -2188,7 +2189,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                 </div>
               </form>
             ) : (
-              <div className="p-5 space-y-4">
+              <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-6 space-y-4">
                 <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex items-center justify-between">
                   <div>
                     <h4 className="font-bold text-xs text-orange-900">Bulk Excel / CSV Lead Upload</h4>
@@ -2277,7 +2278,8 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* 11. TeleCRM Lead 360° Slide-over Drawer (Right Sheet) */}
