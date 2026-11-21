@@ -1106,6 +1106,8 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
         webhookSubscriptionStatus: webhookSubscribed ? 'subscribed' : 'needs_setup',
         internalManaged: true,
         connectionMethod: 'system_user_direct',
+        // The save below merges into any earlier connection; clear a stale App Review test-number flag.
+        isTestConnection: false,
         status: 'connected',
         connectedAt: existing?.connectedAt || now,
         updatedAt: now,
