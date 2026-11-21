@@ -1069,7 +1069,20 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       // The legacy WABA ID is the Messaging Account ID in Meta's evolved model.
       // Subscribe this app to its webhook updates; this operation is idempotent.
       // Webhook field subscriptions remain configured in the Meta dashboard.
-      await callMeta(`${encodeURIComponent(wabaId)}/subscribed_apps`, { method: 'POST' });
+      // Meta rejects POST subscribed_apps (code 100 / subcode 2388339) for a WABA that is owned by the
+      // app's own business portfolio: the app is already attached, so webhooks are configured in the
+      // Meta dashboard instead. Treat only that specific rejection as non-fatal; anything else still fails.
+      let webhookSubscribed = true;
+      try {
+        await callMeta(`${encodeURIComponent(wabaId)}/subscribed_apps`, { method: 'POST' });
+      } catch (subscribeError: any) {
+        if (subscribeError?.metaCode === 100 && subscribeError?.metaSubcode === 2388339) {
+          webhookSubscribed = false;
+          console.warn('[Platform WhatsApp] subscribed_apps not supported for first-party WABA; relying on dashboard webhook configuration.');
+        } else {
+          throw subscribeError;
+        }
+      }
 
       if (hasDifferentExistingNumber && existingStatus === 'disconnected') {
         const staleRouteRef = doc(db, 'channel_routes', existingPhoneNumberId);
@@ -1090,7 +1103,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
         verifiedName,
         isOnBusinessApp: true,
         platformType: 'CLOUD_API',
-        webhookSubscriptionStatus: 'subscribed',
+        webhookSubscriptionStatus: webhookSubscribed ? 'subscribed' : 'needs_setup',
         internalManaged: true,
         connectionMethod: 'system_user_direct',
         status: 'connected',
@@ -1127,7 +1140,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
           verifiedName,
           isOnBusinessApp: true,
           platformType: 'CLOUD_API',
-          webhookSubscriptionStatus: 'subscribed',
+          webhookSubscriptionStatus: webhookSubscribed ? 'subscribed' : 'needs_setup',
         },
         message: 'Amaavigo WhatsApp is connected to its internal tenant. No contact or history sync was requested.',
       }));
