@@ -147,6 +147,16 @@ export function tenantRepo(ctx: TenantContext) {
     leadScoringHistoryDoc: (leadId: string, evaluationId: string) => doc(db, `${tenantDocPath}/leads/${assertValidTenantId(leadId)}/score_history`, evaluationId),
 
 
+    // Provider-neutral WhatsApp connections, template cache, event ledger and outbox.
+    whatsappConnections: () => collection(db, `${tenantDocPath}/whatsapp_connections`),
+    whatsappConnectionDoc: (id: string) => doc(db, `${tenantDocPath}/whatsapp_connections`, assertValidTenantId(id)),
+    whatsappTemplates: () => collection(db, `${tenantDocPath}/whatsapp_templates`),
+    whatsappTemplateDoc: (id: string) => doc(db, `${tenantDocPath}/whatsapp_templates`, assertValidTenantId(id)),
+    whatsappWebhookEvents: () => collection(db, `${tenantDocPath}/whatsapp_webhook_events`),
+    whatsappWebhookEventDoc: (id: string) => doc(db, `${tenantDocPath}/whatsapp_webhook_events`, assertValidTenantId(id)),
+    whatsappOutbox: () => collection(db, `${tenantDocPath}/whatsapp_outbox`),
+    whatsappOutboxDoc: (id: string) => doc(db, `${tenantDocPath}/whatsapp_outbox`, assertValidTenantId(id)),
+
     integrationsCol: () => collection(db, `${tenantDocPath}/integrations`),
     integrationDoc: (name: string) => doc(db, `${tenantDocPath}/integrations`, name),
 
@@ -216,4 +226,16 @@ export function globalEmailRoutesCol(): CollectionReference<DocumentData> {
 
 export function globalEmailRouteDoc(resendEmailId: string): DocumentReference<DocumentData> {
   return doc(db, 'email_routes', resendEmailId);
+}
+
+export function globalWhatsAppProviderRouteDoc(routeId: string): DocumentReference<DocumentData> {
+  return doc(db, 'whatsapp_provider_routes', routeId);
+}
+
+export function globalWhatsAppSenderClaimDoc(senderKeyHash: string): DocumentReference<DocumentData> {
+  return doc(db, 'whatsapp_sender_claims', senderKeyHash);
+}
+
+export function globalWhatsAppPhoneRouteDoc(phoneNumberId: string): DocumentReference<DocumentData> {
+  return doc(db, 'whatsapp_phone_routes', assertValidTenantId(phoneNumberId));
 }

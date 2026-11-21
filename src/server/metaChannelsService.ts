@@ -123,13 +123,7 @@ function metaGraphError(status: number, body: any, fallback: string): MetaChanne
         401,
         'Meta invalidated this WhatsApp authorization because the Facebook user session was logged out or access was revoked. Reconnect WhatsApp from Settings → Connected Channels and complete the WhatsApp Business App Coexistence flow, then retry the upload. If this is the temporary App Review test connection, replace its token with a fresh token from WhatsApp > API Setup. Meta cannot restore a logged-out session token by retrying it.'
       )
-    : new MetaChannelError(status >= 500 ? 502 : 400, [
-        rawMessage,
-        String(metaError.error_user_title || '').trim(),
-        String(metaError.error_user_msg || '').trim(),
-        code ? 'Meta code ' + code + (subcode ? '/' + subcode : '') : '',
-        metaError.fbtrace_id ? 'trace ' + String(metaError.fbtrace_id) : '',
-      ].filter(Boolean).join(' | '));
+    : new MetaChannelError(status >= 500 ? 502 : 400, rawMessage);
   (error as any).metaCode = code || undefined;
   (error as any).metaSubcode = subcode || undefined;
   (error as any).metaTraceId = String(metaError.fbtrace_id || '');
