@@ -12,6 +12,7 @@ import {
   AgentMock, AnalyticsMock, BuilderMock, CaptureMock, ChannelIcon, CrmMock, EmailTemplate, FlowMock, InboxMock, OrbitMock, PLATFORM_ITEMS,
   ScheduleMock, WhatsAppPhone, type EmailKind, type WaKind,
 } from './mockups';
+import { HomepageEmailTemplate, HomepageWhatsAppPhone } from './HomepageCampaignCreatives';
 
 /* ───────────── shared blocks ───────────── */
 
@@ -121,7 +122,7 @@ const WA_DESIGNS: { kind: WaKind; label: string }[] = [
   { kind: 'promo', label: 'Promotional message' }, { kind: 'order', label: 'Order update' }, { kind: 'welcome', label: 'Welcome & booking' },
 ];
 
-export const CampaignShowcase: React.FC<{ initial?: 'email' | 'whatsapp' }> = ({ initial = 'email' }) => {
+export const CampaignShowcase: React.FC<{ initial?: 'email' | 'whatsapp'; premium?: boolean }> = ({ initial = 'email', premium = false }) => {
   const [tab, setTab] = useState<'email' | 'whatsapp'>(initial);
   const [design, setDesign] = useState(0);
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop');
@@ -156,7 +157,7 @@ export const CampaignShowcase: React.FC<{ initial?: 'email' | 'whatsapp' }> = ({
               <AnimatePresence mode="wait">
                 <motion.div key={design + device} className={'sx-stage-frame ' + device} initial={{ opacity: 0, y: 24, rotateX: 6, scale: 0.97 }} animate={{ opacity: 1, y: 0, rotateX: 0, scale: 1 }} exit={{ opacity: 0, y: -14, scale: 0.98 }} transition={{ duration: 0.5, ease: EASE }}>
                   {device === 'desktop' && <div className="sx-stage-bar"><span className="sx-dots"><i /><i /><i /></span><small>Inbox · {EMAIL_DESIGNS[design].label}</small></div>}
-                  <div className="sx-stage-mail"><EmailTemplate kind={EMAIL_DESIGNS[design].kind} /></div>
+                  <div className="sx-stage-mail">{premium ? <HomepageEmailTemplate kind={EMAIL_DESIGNS[design].kind} /> : <EmailTemplate kind={EMAIL_DESIGNS[design].kind} />}</div>
                 </motion.div>
               </AnimatePresence>
             </div>
@@ -166,7 +167,7 @@ export const CampaignShowcase: React.FC<{ initial?: 'email' | 'whatsapp' }> = ({
             <div className="sx-wa-phones">
               {WA_DESIGNS.map((d, i) => (
                 <motion.div key={d.kind} className={'sx-wa-col ' + (i === 1 ? 'mid' : '')} initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.1 + i * 0.12, ease: EASE }}>
-                  <WhatsAppPhone kind={d.kind} /><small>{d.label}</small>
+                  {premium ? <HomepageWhatsAppPhone kind={d.kind} /> : <WhatsAppPhone kind={d.kind} />}<small>{d.label}</small>
                 </motion.div>
               ))}
             </div>
@@ -274,7 +275,7 @@ export const HomePage: React.FC = () => (
     <section className="sx-section">
       <div className="sx-wrap">
         <SectionHead eyebrow="EMAIL + WHATSAPP CAMPAIGNS" title="Make every message" accent="feel worth opening." copy="See the quality of campaigns you can create — newsletters, launches, promotions and WhatsApp messages, all designed in one place." />
-        <Reveal><CampaignShowcase /></Reveal>
+        <Reveal><CampaignShowcase premium /></Reveal>
         <div className="sx-center-link"><a href="/campaigns">Explore the Campaign Builder <ArrowUpRight size={14} /></a></div>
       </div>
     </section>
