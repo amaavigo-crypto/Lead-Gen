@@ -58,7 +58,7 @@ export function WhatsAppProviderConnectionsPanel({tenantId,canEdit}:{tenantId:st
   const validate=async()=>{
     setBusy('validate');setError('');setMessage('');setValidation(null);
     try{
-      const data=await api('/api/whatsapp/providers/'+provider+'/validate','POST',{credentials:fields});
+      const data=await api('/api/whatsapp/providers/'+provider+'/validate','POST',{credentials:Object.fromEntries(Object.entries(fields).filter(([,value])=>String(value||'').trim()))});
       setValidation(data.validation);setSelectedSender(data.validation?.senders?.[0]?.providerSenderId||'');
       setMessage('Credentials verified. Select the WhatsApp sender to connect.');
     }catch(e:any){setError(e.message);}

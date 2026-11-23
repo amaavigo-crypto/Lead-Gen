@@ -153,7 +153,7 @@ export async function createWhatsAppProviderConnection(
   const connectionId = crypto.randomBytes(16).toString('hex');
   const webhookRouteId = generateWebhookId('wa');
   if (input.provider === 'TWILIO' && input.webhookBaseUrl) {
-    credentials.statusCallbackUrl = `${input.webhookBaseUrl.replace(/\\/+$/, '')}/api/webhooks/whatsapp/TWILIO/${webhookRouteId}`;
+    credentials.statusCallbackUrl = `${input.webhookBaseUrl.replace(/\/+$/, '')}/api/webhooks/whatsapp/TWILIO/${webhookRouteId}`;
   }
   const secretName = connectionSecretName(connectionId);
   const now = new Date().toISOString();

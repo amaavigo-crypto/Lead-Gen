@@ -63,6 +63,22 @@ import { zonedLocalToUtcIso, utcToZonedLocal, formatZoned, timeUntil } from '../
 import { markDuplicateEmails, summarizeLeads } from '../shared/leadDedupe';
 import { getUnsupportedEmailTemplateVariables, SUPPORTED_EMAIL_TEMPLATE_VARIABLES } from '../shared/emailTemplateValidation';
 
+/** Expand Excel scientific notation without converting phone numbers through floating-point. */
+const normalizeSpreadsheetPhoneValue = (value: unknown): string => {
+  const raw = String(value ?? '').trim().replace(/^['’]/, '');
+  const match = raw.match(/^([+-]?)(\d+)(?:\.(\d*))?[eE]([+-]?\d+)$/);
+  if (!match) return raw;
+  const exponent = Number(match[4]);
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 20) return raw;
+  const sign = match[1] || '';
+  const whole = match[2] || '0';
+  const digits = whole + (match[3] || '');
+  const position = whole.length + exponent;
+  if (position <= 0) return sign + '0.' + '0'.repeat(-position) + digits;
+  if (position >= digits.length) return sign + digits + '0'.repeat(position - digits.length);
+  return sign + digits.slice(0, position) + '.' + digits.slice(position);
+};
+
 interface CampaignManagementProps {
   onOpenConversation?: (conversationId: string) => void;
   conversations?: Conversation[];
@@ -482,23 +498,29 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     }
     const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
     const parsed = lines.map((line, idx) => {
-      const parts = line.includes('\t') ? line.split('\t') : line.includes(',') ? line.split(',') : [line];
-      const emailPart = parts.find((p) => p.includes('@')) || parts[0] || '';
-      const email = emailPart.replace(/[<>"']/g, '').trim();
-      const remainingParts = parts.filter((p) => p !== emailPart).map((p) => p.trim());
-      const name = remainingParts[0] || (email ? email.split('@')[0] : `Lead ${idx + 1}`);
-      const companyName = remainingParts[1] || `${name}'s Agency`;
-      const phone = remainingParts[2] || '';
+      const parts = (line.includes('\t') ? line.split('\t') : line.split(',')).map((part) => part.trim());
+      let email = '', phone = '', name = '', companyName = '', designation = '', whatsappOptIn = false;
+      const accepted = ['yes', 'true', '1', 'y', 'opted-in', 'opted in', 'consented', 'subscribed'];
+      if (newCampaignType === 'WHATSAPP') {
+        [phone, name, companyName, designation] = parts;
+        whatsappOptIn = accepted.includes(String(parts[4] || '').toLowerCase());
+      } else if (newCampaignType === 'WHATSAPP_EMAIL') {
+        [phone, email, name, companyName, designation] = parts;
+        whatsappOptIn = accepted.includes(String(parts[5] || '').toLowerCase());
+      } else {
+        [email, name, companyName, designation] = parts;
+      }
+      email = String(email || '').replace(/[<>"']/g, '').trim();
+      phone = normalizeSpreadsheetPhoneValue(phone);
+      name = name || (email ? email.split('@')[0] : `Lead ${idx + 1}`);
+      companyName = companyName || `${name}'s Agency`;
       return {
-        rowNumber: idx + 1,
-        email,
-        name,
-        companyName,
-        phone,
-        designation: 'Director / Owner',
-        isValid: Boolean(email && email.includes('@') && email.includes('.')),
+        rowNumber: idx + 1, email, name, companyName, phone,
+        designation: designation || 'Director / Owner',
+        whatsappOptIn,
+        isValid: newCampaignType === 'WHATSAPP' ? Boolean(phone) : Boolean(email && email.includes('@') && email.includes('.')),
       };
-    }).filter((l) => l.email || (newCampaignType === 'WHATSAPP' && l.phone));
+    }).filter((lead) => lead.email || (newCampaignType === 'WHATSAPP' && lead.phone));
 
     setParsedPreviewLeads(markDuplicateEmails(parsed, { dedupeByPhone: newCampaignType === 'WHATSAPP' }));
     setUploadedFileName(`Pasted_Leads_${parsed.length}_recipients`);
@@ -1258,7 +1280,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
         const findCol = (candidates: string[]) =>
           headers.find((h) => candidates.some((c) => h.toLowerCase().includes(c))) || '';
 
-        const detectedEmail = findCol(['email', 'e-mail', 'mail']) || (newCampaignType === 'WHATSAPP' ? '' : headers[0] || '');
+        const detectedEmail = findCol(['email', 'e-mail', 'mail']) || (newCampaignType === 'EMAIL' ? headers[0] || '' : '');
         const detectedName = findCol(['name', 'contact', 'person', 'lead']);
         const detectedCompany = findCol(['company', 'agency', 'firm', 'organization', 'operator']);
         const detectedPhone = findCol(['phone', 'mobile', 'mobile no', 'telephone', 'tel', 'whatsapp number', 'whatsapp phone', 'wa number']);
@@ -1297,7 +1319,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
         const email = emailIdx >= 0 ? String(r[emailIdx] || '').trim() : '';
         const name = nameIdx >= 0 ? String(r[nameIdx] || '').trim() : '';
         const company = companyIdx >= 0 ? String(r[companyIdx] || '').trim() : '';
-        const phone = phoneIdx >= 0 ? String(r[phoneIdx] || '').trim() : '';
+        const phone = phoneIdx >= 0 ? normalizeSpreadsheetPhoneValue(r[phoneIdx]) : '';
         const designation = desigIdx >= 0 ? String(r[desigIdx] || '').trim() : '';
         const optInValue = optInIdx >= 0 ? String(r[optInIdx] || '').trim().toLowerCase() : '';
         const whatsappOptIn = ['yes', 'true', '1', 'y', 'opted-in', 'opted in', 'consented', 'subscribed'].includes(optInValue);

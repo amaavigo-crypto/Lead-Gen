@@ -282,7 +282,7 @@ async function validateWati(c:WhatsAppProviderCredentials):Promise<WhatsAppProvi
  const rows=watiRows(data);
  const senders:WhatsAppSender[]=[];
  for(const row of rows){
-   const phoneValue=row.phoneNumber||row.phone_number||row.channelPhoneNumber||row.channel_phone_number||row.number||row.phone||row?.channel?.phoneNumber;
+   const phoneValue=row.phoneNumber||row.phone_number||row.channelPhoneNumber||row.channel_phone_number||row.channelNumber||row.channel_number||row.number||row.phone||row?.channel?.phoneNumber;
    if(!phoneValue) continue;
    try{
      const phone=e164(phoneValue);
@@ -305,12 +305,12 @@ function watiMessageId(data:any, fallback?:string){
  return clean(data?.whatsappMessageId||data?.whatsapp_message_id||data?.messageId||data?.message_id||data?.localMessageId||data?.local_message_id||data?.data?.whatsappMessageId||data?.data?.messageId||data?.data?.id||data?.id||fallback);
 }
 function checkWatiBusinessResult(data:any){
- if(data?.success===false || data?.ok===false){
+ if(data?.success===false || data?.result===false || data?.ok===false){
    throw new ProviderApiError(422,clean(data?.error||data?.message||data?.info)||'WATI rejected the message request.');
  }
- const recipients=Array.isArray(data?.recipients)?data.recipients:Array.isArray(data?.data?.recipients)?data.data.recipients:[];
- if(recipients.some((x:any)=>x?.success===false || x?.error || x?.errors?.length)){
-   const failed=recipients.find((x:any)=>x?.success===false||x?.error||x?.errors?.length);
+ const recipients=Array.isArray(data?.recipients)?data.recipients:Array.isArray(data?.receivers)?data.receivers:Array.isArray(data?.data?.recipients)?data.data.recipients:Array.isArray(data?.data?.receivers)?data.data.receivers:[];
+ if(recipients.some((x:any)=>x?.success===false || x?.isValidWhatsAppNumber===false || x?.error || x?.errors?.length)){
+   const failed=recipients.find((x:any)=>x?.success===false||x?.isValidWhatsAppNumber===false||x?.error||x?.errors?.length);
    throw new ProviderApiError(422,clean(failed?.error||failed?.message||failed?.errors?.[0]?.message)||'WATI rejected this recipient.');
  }
 }
@@ -349,14 +349,21 @@ async function sendWatiTemplate(c:WhatsAppProviderCredentials,i:any):Promise<Wha
  const data=await watiCall(c,'/api/ext/v3/messageTemplates/send',{
    template_name:i.template.name,
    broadcast_name:'Amaavigo '+i.template.name,
-   channel:i.sender.phoneNumber,
+   channel:digits(i.sender.phoneNumber),
    recipients:[{target:digits(i.recipientPhone),local_message_id:localId,...(parameters.length?{custom_params:parameters}:{})}],
  });
  checkWatiBusinessResult(data);
- const recipientRows=Array.isArray(data?.recipients)?data.recipients:Array.isArray(data?.data?.recipients)?data.data.recipients:[];
- const matchingRecipient=recipientRows.find((row:any)=>digits(row?.target||row?.phone_number||row?.whatsappNumber||'')===digits(i.recipientPhone));
- const id=watiMessageId(matchingRecipient||{},localId);
- return {providerMessageId:id,status:'ACCEPTED',acceptedAt:now(),providerStatus:clean(data?.status||'accepted')};
+ const recipientRows=Array.isArray(data?.recipients)?data.recipients:Array.isArray(data?.receivers)?data.receivers:Array.isArray(data?.data?.recipients)?data.data.recipients:Array.isArray(data?.data?.receivers)?data.data.receivers:[];
+ const matchingRecipient=recipientRows.find((row:any)=>digits(row?.target||row?.phone_number||row?.waId||row?.whatsappNumber||'')===digits(i.recipientPhone));
+ if(!matchingRecipient){
+   throw new ProviderApiError(502,'WATI accepted the HTTP request but omitted the requested recipient from its result. Reconcile the local message ID before retrying.');
+ }
+ const recipientErrors=Array.isArray(matchingRecipient.errors)?matchingRecipient.errors:[];
+ if(matchingRecipient.isValidWhatsAppNumber===false || recipientErrors.length){
+   throw new ProviderApiError(422,clean(recipientErrors[0]?.message||recipientErrors[0]||matchingRecipient.error)||'WATI did not accept this WhatsApp recipient.');
+ }
+ const providerId=watiMessageId(matchingRecipient,localId);
+ return {providerMessageId:providerId,status:'ACCEPTED',acceptedAt:now(),providerStatus:'accepted'};
 }
 async function listWatiTemplates(c:WhatsAppProviderCredentials,sender:WhatsAppSender):Promise<WhatsAppProviderTemplate[]>{
  const queryString=new URLSearchParams({page_number:'1',page_size:'100',channel:sender.phoneNumber}).toString();
@@ -384,7 +391,7 @@ async function registerWatiWebhook(c:WhatsAppProviderCredentials,callbackUrl:str
    eventsData?.data, eventsData?.result, eventsData,
  ].find(Array.isArray) || [];
  const available=rawEvents.map((item:any)=>typeof item==='string'?item:clean(item?.eventType||item?.name||item?.event_type)).filter(Boolean);
- const desired=new Set(['message','message_bsuid','sentMessageSENT_v2','sentMessageDELIVERED_v2','sentMessageREAD_v2','sessionMessageFailed','templateMessageFailed']);
+ const desired=new Set(['message','sentMessageSENT_v2','sessionMessageSent_v2','templateMessageSent_v2','sentMessageDELIVERED_v2','sentMessageREAD_v2','sessionMessageFailed','templateMessageFailed']);
  const eventTypes=available.filter((name:string)=>desired.has(name));
  if(!eventTypes.length) throw new ProviderApiError(422,'WATI returned no supported inbound or delivery webhook event types for this workspace. Configure them manually in WATI Webhooks.');
  const data=await requestJson(base+'/'+encodeURIComponent(tenant)+'/api/v2/webhookEndpoints',{
@@ -402,10 +409,8 @@ async function deleteWatiWebhook(c:WhatsAppProviderCredentials,subscriptionId:st
 }
 function watiStatusEvent(root:any,eventType:string){
  const et=eventType.toLowerCase();
- if(et.includes('read')) return true;
- if(et.includes('deliver')) return true;
- if(et.includes('fail') || et.includes('undeliver')) return true;
- return root?.owner===true && /sent|accepted|queued/i.test(clean(root?.statusString||root?.status));
+ if(et.includes('read') || et.includes('deliver') || et.includes('fail') || et.includes('undeliver') || et.includes('sent')) return true;
+ return /sent|accepted|queued|deliver|read|failed/i.test(clean(root?.statusString||root?.status));
 }
 const watiAdapter:WhatsAppProviderAdapter={
  provider:'WATI',capabilities:watiCapabilities(),validateCredentials:validateWati,
@@ -424,9 +429,14 @@ const watiAdapter:WhatsAppProviderAdapter={
    const statusId=clean(root.localMessageId||root.local_message_id||root.whatsappMessageId||root.id);
    const state=clean(root.statusString||root.status||root.state||eventType);
    const out:NormalizedWhatsAppEvent[]=[];
-   if(watiStatusEvent(root,eventType) || (/sent|deliver|read|failed|undeliver|queued/i.test(state)&&root.owner===true)){
+   if(watiStatusEvent(root,eventType) || /sent|deliver|read|failed|undeliver|queued/i.test(state)){
      const id=statusId;
-     if(id) out.push({kind:'MESSAGE_STATUS',provider:'WATI',connectionId,providerMessageId:id,status:status(state),timestamp:watiTimestamp(root.timestamp||root.created),errorCode:clean(root.failedCode||root.errorCode),errorMessage:clean(root.failedDetail||root.error||root.message)});
+     const normalizedStatus = /read/i.test(eventType) ? 'READ'
+       : /deliver/i.test(eventType) ? 'DELIVERED'
+       : /fail|undeliver/i.test(eventType) ? 'FAILED'
+       : /sent/i.test(eventType) ? 'SENT'
+       : state;
+     if(id) out.push({kind:'MESSAGE_STATUS',provider:'WATI',connectionId,providerMessageId:id,status:status(normalizedStatus),timestamp:watiTimestamp(root.timestamp||root.created),errorCode:clean(root.failedCode||root.errorCode),errorMessage:clean(root.failedDetail||root.error||root.message)});
      return out;
    }
    if(root.owner===true) return out;

@@ -136,6 +136,11 @@ export interface CampaignLead {
   phone?: string;
   whatsappOptIn?: boolean;
   whatsappMessageId?: string;
+  whatsappSendStatus?: 'PENDING' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | 'UNKNOWN' | 'NOT_REQUIRED';
+  whatsappSentAt?: string;
+  whatsappDeliveryStatus?: 'ACCEPTED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+  whatsappLastError?: string;
+  whatsappStatusUpdatedAt?: string;
   sourceDatabaseId?: string;
   sourceDatabaseEntryId?: string;
   customFields?: Record<string, string>;

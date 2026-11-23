@@ -676,43 +676,77 @@ export async function handleMetaProviderWebhook(req: any, res: any): Promise<boo
     }
     return true;
   }
+
   const body = req.body || {};
-  const phoneId = String(body?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id || '');
-  if (!phoneId) {
-    return false;
-  }
-  const routeSnap = await getDoc(globalWhatsAppPhoneRouteDoc(phoneId));
-  if (!routeSnap.exists()) return false; // Let the legacy Meta handler process existing Embedded Signup connections.
-  const route = routeSnap.data() as any;
-  if (!route?.tenantId || !route?.connectionId || route.provider !== 'META') {
-    res.statusCode = 404; res.end(JSON.stringify({ error: 'Meta WhatsApp connection route is invalid.' })); return true;
-  }
-  const ctx: TenantContext = { tenantId: String(route.tenantId), uid: 'meta-provider-webhook', email: 'meta-provider@system.local', role: 'admin' };
-  const connection = await getWhatsAppProviderConnection(ctx, String(route.connectionId));
-  if (!connection || connection.status !== 'CONNECTED') {
-    res.statusCode = 410; res.end(JSON.stringify({ error: 'Meta WhatsApp connection is inactive.' })); return true;
-  }
-  try {
-    const credentials = await getWhatsAppProviderCredentials(ctx, connection.connectionId);
-    const adapter = getWhatsAppProviderAdapter('META');
-    const request: WhatsAppWebhookRequest = {
-      method: String(req.method || 'POST'),
-      url: externalUrl(req),
-      headers: req.headers || {},
-      rawBody: req.rawBody,
-      body,
-    };
-    if (!(await adapter.verifyWebhook(request, credentials))) {
-      res.statusCode = 403; res.end(JSON.stringify({ error: 'Meta webhook signature validation failed.' })); return true;
+  const entries = Array.isArray(body.entry) ? body.entry : [];
+  if (!entries.length) return false;
+
+  let providerRoutesHandled = 0;
+  const legacyEntries: any[] = [];
+  const totals = { accepted: 0, duplicates: 0 };
+
+  for (const entry of entries) {
+    const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+    for (const change of changes) {
+      const phoneId = String(change?.value?.metadata?.phone_number_id || '').trim();
+      if (!phoneId) {
+        legacyEntries.push({ ...entry, changes: [change] });
+        continue;
+      }
+      const routeSnap = await getDoc(globalWhatsAppPhoneRouteDoc(phoneId));
+      if (!routeSnap.exists()) {
+        legacyEntries.push({ ...entry, changes: [change] });
+        continue;
+      }
+      const route = routeSnap.data() as any;
+      if (!route?.tenantId || !route?.connectionId || route.provider !== 'META') {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ error: 'Meta WhatsApp connection route is invalid.' }));
+        return true;
+      }
+      const ctx: TenantContext = {
+        tenantId: String(route.tenantId),
+        uid: 'meta-provider-webhook',
+        email: 'meta-provider@system.local',
+        role: 'admin',
+      };
+      const connection = await getWhatsAppProviderConnection(ctx, String(route.connectionId));
+      if (!connection || connection.status !== 'CONNECTED') {
+        res.statusCode = 410;
+        res.end(JSON.stringify({ error: 'Meta WhatsApp connection is inactive.' }));
+        return true;
+      }
+      const credentials = await getWhatsAppProviderCredentials(ctx, connection.connectionId);
+      const adapter = getWhatsAppProviderAdapter('META');
+      const request: WhatsAppWebhookRequest = {
+        method: String(req.method || 'POST'),
+        url: externalUrl(req),
+        headers: req.headers || {},
+        rawBody: req.rawBody,
+        body: { ...body, entry: [{ ...entry, changes: [change] }] },
+      };
+      if (!(await adapter.verifyWebhook(request, credentials))) {
+        res.statusCode = 403;
+        res.end(JSON.stringify({ error: 'Meta webhook signature validation failed.' }));
+        return true;
+      }
+      const events = await adapter.normalizeWebhook(request, connection.connectionId);
+      const result = await processNormalizedEvents(ctx, connection, events);
+      totals.accepted += result.accepted;
+      totals.duplicates += result.duplicates;
+      providerRoutesHandled++;
     }
-    const events = await adapter.normalizeWebhook(request, connection.connectionId);
-    const result = await processNormalizedEvents(ctx, connection, events);
-    res.statusCode = 200;
-    res.end(JSON.stringify({ received: true, accepted: result.accepted, duplicates: result.duplicates }));
-  } catch (error: any) {
-    console.error('[Meta Provider Webhook] Processing error:', error?.message || error);
-    res.statusCode = statusCode(error) >= 500 ? 500 : statusCode(error);
-    res.end(JSON.stringify({ error: error?.message || 'Meta WhatsApp webhook processing failed.' }));
   }
+
+  if (providerRoutesHandled === 0) return false;
+  if (legacyEntries.length) {
+    // Keep Embedded Signup callbacks on the existing Meta pipeline. Signature validation still
+    // uses the untouched rawBody, while only unmatched changes are passed to the legacy handler.
+    const legacyMeta = await import('./metaChannelsService.js');
+    return await legacyMeta.handleMetaWebhook({ ...req, body: { ...body, entry: legacyEntries } }, res);
+  }
+
+  res.statusCode = 200;
+  res.end(JSON.stringify({ received: true, accepted: totals.accepted, duplicates: totals.duplicates }));
   return true;
 }

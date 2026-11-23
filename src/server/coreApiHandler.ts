@@ -2854,7 +2854,10 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
           result = await providerService.sendWhatsAppProviderMessage(activeTenantCtx, {
             connectionId,
             recipientPhone: String(body?.recipientPhone || recipientId),
-            text,
+            text: text || undefined,
+            media: body?.media?.url ? body.media : undefined,
+            template: body?.template ? body.template : undefined,
+            variables: body?.variables && typeof body.variables === 'object' ? body.variables : undefined,
             conversationId: body?.conversationId ? String(body.conversationId) : undefined,
             providerConversationId: body?.providerConversationId ? String(body.providerConversationId) : undefined,
             clientMessageId: body?.clientMessageId ? String(body.clientMessageId) : undefined,
