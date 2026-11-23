@@ -173,6 +173,21 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   const [selectedWhatsAppTemplateKey, setSelectedWhatsAppTemplateKey] = useState('');
   const [isLoadingWhatsAppTemplates, setIsLoadingWhatsAppTemplates] = useState(false);
   const [whatsappTemplateError, setWhatsAppTemplateError] = useState<string | null>(null);
+  const campaignPasteExample = needsCampaignWhatsApp
+    ? (needsCampaignEmail
+      ? '+919876543210, rahul@example.com, Rahul Sharma, Acme Travels, Travel Consultant\n+971501234567, aisha@example.ae, Aisha Khan, Desert Gate, Operations Manager'
+      : '+919876543210, Rahul Sharma, Acme Travels, Travel Consultant\n+971501234567, Aisha Khan, Desert Gate, Operations Manager')
+    : (isUmrah
+      ? 'tariq@mansoorhajj.com, Tariq Al-Mansoor, Al-Mansoor Hajj Mumbai\nrashid@haramainjourneys.in, Rashid Farooqui, Haramain Journeys'
+      : 'jane@example.com, Jane Doe, Example Co.\njohn@acme.com, John Smith, Acme Inc.');
+  const campaignFileHeaders = needsCampaignWhatsApp
+    ? (needsCampaignEmail ? ['Phone', 'Email', 'Name', 'Company', 'Designation'] : ['Phone', 'Name', 'Company', 'Designation'])
+    : ['Email', 'Name', 'Company', 'Designation'];
+  const campaignFileSampleRow = needsCampaignWhatsApp
+    ? (needsCampaignEmail
+      ? ['+919876543210', 'rahul@example.com', 'Rahul Sharma', 'Acme Travels', 'Travel Consultant']
+      : ['+919876543210', 'Rahul Sharma', 'Acme Travels', 'Travel Consultant'])
+    : ['rahul@example.com', 'Rahul Sharma', 'Acme Travels', 'Travel Consultant'];
   const [campaignMode, setCampaignMode] = useState<'PREDEFINED' | 'AI_GENERATED'>('PREDEFINED');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const selectedTemplateIdRef = useRef<string>(selectedTemplateId);
@@ -511,6 +526,22 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     setUploadedFileName(`Pasted_Leads_${parsed.length}_recipients`);
     setUploadError(null);
     setCreateCampaignError(null);
+  };
+
+  const downloadCampaignAudienceTemplate = () => {
+    const escapeCsvCell = (value: string) => '"' + String(value).replace(/"/g, '""') + '"';
+    const csv = [campaignFileHeaders, campaignFileSampleRow]
+      .map((row) => row.map((cell) => escapeCsvCell(String(cell))).join(','))
+      .join('\r\n');
+    const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' });
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = newCampaignType.toLowerCase() + '_campaign_audience_template.csv';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
   };
 
   // Campaign Selection Handler - Instant, stable selection that is never overwritten by background polls
@@ -2518,7 +2549,6 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                       accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
                       className="hidden"
                     />
-
                     <div
                       onClick={() => fileInputRef.current?.click()}
                       className="border-2 border-dashed border-slate-300 hover:border-[#155eef] rounded-xl p-5 text-center cursor-pointer bg-slate-50/50 transition group"
@@ -2533,13 +2563,39 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                         </div>
                       ) : (
                         <div>
-                          <p className="text-sm font-medium text-slate-700">
-                            Click to select leads spreadsheet
-                          </p>
+                          <p className="text-sm font-medium text-slate-700">Click to select leads spreadsheet</p>
                           <p className="text-xs text-slate-500 mt-1">
-                            Supports CSV, XLS, XLSX. Any column structure supported.
+                            Supports CSV, XLS and XLSX. The first worksheet is read; map columns below if their names differ.
                           </p>
                         </div>
+                      )}
+                    </div>
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[11px] font-semibold text-slate-700">
+                          {needsCampaignWhatsApp
+                            ? (needsCampaignEmail ? 'WhatsApp + Email file format' : 'WhatsApp file format')
+                            : 'Email file format'}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={downloadCampaignAudienceTemplate}
+                          className="text-[11px] font-semibold text-[#155eef] hover:underline whitespace-nowrap"
+                        >
+                          Download sample CSV
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-slate-500">Use a header row (first row) and one recipient per row. Recommended columns:</p>
+                      <code className="block rounded-lg bg-slate-50 border border-slate-100 p-2 text-[10px] text-slate-700 break-all">
+                        {campaignFileHeaders.join(', ')}
+                      </code>
+                      <code className="block rounded-lg bg-slate-50 border border-slate-100 p-2 text-[10px] text-slate-700 break-all">
+                        {campaignFileSampleRow.join(', ')}
+                      </code>
+                      {needsCampaignWhatsApp && (
+                        <p className="text-[10px] text-slate-500">
+                          Phone is required. Include the country code (for example, +91 98765 43210). For WhatsApp + Email, Email is required too. In Excel, format the Phone column as Text so the country prefix is preserved.
+                        </p>
                       )}
                     </div>
                   </div>
@@ -2548,28 +2604,34 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                 {/* TAB 2: QUICK PASTE */}
                 {leadInputMethod === 'PASTE' && (
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between text-[11px] text-slate-500">
-                      <span>Paste lines with Email, Name, Company (comma, tab or newline separated):</span>
-                      {isUmrah && (
+                    <div className="flex items-start justify-between gap-2 text-[11px] text-slate-500">
+                      <span>
+                        {needsCampaignWhatsApp
+                          ? 'One recipient per line. Separate fields with commas or tabs; do not add a header row.'
+                          : 'Paste one recipient per line: Email, Name, Company (comma or tab separated).'}
+                      </span>
                       <button
                         type="button"
-                        onClick={() => handleParsePastedLeads(`tariq@mansoorhajj.com, Tariq Al-Mansoor, Al-Mansoor Hajj Mumbai\nrashid@haramainjourneys.in, Rashid Farooqui, Haramain Journeys\nfarhan@malikpilgrimages.co.uk, Farhan Malik, Malik Pilgrimages UK`)}
-                        className="text-[#155eef] hover:underline text-[10px] font-semibold"
+                        onClick={() => handleParsePastedLeads(campaignPasteExample)}
+                        className="text-[#155eef] hover:underline text-[10px] font-semibold whitespace-nowrap"
                       >
                         Paste Example Format
                       </button>
-                      )}
                     </div>
                     <textarea
                       rows={4}
                       value={pastedLeadsText}
                       onChange={(e) => handleParsePastedLeads(e.target.value)}
-                      placeholder={isUmrah ? `e.g.:\nahmed@safwatravels.in, Ahmed Khan, Al-Safwa Travels\ncontact@delhiumrah.in, Irfan Siddiqui, Delhi Consolidators\nbooking@alnoortours.ae, Bilal Qureshi, Al-Noor Tours` : `e.g.:\njane@example.com, Jane Doe, Example Co.\njohn@acme.com, John Smith, Acme Inc.`}
+                      placeholder={needsCampaignWhatsApp ? campaignPasteExample : 'e.g.:\n' + campaignPasteExample}
                       className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#155eef]"
                     />
+                    {needsCampaignWhatsApp && (
+                      <p className="text-[10px] text-slate-500">
+                        WhatsApp-only: Phone, Name, Company. WhatsApp + Email: Phone, Email, Name, Company. Include the country code (for example, +91 98765 43210). A phone-only list (one number per line) also works for WhatsApp-only campaigns.
+                      </p>
+                    )}
                   </div>
                 )}
-
                 {/* TAB 3: 1-CLICK SAMPLE LEADS */}
                 {leadInputMethod === 'SAMPLE' && (
                   <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3">
