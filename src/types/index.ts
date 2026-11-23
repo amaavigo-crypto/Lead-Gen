@@ -134,6 +134,13 @@ export interface CampaignLead {
   companyName: string;
   email: string;
   phone?: string;
+  /** Per-channel dispatch markers prevent a successful channel being resent after a partial failure. */
+  emailSendStatus?: 'PENDING' | 'SENT' | 'FAILED' | 'NOT_REQUIRED';
+  whatsappSendStatus?: 'PENDING' | 'SENDING' | 'SENT' | 'FAILED' | 'UNKNOWN' | 'NOT_REQUIRED';
+  whatsappMessageId?: string;
+  whatsappSendStartedAt?: string;
+  whatsappSentAt?: string;
+  whatsappLastError?: string;
   sourceDatabaseId?: string;
   sourceDatabaseEntryId?: string;
   customFields?: Record<string, string>;
@@ -239,6 +246,10 @@ export interface Campaign {
   status: 'DRAFT' | 'SCHEDULED' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'FAILED';
   templateId?: string;
   templateName?: string;
+  /** Current Meta-approved WhatsApp template selected for this campaign. */
+  whatsappTemplateName?: string;
+  whatsappTemplateLanguage?: string;
+  whatsappTemplateParamCount?: number;
   sourceFileName?: string;
   /** Provenance for campaigns created from a saved lead database snapshot. */
   sourceDatabaseId?: string;

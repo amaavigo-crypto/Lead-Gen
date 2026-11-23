@@ -78,6 +78,9 @@ import {
   DemoSource,
 } from '../types/index.js';
 
+function campaignNeedsEmail(campaign: Pick<Campaign, 'type'>): boolean { return campaign.type === 'EMAIL' || campaign.type === 'WHATSAPP_EMAIL'; }
+function campaignNeedsWhatsApp(campaign: Pick<Campaign, 'type'>): boolean { return campaign.type === 'WHATSAPP' || campaign.type === 'WHATSAPP_EMAIL'; }
+
 const companyResearchCache = new Map<string, any>();
 
 /**
@@ -1513,6 +1516,8 @@ export async function deleteCampaign(campaignId: string): Promise<boolean> {
 export async function createCampaign(params: {
   name: string;
   type?: 'EMAIL' | 'WHATSAPP' | 'WHATSAPP_EMAIL';
+  whatsappTemplateName?: string;
+  whatsappTemplateLanguage?: string;
   campaignMode?: 'PREDEFINED' | 'AI_GENERATED';
   deliveryMode?: 'LIVE_SMTP' | 'SIMULATION';
   templateId?: string;
@@ -1546,9 +1551,26 @@ export async function createCampaign(params: {
     throw new Error('Campaign name is required.');
   }
 
+  const campaignType = params.type || 'EMAIL';
+  if (!['EMAIL', 'WHATSAPP', 'WHATSAPP_EMAIL'].includes(campaignType)) throw new Error('Unsupported campaign type.');
+  const needsEmail = campaignType === 'EMAIL' || campaignType === 'WHATSAPP_EMAIL';
+  const needsWhatsApp = campaignType === 'WHATSAPP' || campaignType === 'WHATSAPP_EMAIL';
+  if (params.sourceDatabaseId && campaignType !== 'EMAIL') {
+    throw new Error('Saved database campaigns currently support Email only. Upload or paste phone-number audiences for WhatsApp campaigns.');
+  }
   const rawLeads = Array.isArray(params.leads) ? params.leads : [];
-  if (rawLeads.length === 0) {
-    throw new Error('At least one lead is required to create a campaign.');
+  if (rawLeads.length === 0) throw new Error('At least one lead is required to create a campaign.');
+  let approvedWhatsAppTemplate: any = null;
+  if (needsWhatsApp) {
+    const templateName = String(params.whatsappTemplateName || '').trim();
+    const templateLanguage = String(params.whatsappTemplateLanguage || '').trim();
+    if (!templateName || !templateLanguage) throw new Error('Select an approved WhatsApp template before creating this campaign.');
+    const meta = await import('./metaChannelsService.js');
+    const currentTemplates = await meta.listWhatsAppTemplates(getCampaignActiveCtx());
+    approvedWhatsAppTemplate = currentTemplates.find((item) =>
+      item.name === templateName && item.language === templateLanguage && String(item.status || '').toUpperCase() === 'APPROVED'
+    );
+    if (!approvedWhatsAppTemplate) throw new Error('The selected WhatsApp template is no longer approved. Refresh templates and choose one that Meta currently marks Approved.');
   }
 
   const now = new Date().toISOString();
@@ -1558,7 +1580,7 @@ export async function createCampaign(params: {
 
   // Dynamically resolve the selected template directly from Firestore DB
   let selectedTemplate: EmailTemplate | undefined;
-  if (params.templateId) {
+  if (needsEmail && params.templateId) {
     if (isFirebaseConfigured && db) {
       try {
         const snap = await getDoc(tenantRepo(getCampaignActiveCtx()).emailTemplateDoc(params.templateId));
@@ -1577,7 +1599,7 @@ export async function createCampaign(params: {
   }
 
   // If payload provided full template content directly, construct and register it immediately
-  if (!selectedTemplate && params.templateId && params.templateBody) {
+  if (needsEmail && !selectedTemplate && params.templateId && params.templateBody) {
     selectedTemplate = {
       templateId: params.templateId,
       name: params.templateName || 'Custom Template',
@@ -1592,20 +1614,22 @@ export async function createCampaign(params: {
     }
   }
 
-  if (!selectedTemplate && mode === 'PREDEFINED') {
+  if (needsEmail && !selectedTemplate && mode === 'PREDEFINED') {
     const allAvailable = getAllTemplates();
     selectedTemplate = allAvailable.length > 0 ? allAvailable[0] : DEFAULT_EMAIL_TEMPLATES[0];
   }
 
-  const finalTemplateId = mode === 'AI_GENERATED' ? undefined : (selectedTemplate?.templateId || params.templateId);
-  const finalTemplateName = mode === 'AI_GENERATED' ? 'AI Intelligent Personalization' : (selectedTemplate?.name || params.templateName || 'Predefined Template');
+  if (needsEmail && mode === 'PREDEFINED' && !selectedTemplate) throw new Error('The selected email template could not be loaded. Refresh templates and try again.');
+  const finalTemplateId = !needsEmail || mode === 'AI_GENERATED' ? undefined : (selectedTemplate?.templateId || params.templateId);
+  const finalTemplateName = !needsEmail ? (approvedWhatsAppTemplate?.name || 'WhatsApp template') : mode === 'AI_GENERATED' ? 'AI Intelligent Personalization' : (selectedTemplate?.name || params.templateName || 'Predefined Template');
 
   const schedule = params.scheduledStartAt ? validateScheduleTime(params.scheduledStartAt) : null;
   const initialCampaign: Campaign = {
     campaignId,
     name: params.name,
-    type: params.type || 'EMAIL',
+    type: campaignType,
     campaignMode: mode,
+    ...(needsWhatsApp ? { whatsappTemplateName: approvedWhatsAppTemplate.name, whatsappTemplateLanguage: approvedWhatsAppTemplate.language, whatsappTemplateParamCount: approvedWhatsAppTemplate.paramCount } : {}),
     deliveryMode,
     status: schedule ? 'SCHEDULED' : 'DRAFT',
     ...(schedule
@@ -1636,35 +1660,41 @@ export async function createCampaign(params: {
     lastRunNumber: 0,
   };
 
-  campaignsMap.set(campaignId, initialCampaign);
-
-  // Process leads. One lead per email per campaign: repeats are skipped (first row wins). The lead's
-  // document ID is derived from the email, so the database itself cannot hold two leads with the same
-  // email in one campaign.
+  // Process one destination per lead: email, phone, or both. Combined campaigns require both values.
+  // Duplicate email OR phone destinations are skipped (first valid row wins).
   const createdLeads: CampaignLead[] = [];
   const firstRowByEmail = new Map<string, number>();
+  const firstRowByPhone = new Map<string, number>();
   const duplicates: DuplicateInfo[] = [];
   params.leads.forEach((l, idx) => {
     const cleanEmail = normalizeEmail(l.email);
-    if (!cleanEmail) return;
-
+    const rawPhone = String(l.phone || '').trim();
+    const phoneDigits = rawPhone.replace(/[^\d]/g, '');
+    const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail);
+    const phoneValid = (rawPhone.startsWith('+') || phoneDigits.length >= 11) && phoneDigits.length >= 8 && phoneDigits.length <= 15;
+    if ((needsEmail && !emailValid) || (needsWhatsApp && !phoneValid)) return;
     const rowNum = l.rowNumber || idx + 1;
-    const firstRow = firstRowByEmail.get(cleanEmail);
-    if (firstRow !== undefined) {
-      duplicates.push({ rowNumber: rowNum, email: cleanEmail, duplicateOfRow: firstRow });
+    const duplicateEmailRow = needsEmail ? firstRowByEmail.get(cleanEmail) : undefined;
+    const phoneKey = phoneDigits.slice(-10);
+    const duplicatePhoneRow = needsWhatsApp ? firstRowByPhone.get(phoneKey) : undefined;
+    const duplicateOfRow = duplicateEmailRow ?? duplicatePhoneRow;
+    if (duplicateOfRow !== undefined) {
+      duplicates.push({ rowNumber: rowNum, email: cleanEmail || phoneDigits, duplicateOfRow });
       return;
     }
-    firstRowByEmail.set(cleanEmail, rowNum);
-    const campaignLeadId = `clead-${campaignId}-${crypto.createHash('sha1').update(cleanEmail).digest('hex').slice(0, 16)}`;
-    const leadId = `lead-${cleanEmail.replace(/[^a-z0-9]/gi, '_')}`;
+    if (needsEmail) firstRowByEmail.set(cleanEmail, rowNum);
+    if (needsWhatsApp) firstRowByPhone.set(phoneKey, rowNum);
+    const identity = needsEmail ? cleanEmail : phoneDigits;
+    const campaignLeadId = `clead-${campaignId}-${crypto.createHash('sha1').update(identity).digest('hex').slice(0, 16)}`;
+    const leadId = `lead-${(cleanEmail || phoneDigits).replace(/[^a-z0-9]/gi, '_')}`;
 
-    const leadName = l.name || [l.firstName, l.lastName].filter(Boolean).join(' ') || cleanEmail.split('@')[0];
+    const leadName = l.name || [l.firstName, l.lastName].filter(Boolean).join(' ') || (cleanEmail ? cleanEmail.split('@')[0] : `WhatsApp ${phoneDigits.slice(-4)}`);
     const company = l.companyName || `${leadName}'s Agency`;
 
     let initialSubject: string | undefined = undefined;
     let initialBody: string | undefined = undefined;
 
-    if (mode === 'PREDEFINED' && selectedTemplate) {
+    if (needsEmail && mode === 'PREDEFINED' && selectedTemplate) {
       const personalized = personalizeTemplate(selectedTemplate, {
         name: leadName,
         firstName: l.firstName || leadName.split(' ')[0],
@@ -1687,6 +1717,8 @@ export async function createCampaign(params: {
       companyName: company,
       email: cleanEmail,
       phone: l.phone,
+      emailSendStatus: needsEmail ? 'PENDING' : 'NOT_REQUIRED',
+      whatsappSendStatus: needsWhatsApp ? 'PENDING' : 'NOT_REQUIRED',
       // Last 10 digits of the phone, so an inbound WhatsApp reply can find this lead with one equality query.
       ...(String(l.phone || '').replace(/[^\d]/g, '').length >= 7
         ? { phoneLast10: String(l.phone).replace(/[^\d]/g, '').slice(-10) }
@@ -1717,6 +1749,11 @@ export async function createCampaign(params: {
     campaignLeadsMap.set(campaignLeadId, cLead);
     createdLeads.push(cLead);
   });
+
+  if (createdLeads.length === 0) {
+    throw new Error(needsEmail && needsWhatsApp ? 'No valid audience rows remain. Each recipient needs both a valid email address and a phone number.' : needsWhatsApp ? 'No valid WhatsApp recipients remain. Add phone numbers containing 8–15 digits.' : 'No valid email recipients remain. Add valid email addresses.');
+  }
+  campaignsMap.set(campaignId, initialCampaign);
 
   // Counts reflect the leads actually created (duplicates and empty rows excluded).
   initialCampaign.totalLeads = createdLeads.length;
@@ -1884,7 +1921,7 @@ export async function startCampaign(
     const nextRunNumber = (campaign.lastRunNumber || 0) + 1;
     currentRunId = `run-${campaignId}-${nextRunNumber}`;
     const allAvailable = getAllTemplates();
-    const activeTemplateId = campaign.templateId || (allAvailable.length > 0 ? allAvailable[0].templateId : DEFAULT_EMAIL_TEMPLATES[0].templateId);
+    const activeTemplateId = campaignNeedsEmail(campaign) ? (campaign.campaignMode === 'AI_GENERATED' ? 'ai-generated' : (campaign.templateId || (allAvailable.length > 0 ? allAvailable[0].templateId : DEFAULT_EMAIL_TEMPLATES[0].templateId))) : `whatsapp:${campaign.whatsappTemplateName || 'template'}`;
     const newRun: CampaignRun = {
       runId: currentRunId,
       campaignId,
@@ -1917,13 +1954,13 @@ export async function startCampaign(
       ).catch(() => null);
       fSnap?.forEach((d) => {
         const l = d.data() as CampaignLead;
-        if (l?.campaignLeadId) {
+        if (l?.campaignLeadId && l.whatsappSendStatus !== 'UNKNOWN') {
           campaignLeadsMap.set(l.campaignLeadId, l);
           failedLeads.push(l);
         }
       });
     } else {
-      failedLeads = getCampaignLeads(campaignId).filter((l) => l.sendStatus === 'FAILED');
+      failedLeads = getCampaignLeads(campaignId).filter((l) => l.sendStatus === 'FAILED' && l.whatsappSendStatus !== 'UNKNOWN');
     }
     if (failedLeads.length > 0) {
       console.log(`[Campaign Engine] Automatically resetting ${failedLeads.length} failed leads to PENDING for campaign ${campaignId}`);
@@ -2079,7 +2116,18 @@ export async function restartCampaign(
   if (!campaign) throw new Error(`Campaign ${campaignId} not found`);
 
   // Validate before aborting send loops, queuing leads, or mutating the campaign.
-  const requiresEmailTemplate = campaign.type === 'EMAIL' || campaign.type === 'WHATSAPP_EMAIL';
+  const requiresEmail = campaignNeedsEmail(campaign);
+  const requiresWhatsApp = campaignNeedsWhatsApp(campaign);
+  const requiresEmailTemplate = requiresEmail && Boolean(campaign.templateId);
+  if (requiresWhatsApp) {
+    const currentLeads = await getCampaignLeadsFromDb(campaignId);
+    if (currentLeads.some((lead) => lead.whatsappSendStatus === 'UNKNOWN')) throw new Error('At least one WhatsApp send has an unknown outcome. Reconcile that message before restarting to avoid sending a duplicate.');
+    const meta = await import('./metaChannelsService.js');
+    const approvedTemplates = await meta.listWhatsAppTemplates(getCampaignActiveCtx());
+    if (!approvedTemplates.some((item) => item.name === campaign.whatsappTemplateName && item.language === campaign.whatsappTemplateLanguage && String(item.status || '').toUpperCase() === 'APPROVED')) {
+      throw new Error('The WhatsApp template used by this campaign is no longer approved. Select a currently approved template before restarting.');
+    }
+  }
   const requestedReplacementId = typeof options?.newTemplateId === 'string' ? options.newTemplateId.trim() : '';
   let validatedTemplateId: string | undefined;
   let validatedTemplateName: string | undefined;
@@ -2112,7 +2160,7 @@ export async function restartCampaign(
   const nextRunNumber = (campaign.lastRunNumber || 0) + 1;
   const newRunId = `run-${campaignId}-${nextRunNumber}`;
   const allAvailable = getAllTemplates();
-  const templateId = validatedTemplateId || campaign.templateId || (allAvailable.length > 0 ? allAvailable[0].templateId : DEFAULT_EMAIL_TEMPLATES[0].templateId);
+  const templateId = requiresEmail ? (campaign.campaignMode === 'AI_GENERATED' ? 'ai-generated' : (validatedTemplateId || campaign.templateId || (allAvailable.length > 0 ? allAvailable[0].templateId : DEFAULT_EMAIL_TEMPLATES[0].templateId))) : `whatsapp:${campaign.whatsappTemplateName || 'template'}`;
 
   // Mark previous run as COMPLETED if it was running or paused
   if (campaign.currentRunId) {
@@ -2157,7 +2205,7 @@ export async function restartCampaign(
     campaign.lastRunNumber = nextRunNumber;
     campaign.status = 'COMPLETED';
     campaign.completedAt = now;
-    campaign.templateId = templateId;
+    campaign.templateId = requiresEmail && campaign.campaignMode !== 'AI_GENERATED' ? templateId : undefined;
     if (validatedTemplateName) campaign.templateName = validatedTemplateName;
     campaign.updatedAt = now;
     campaignsMap.set(campaignId, campaign);
@@ -2190,6 +2238,12 @@ export async function restartCampaign(
   const leadSavePromises: Promise<any>[] = [];
   unrepliedLeads.forEach((l) => {
     l.sendStatus = 'PENDING';
+    l.emailSendStatus = requiresEmail ? 'PENDING' : 'NOT_REQUIRED';
+    l.whatsappSendStatus = requiresWhatsApp ? 'PENDING' : 'NOT_REQUIRED';
+    l.whatsappMessageId = undefined;
+    l.whatsappSentAt = undefined;
+    l.whatsappSendStartedAt = undefined;
+    l.whatsappLastError = undefined;
     l.lastError = undefined;
     l.campaignRunId = newRunId;
     l.updatedAt = now;
@@ -2197,7 +2251,9 @@ export async function restartCampaign(
     campaignLeadsMap.set(l.campaignLeadId, l);
     if (isFirebaseConfigured && db) {
       leadSavePromises.push(safeSetDoc(tenantRepo(getCampaignActiveCtx()).campaignLeadDoc(l.campaignLeadId), {
-        sendStatus: 'PENDING', lastError: null, campaignRunId: newRunId, updatedAt: now,
+        sendStatus: 'PENDING', emailSendStatus: l.emailSendStatus, whatsappSendStatus: l.whatsappSendStatus,
+        whatsappMessageId: null, whatsappSentAt: null, whatsappSendStartedAt: null, whatsappLastError: null,
+        lastError: null, campaignRunId: newRunId, updatedAt: now,
       } as any, { merge: true }));
     }
   });
@@ -2237,7 +2293,7 @@ export async function restartCampaign(
   campaign.currentRunId = newRunId;
   campaign.lastRunNumber = nextRunNumber;
   campaign.status = 'RUNNING';
-  campaign.templateId = templateId;
+  campaign.templateId = requiresEmail && campaign.campaignMode !== 'AI_GENERATED' ? templateId : undefined;
   campaign.updatedAt = now;
   campaignsMap.set(campaignId, campaign);
 
@@ -2376,6 +2432,11 @@ export async function processNextCampaignSendBatch(
   }
   const campaign = await ensureCampaignInStore(campaignId);
   if (!campaign) throw new Error(`Campaign ${campaignId} not found`);
+  const needsEmail = campaignNeedsEmail(campaign);
+  const needsWhatsApp = campaignNeedsWhatsApp(campaign);
+  let approvedWhatsAppTemplate: any = null;
+  let whatsappTemplateError = '';
+  let emailSetupError = '';
 
   // 1. Immediately abort if campaign is PAUSED, DRAFT, or COMPLETED
   if (pausedCampaignsSet.has(campaignId) || campaign.status !== 'RUNNING') {
@@ -2388,14 +2449,24 @@ export async function processNextCampaignSendBatch(
   // not a lead failure. Touch nothing in the database: every lead stays PENDING, so a correctly configured
   // server can deliver it. The note is kept in memory only, so it is shown on this server's screen and
   // never reaches other servers.
-  if (campaign.deliveryMode !== 'SIMULATION') {
+  if (needsEmail && campaign.deliveryMode !== 'SIMULATION') {
     const readiness = await getEmailSendReadiness(getCampaignActiveCtx().tenantId);
     if (!readiness.ok) {
-      const pendingCount = await countPendingLeads(campaignId);
-      if (pendingCount > 0) {
-        console.warn(`[Campaign Engine] Campaign ${campaignId}: not sending from this server. ${readiness.error}`);
-        return { campaign, processedCount: 0, remainingPendingCount: pendingCount, sendBlockedReason: readiness.error };
+      emailSetupError = readiness.error || 'Email sending is not configured on this server.';
+      if (!needsWhatsApp) {
+        const pendingCount = await countPendingLeads(campaignId);
+        if (pendingCount > 0) return { campaign, processedCount: 0, remainingPendingCount: pendingCount, sendBlockedReason: emailSetupError };
       }
+    }
+  }
+  if (needsWhatsApp) {
+    try {
+      const meta = await import('./metaChannelsService.js');
+      const currentTemplates = await meta.listWhatsAppTemplates(getCampaignActiveCtx());
+      approvedWhatsAppTemplate = currentTemplates.find((item) => item.name === campaign.whatsappTemplateName && item.language === campaign.whatsappTemplateLanguage && String(item.status || '').toUpperCase() === 'APPROVED');
+      if (!approvedWhatsAppTemplate) whatsappTemplateError = 'The selected WhatsApp template is no longer approved. Refresh templates and choose an approved template.';
+    } catch (error: any) {
+      whatsappTemplateError = error?.message || 'WhatsApp is not connected or the selected template cannot be verified.';
     }
   }
 
@@ -2409,18 +2480,16 @@ export async function processNextCampaignSendBatch(
   try {
     const currentRunId = campaign.currentRunId || `run-${campaignId}-1`;
     const selectedTplId = campaign.templateId || '';
-    let template = getTemplateById(selectedTplId);
-    if (!template && selectedTplId && isFirebaseConfigured && db) {
-      try {
-        const snap = await getDoc(tenantRepo(getCampaignActiveCtx()).emailTemplateDoc(selectedTplId));
-        if (snap.exists()) {
-          template = snap.data() as EmailTemplate;
-          emailTemplatesMap.set(selectedTplId, template);
-        }
-      } catch (err) {}
-    }
-    if (!template) {
-      template = DEFAULT_EMAIL_TEMPLATES.find((t) => t.templateId === selectedTplId) || DEFAULT_EMAIL_TEMPLATES[0];
+    let template: EmailTemplate = DEFAULT_EMAIL_TEMPLATES[0];
+    if (needsEmail) {
+      let loadedTemplate = getTemplateById(selectedTplId);
+      if (!loadedTemplate && selectedTplId && isFirebaseConfigured && db) {
+        try {
+          const snap = await getDoc(tenantRepo(getCampaignActiveCtx()).emailTemplateDoc(selectedTplId));
+          if (snap.exists()) { loadedTemplate = snap.data() as EmailTemplate; emailTemplatesMap.set(selectedTplId, loadedTemplate); }
+        } catch (err) {}
+      }
+      template = loadedTemplate || DEFAULT_EMAIL_TEMPLATES.find((item) => item.templateId === selectedTplId) || DEFAULT_EMAIL_TEMPLATES[0];
     }
 
     // Only the next batch of leads still waiting to be sent (was: every lead of the campaign).
@@ -2451,7 +2520,7 @@ export async function processNextCampaignSendBatch(
 
     const batchToProcess = pendingLeads.slice(0, maxBatchSize);
     let processedCount = 0;
-    let sendBlockedReason: string | undefined;
+    let sendBlockedReason: string | undefined = [emailSetupError, whatsappTemplateError].filter(Boolean).join(' ' ) || undefined;
 
     for (const lead of batchToProcess) {
       // INSTANT PAUSE CHECK: Check abort signal and campaign status before each email send
@@ -2471,9 +2540,9 @@ export async function processNextCampaignSendBatch(
         continue;
       }
 
-    const emailLower = lead.email.toLowerCase();
-    const runHistoryKey = `${campaignId}_${currentRunId}_${emailLower}`;
-    const campaignHistoryKey = `${campaignId}_${emailLower}`;
+    const recipientIdentity = needsEmail ? String(lead.email || '').toLowerCase() : (lead.phoneLast10 || String(lead.phone || '').replace(/[^\d]/g, '').slice(-10));
+    const runHistoryKey = `${campaignId}_${currentRunId}_${recipientIdentity}`;
+    const campaignHistoryKey = `${campaignId}_${recipientIdentity}`;
 
     // STRICT DEDUPLICATION:
     // If lead is already SENT, SENDING, in send history, or in-flight, skip immediately!
@@ -2507,56 +2576,150 @@ export async function processNextCampaignSendBatch(
       continue;
     }
 
+    // A previous invocation may have died after recording SENDING but before persisting Meta's result.
+    // Once we successfully reclaim the lead lock, treat that old outcome as UNKNOWN rather than risk a duplicate.
+    if (needsWhatsApp && lead.whatsappSendStatus === 'SENDING') {
+      lead.whatsappSendStatus = 'UNKNOWN';
+      lead.whatsappSendStartedAt = undefined;
+      lead.whatsappLastError = 'A previous WhatsApp send was interrupted before its outcome could be saved. Reconcile the provider message before retrying.';
+    }
+
     let subject = '';
     let body = '';
     let activeAttachments: any[] = [];
     let htmlContent: string | undefined = undefined;
 
-    if (campaign.campaignMode === 'AI_GENERATED' && !campaign.templateId) {
-      if (!lead.generatedBody) {
-        lead.generationStatus = 'GENERATING';
-        const aiResult = await generateAiEmailForLead(lead);
-        lead.researchData = aiResult.researchData;
-        lead.selectedPainPoint = aiResult.selectedPainPoint;
-        lead.selectedCapabilities = aiResult.selectedCapabilities;
-        lead.personalizationEvidence = aiResult.personalizationEvidence;
-        lead.generatedSubject = aiResult.subject;
-        lead.generatedBody = aiResult.body;
-        lead.qualityCheckStatus = aiResult.qualityCheckStatus;
-        lead.generationStatus = 'READY_TO_SEND';
+    if (needsEmail && !emailSetupError && lead.emailSendStatus !== 'SENT') {
+      if (campaign.campaignMode === 'AI_GENERATED' && !campaign.templateId) {
+        if (!lead.generatedBody) {
+          lead.generationStatus = 'GENERATING';
+          const aiResult = await generateAiEmailForLead(lead);
+          lead.researchData = aiResult.researchData;
+          lead.selectedPainPoint = aiResult.selectedPainPoint;
+          lead.selectedCapabilities = aiResult.selectedCapabilities;
+          lead.personalizationEvidence = aiResult.personalizationEvidence;
+          lead.generatedSubject = aiResult.subject;
+          lead.generatedBody = aiResult.body;
+          lead.qualityCheckStatus = aiResult.qualityCheckStatus;
+          lead.generationStatus = 'READY_TO_SEND';
+        }
+        subject = lead.generatedSubject || `Streamlining Operations for ${lead.companyName}`;
+        body = lead.generatedBody || `Hi ${lead.name},\n\nI noticed your operations at ${lead.companyName}.`;
+      } else {
+        let activeTpl = getTemplateById(template.templateId);
+        if (!activeTpl) activeTpl = template;
+        const personalized = personalizeTemplate(activeTpl, lead);
+        subject = personalized.subject;
+        body = personalized.body;
+        htmlContent = personalized.html;
+  
+        if (activeTpl.attachments && activeTpl.attachments.length > 0) {
+          activeAttachments = activeTpl.attachments.map((att: any) => ({
+            filename: att.name || att.filename || 'attachment',
+            contentType: att.type || att.contentType,
+            dataUrl: att.dataUrl,
+            content: att.base64 || att.content,
+            encoding: att.base64 ? 'base64' : undefined,
+          }));
+        }
+        lead.generatedSubject = subject;
+        lead.generatedBody = body;
       }
-      subject = lead.generatedSubject || `Streamlining Operations for ${lead.companyName}`;
-      body = lead.generatedBody || `Hi ${lead.name},\n\nI noticed your operations at ${lead.companyName}.`;
-    } else {
-      let activeTpl = getTemplateById(template.templateId);
-      if (!activeTpl) activeTpl = template;
-      const personalized = personalizeTemplate(activeTpl, lead);
-      subject = personalized.subject;
-      body = personalized.body;
-      htmlContent = personalized.html;
-
-      if (activeTpl.attachments && activeTpl.attachments.length > 0) {
-        activeAttachments = activeTpl.attachments.map((att: any) => ({
-          filename: att.name || att.filename || 'attachment',
-          contentType: att.type || att.contentType,
-          dataUrl: att.dataUrl,
-          content: att.base64 || att.content,
-          encoding: att.base64 ? 'base64' : undefined,
-        }));
-      }
-      lead.generatedSubject = subject;
-      lead.generatedBody = body;
+  
     }
-
     lead.sendStatus = 'SENDING';
     lead.updatedAt = new Date().toISOString();
 
-    const senderFrom = await campaignRecordedSender(getCampaignActiveCtx().tenantId);
+    const senderFrom = needsEmail ? await campaignRecordedSender(getCampaignActiveCtx().tenantId) : '';
     const conversationId = lead.conversationId || `conv-${lead.leadId}`;
     const gmailThreadId = lead.gmailThreadId || `thread-${lead.leadId}`;
 
     try {
-      const isSimulationMode = campaign.deliveryMode === 'SIMULATION';
+      if (needsWhatsApp && lead.whatsappSendStatus !== 'SENT' && lead.whatsappSendStatus !== 'UNKNOWN') {
+        if (whatsappTemplateError) {
+          lead.whatsappSendStatus = 'FAILED';
+          lead.whatsappLastError = whatsappTemplateError;
+        } else {
+          lead.whatsappSendStatus = 'SENDING';
+          lead.whatsappSendStartedAt = new Date().toISOString();
+          if (isFirebaseConfigured && db) {
+            await safeSetDoc(tenantRepo(getCampaignActiveCtx()).campaignLeadDoc(lead.campaignLeadId), {
+              whatsappSendStatus: 'SENDING', whatsappSendStartedAt: lead.whatsappSendStartedAt,
+              emailSendStatus: lead.emailSendStatus || (needsEmail ? 'PENDING' : 'NOT_REQUIRED'),
+              sendStatus: 'PENDING', updatedAt: lead.whatsappSendStartedAt,
+            } as any, { merge: true });
+          }
+          try {
+            const meta = await import('./metaChannelsService.js');
+            const paramCount = Number(approvedWhatsAppTemplate?.paramCount ?? campaign.whatsappTemplateParamCount ?? 0);
+            const positionalValues = [
+              lead.firstName || lead.name || 'there',
+              lead.companyName || lead.name || 'your company',
+              lead.designation || 'team',
+              lead.email || '',
+              lead.phone || '',
+            ];
+            const params = Array.from({ length: Math.max(0, Math.min(paramCount, 20)) }, (_, index) => String(positionalValues[index] || lead.name || 'there'));
+            const waResult = await meta.sendWhatsAppTemplate(getCampaignActiveCtx(), String(lead.phone || ''), {
+              name: String(campaign.whatsappTemplateName || ''),
+              language: String(campaign.whatsappTemplateLanguage || ''),
+              params,
+            }, approvedWhatsAppTemplate);
+            lead.whatsappSendStatus = 'SENT';
+            lead.whatsappMessageId = waResult.messageId;
+            lead.whatsappSentAt = new Date().toISOString();
+            lead.whatsappSendStartedAt = undefined;
+            lead.whatsappLastError = undefined;
+            lead.conversationId = lead.conversationId || `conv-${lead.leadId}`;
+            if (isFirebaseConfigured && db) {
+              await safeSetDoc(tenantRepo(getCampaignActiveCtx()).campaignLeadDoc(lead.campaignLeadId), {
+                whatsappSendStatus: 'SENT', whatsappMessageId: waResult.messageId,
+                whatsappSentAt: lead.whatsappSentAt, whatsappSendStartedAt: null, whatsappLastError: null,
+                conversationId: lead.conversationId, updatedAt: lead.whatsappSentAt,
+              } as any, { merge: true });
+            }
+            try {
+              await appendOutboundMessageToThread(lead.conversationId, {
+                messageId: `msg-wa-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                conversationId: lead.conversationId,
+                channel: 'WHATSAPP',
+                direction: 'OUTBOUND',
+                senderType: 'AGENT',
+                senderName: campaignSenderName(await getTenantBrand(getCampaignActiveCtx().tenantId)),
+                text: waResult.renderedText || `[Template: ${campaign.whatsappTemplateName}]`,
+                sentAt: lead.whatsappSentAt,
+                receivedAt: lead.whatsappSentAt,
+                createdAt: lead.whatsappSentAt,
+                timestamp: lead.whatsappSentAt,
+              } as any);
+            } catch (inboxError: any) {
+              console.warn('[Campaign Engine] WhatsApp sent but inbox copy could not be saved:', inboxError?.message || inboxError);
+            }
+            await writeTenantAuditEvent(getCampaignActiveCtx(), {
+              action: 'CAMPAIGN_WHATSAPP_SENT',
+              module: 'CAMPAIGNS',
+              severity: 'INFO',
+              description: 'Approved WhatsApp campaign template was sent to a campaign lead.',
+              target: { type: 'Campaign Lead', id: lead.campaignLeadId, name: campaign.name },
+              actor: { userId: 'system:campaign-worker', name: 'Campaign Dispatch Worker', email: 'campaign-worker@system.local', role: 'SYSTEM' },
+              metadata: { campaignId, campaignRunId: currentRunId, channel: 'WHATSAPP', templateName: campaign.whatsappTemplateName, templateLanguage: campaign.whatsappTemplateLanguage },
+            }).catch(() => undefined);
+          } catch (waError: any) {
+            const message = String(waError?.message || 'WhatsApp delivery failed.');
+            const statusCode = Number(waError?.statusCode || waError?.status || 0);
+            const ambiguous = statusCode >= 500 || /timeout|timed out|network|socket|connection reset|fetch failed/i.test(message);
+            lead.whatsappSendStatus = ambiguous ? 'UNKNOWN' : 'FAILED';
+            lead.whatsappSendStartedAt = undefined;
+            lead.whatsappLastError = message.slice(0, 500);
+            console.warn(`[Campaign Engine] WhatsApp send failed for ${lead.phone || lead.name}:`, message);
+          }
+        }
+      }
+      if (needsEmail && emailSetupError && lead.emailSendStatus !== 'SENT') {
+        lead.emailSendStatus = 'PENDING';
+        lead.lastError = emailSetupError;
+      } else if (needsEmail && lead.emailSendStatus !== 'SENT') {
+        const isSimulationMode = campaign.deliveryMode === 'SIMULATION';
       const sendResult = isSimulationMode
         ? {
             success: true,
@@ -2592,8 +2755,8 @@ export async function processNextCampaignSendBatch(
 
       if (sendResult.success) {
         const sentMsgId = sendResult.messageId || `<camp-${Date.now()}@umrah360.in>`;
-        lead.sendStatus = 'SENT';
-        lead.sendCount = (lead.sendCount || 0) + 1;
+        lead.emailSendStatus = 'SENT';
+        lead.sendStatus = needsWhatsApp && lead.whatsappSendStatus !== 'SENT' ? 'PENDING' : 'SENT';
         lead.lastSentAt = now;
         if (lead.engaged === undefined) lead.engaged = false;
         lead.gmailMessageId = sentMsgId;
@@ -2601,9 +2764,6 @@ export async function processNextCampaignSendBatch(
         lead.conversationId = conversationId;
         lead.lastError = undefined;
         lead.updatedAt = now;
-
-        sendHistorySet.add(runHistoryKey);
-        sendHistorySet.add(`${campaignId}_${lead.email.toLowerCase()}`);
 
         const historyRecord: CampaignSendHistory = {
           historyId: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -2618,10 +2778,6 @@ export async function processNextCampaignSendBatch(
           status: 'SENT',
         };
 
-        const currentRun = campaignRunsMap.get(currentRunId);
-        if (currentRun) {
-          currentRun.sentCount = (currentRun.sentCount || 0) + 1;
-        }
 
         appendOutboundMessageToThread(conversationId, {
           messageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -2649,7 +2805,7 @@ export async function processNextCampaignSendBatch(
         if (isFirebaseConfigured && db) {
           const emailSettings = await getTenantEmailSettings(getCampaignActiveCtx().tenantId).catch(() => ({} as any));
           await safeSetDoc(tenantRepo(getCampaignActiveCtx()).campaignLeadDoc(lead.campaignLeadId), {
-            sendStatus: 'SENT', sendCount: lead.sendCount, lastSentAt: lead.lastSentAt,
+            sendStatus: needsWhatsApp && lead.whatsappSendStatus !== 'SENT' ? 'PENDING' : 'SENT', emailSendStatus: 'SENT', sendCount: lead.sendCount, lastSentAt: lead.lastSentAt,
             gmailMessageId: lead.gmailMessageId, gmailThreadId: lead.gmailThreadId, conversationId: lead.conversationId,
             lastError: null, trackingEnabledAtSend: emailSettings.trackingEnabled !== false,
             generatedSubject: lead.generatedSubject, generatedBody: lead.generatedBody,
@@ -2663,15 +2819,10 @@ export async function processNextCampaignSendBatch(
             await safeSetDoc(tenantRepo(getCampaignActiveCtx()).campaignRunDoc(currentRun.runId), currentRun, { merge: true });
           }
         }
-        processedCount++;
-        // Refresh the campaign's counters every 50 sends, so the screen shows progress even if this
-        // serverless call is cut off before the batch ends (COUNT queries: a few reads, not one per lead).
-        if (processedCount % 50 === 0) {
-          await recalculateAndPersistCampaignMetrics(campaignId).catch(() => {});
-        }
       } else if (sendResult.notConfigured) {
         // THIS server cannot send (e.g. Resend refused the key here). Not this lead's failure: put it back
         // to PENDING without saving anything, and stop the batch because every other lead would hit the same wall.
+        lead.emailSendStatus = 'PENDING';
         lead.sendStatus = 'PENDING';
         lead.lastError = `Not sent yet. ${sendResult.error || 'Email sending is not set up on this server.'}`;
         lead.updatedAt = now;
@@ -2679,6 +2830,7 @@ export async function processNextCampaignSendBatch(
         console.warn(`[Campaign Engine] Campaign ${campaignId}: stopping batch, this server cannot send. ${sendBlockedReason}`);
         break;
       } else {
+        lead.emailSendStatus = 'FAILED';
         lead.sendStatus = 'FAILED';
         lead.lastError = sendResult.error || 'Delivery failure';
         lead.updatedAt = now;
@@ -2697,8 +2849,10 @@ export async function processNextCampaignSendBatch(
           break;
         }
       }
+      }
     } catch (err: any) {
-      lead.sendStatus = 'FAILED';
+      if (needsEmail && lead.emailSendStatus !== 'SENT') lead.emailSendStatus = 'FAILED';
+      if (needsWhatsApp && lead.whatsappSendStatus !== 'SENT' && lead.whatsappSendStatus !== 'UNKNOWN') lead.whatsappSendStatus = 'FAILED';
       lead.lastError = err?.message || 'Unexpected sending exception';
       lead.updatedAt = new Date().toISOString();
 
@@ -2706,7 +2860,50 @@ export async function processNextCampaignSendBatch(
         await safeSetDoc(tenantRepo(getCampaignActiveCtx()).campaignLeadDoc(lead.campaignLeadId), { sendStatus: lead.sendStatus, lastError: lead.lastError || null, updatedAt: lead.updatedAt } as any, { merge: true });
       }
     } finally {
-      await finishLeadClaim(runHistoryKey, lead.sendStatus === 'SENT');
+      const emailComplete = !needsEmail || lead.emailSendStatus === 'SENT';
+      const whatsappComplete = !needsWhatsApp || lead.whatsappSendStatus === 'SENT';
+      const channelsComplete = emailComplete && whatsappComplete;
+      const finalizedAt = new Date().toISOString();
+      if (channelsComplete) {
+        lead.sendCount = (lead.sendCount || 0) + 1;
+        lead.lastSentAt = finalizedAt;
+        lead.sendStatus = 'SENT';
+        lead.lastError = undefined;
+        lead.whatsappLastError = undefined;
+        sendHistorySet.add(runHistoryKey);
+        sendHistorySet.add(campaignHistoryKey);
+      } else {
+        const pending = (needsEmail && lead.emailSendStatus === 'PENDING') ||
+          (needsWhatsApp && (lead.whatsappSendStatus === 'PENDING' || lead.whatsappSendStatus === 'SENDING'));
+        lead.sendStatus = pending ? 'PENDING' : 'FAILED';
+        lead.lastError = lead.whatsappLastError || lead.lastError || (emailSetupError || whatsappTemplateError || 'One or more campaign channels could not be delivered.');
+      }
+      lead.updatedAt = finalizedAt;
+      if (isFirebaseConfigured && db) {
+        await safeSetDoc(tenantRepo(getCampaignActiveCtx()).campaignLeadDoc(lead.campaignLeadId), {
+          sendStatus: lead.sendStatus,
+          emailSendStatus: lead.emailSendStatus || (needsEmail ? 'PENDING' : 'NOT_REQUIRED'),
+          whatsappSendStatus: lead.whatsappSendStatus || (needsWhatsApp ? 'PENDING' : 'NOT_REQUIRED'),
+          whatsappMessageId: lead.whatsappMessageId || null,
+          whatsappSentAt: lead.whatsappSentAt || null,
+          whatsappSendStartedAt: lead.whatsappSendStartedAt || null,
+          whatsappLastError: lead.whatsappLastError || null,
+          sendCount: lead.sendCount || 0,
+          lastSentAt: lead.lastSentAt || null,
+          lastError: lead.lastError || null,
+          updatedAt: finalizedAt,
+        } as any, { merge: true });
+      }
+      if (channelsComplete) {
+        const currentRun = campaignRunsMap.get(currentRunId);
+        if (currentRun) {
+          currentRun.sentCount = (currentRun.sentCount || 0) + 1;
+          if (isFirebaseConfigured && db) await safeSetDoc(tenantRepo(getCampaignActiveCtx()).campaignRunDoc(currentRun.runId), currentRun, { merge: true });
+        }
+        processedCount++;
+        if (processedCount % 50 === 0) await recalculateAndPersistCampaignMetrics(campaignId).catch(() => {});
+      }
+      await finishLeadClaim(runHistoryKey, channelsComplete);
       inFlightLeadSendsSet.delete(runHistoryKey);
       inFlightLeadSendsSet.delete(campaignHistoryKey);
     }
@@ -2714,6 +2911,12 @@ export async function processNextCampaignSendBatch(
 
   // COUNT aggregation: how many are still waiting (was: filtering every lead in memory).
   const remainingPendingCount = await countPendingLeads(campaignId);
+  if (needsEmail && needsWhatsApp && emailSetupError && remainingPendingCount > 0) {
+    campaign.status = 'PAUSED';
+    campaign.lastError = emailSetupError;
+    campaign.updatedAt = new Date().toISOString();
+    if (isFirebaseConfigured && db) await safeSetDoc(tenantRepo(getCampaignActiveCtx()).campaignDoc(campaignId), withoutCounters(campaign), { merge: true });
+  }
 
   if (remainingPendingCount === 0) {
     const now = new Date().toISOString();

@@ -848,14 +848,16 @@ function friendlyWhatsAppError(err: any): MetaChannelError {
 export async function sendWhatsAppTemplate(
   ctx: TenantContext,
   to: string,
-  template: { name: string; language: string; params?: string[] }
+  template: { name: string; language: string; params?: string[] },
+  approvedTemplateSnapshot?: WhatsAppTemplate
 ): Promise<{ messageId: string; renderedText: string }> {
   const connection = await getWhatsAppConnection(ctx);
   if (!connection || connection.status !== 'connected') throw new MetaChannelError(409, 'WhatsApp is not connected.');
   const recipient = String(to || '').replace(/[^\d]/g, '');
   if (!recipient || !template?.name || !template?.language) throw new MetaChannelError(400, 'Recipient and template are required.');
-  const approvedTemplates = await listWhatsAppTemplates(ctx);
-  const approvedTemplate = approvedTemplates.find((item) => item.name === template.name && item.language === template.language);
+  const approvedTemplate = approvedTemplateSnapshot
+    ? (String(approvedTemplateSnapshot.status || '').toUpperCase() === 'APPROVED' && approvedTemplateSnapshot.name === template.name && approvedTemplateSnapshot.language === template.language ? approvedTemplateSnapshot : undefined)
+    : (await listWhatsAppTemplates(ctx)).find((item) => item.name === template.name && item.language === template.language);
   if (!approvedTemplate) {
     throw new MetaChannelError(422, 'This WhatsApp template is not currently approved and available to send. Refresh template status and choose an approved template.');
   }

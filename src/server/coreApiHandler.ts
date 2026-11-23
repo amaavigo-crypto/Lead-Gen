@@ -2650,7 +2650,9 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
 
   // Workspace WhatsApp templates. Meta is the source of truth for current approval status.
   if (url === '/api/whatsapp/templates/manage' && (req.method === 'GET' || req.method === 'POST')) {
-    if (activeTenantCtx.role === 'member') {
+    // Any signed-in workspace user may view the current template approval state for campaign selection.
+    // Only workspace admins can create or submit templates to Meta.
+    if (req.method === 'POST' && activeTenantCtx.role === 'member') {
       res.statusCode = 403;
       res.end(JSON.stringify({ error: 'Only workspace admins can manage WhatsApp templates.' }));
       return true;

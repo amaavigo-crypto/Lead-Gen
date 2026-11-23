@@ -37,10 +37,8 @@ import {
   Database,
   Check,
   Copy,
-  Paperclip,
   Code,
   Type,
-  File,
   Users,
   Image as ImageIcon,
 } from 'lucide-react';
@@ -60,8 +58,18 @@ import {
 } from '../types/index.js';
 import { INITIAL_CAMPAIGN } from '../services/dataService.js';
 import { zonedLocalToUtcIso, utcToZonedLocal, formatZoned, timeUntil } from '../shared/zonedTime';
-import { markDuplicateEmails, summarizeLeads } from '../shared/leadDedupe';
+import { summarizeLeads } from '../shared/leadDedupe';
 import { getUnsupportedEmailTemplateVariables, SUPPORTED_EMAIL_TEMPLATE_VARIABLES } from '../shared/emailTemplateValidation';
+
+type CampaignWhatsAppTemplate = {
+  id?: string;
+  name: string;
+  language: string;
+  status?: string;
+  category?: string;
+  body: string;
+  paramCount: number;
+};
 
 interface CampaignManagementProps {
   onOpenConversation?: (conversationId: string) => void;
@@ -159,6 +167,12 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   // Create Campaign Wizard State
   const [newCampaignName, setNewCampaignName] = useState('');
   const [newCampaignType, setNewCampaignType] = useState<'EMAIL' | 'WHATSAPP' | 'WHATSAPP_EMAIL'>('EMAIL');
+  const needsCampaignEmail = newCampaignType === 'EMAIL' || newCampaignType === 'WHATSAPP_EMAIL';
+  const needsCampaignWhatsApp = newCampaignType === 'WHATSAPP' || newCampaignType === 'WHATSAPP_EMAIL';
+  const [whatsappCampaignTemplates, setWhatsappCampaignTemplates] = useState<CampaignWhatsAppTemplate[]>([]);
+  const [selectedWhatsAppTemplateKey, setSelectedWhatsAppTemplateKey] = useState('');
+  const [isLoadingWhatsAppTemplates, setIsLoadingWhatsAppTemplates] = useState(false);
+  const [whatsappTemplateError, setWhatsAppTemplateError] = useState<string | null>(null);
   const [campaignMode, setCampaignMode] = useState<'PREDEFINED' | 'AI_GENERATED'>('PREDEFINED');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const selectedTemplateIdRef = useRef<string>(selectedTemplateId);
@@ -168,6 +182,10 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   useEffect(() => {
     selectedTemplateIdRef.current = selectedTemplateId;
   }, [selectedTemplateId]);
+
+  useEffect(() => {
+    if (newCampaignType === 'WHATSAPP') setCampaignMode('PREDEFINED');
+  }, [newCampaignType]);
 
   // Fetch all templates directly from Firestore DB & API
   const fetchTemplatesDirectlyFromDb = async (): Promise<EmailTemplate[]> => {
@@ -236,6 +254,32 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     selectedTemplateIdRef.current = templateId;
     await loadTemplateDirectlyFromDb(templateId);
   };
+
+  const fetchWhatsAppCampaignTemplates = async () => {
+    setIsLoadingWhatsAppTemplates(true);
+    setWhatsAppTemplateError(null);
+    try {
+      const response = await fetch('/api/whatsapp/templates/manage', { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'Could not load WhatsApp templates.');
+      const approved = (Array.isArray(data.templates) ? data.templates : [])
+        .filter((template: CampaignWhatsAppTemplate) => String(template.status || '').toUpperCase() === 'APPROVED')
+        .sort((a: CampaignWhatsAppTemplate, b: CampaignWhatsAppTemplate) => a.name.localeCompare(b.name));
+      setWhatsappCampaignTemplates(approved);
+      setSelectedWhatsAppTemplateKey((current) => current && approved.some((template: CampaignWhatsAppTemplate) => `${template.name}::${template.language}` === current)
+        ? current : approved[0] ? `${approved[0].name}::${approved[0].language}` : '');
+    } catch (error: any) {
+      setWhatsappCampaignTemplates([]);
+      setSelectedWhatsAppTemplateKey('');
+      setWhatsAppTemplateError(error?.message || 'Could not load WhatsApp templates.');
+    } finally {
+      setIsLoadingWhatsAppTemplates(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isCreateModalOpen && needsCampaignWhatsApp) void fetchWhatsAppCampaignTemplates();
+  }, [isCreateModalOpen, needsCampaignWhatsApp]);
 
   const openCreateCampaignModal = async (preferredTemplateId?: string) => {
     setCampaignMode('PREDEFINED');
@@ -331,18 +375,46 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     designation: '',
   });
   const [parsedPreviewLeads, setParsedPreviewLeads] = useState<any[]>([]);
-  // Upload summary: unique leads that will be created vs. repeated / invalid rows that are skipped.
-  const leadSummary = useMemo(() => summarizeLeads(parsedPreviewLeads), [parsedPreviewLeads]);
+  // Validate each row against the destinations required by the selected campaign type.
+  const campaignPreviewLeads = useMemo(() => {
+    const firstEmailRow = new Map<string, number>();
+    const firstPhoneRow = new Map<string, number>();
+    return parsedPreviewLeads.map((lead, index) => {
+      const email = String(lead.email || '').trim().toLowerCase();
+      const phoneText = String(lead.phone || '').trim();
+      const phoneDigits = phoneText.replace(/[^\d]/g, '');
+      const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+      const phoneValid = (phoneText.startsWith('+') || phoneDigits.length >= 11) && phoneDigits.length >= 8 && phoneDigits.length <= 15;
+      if ((needsCampaignEmail && !emailValid) || (needsCampaignWhatsApp && !phoneValid)) {
+        return { ...lead, isValid: false, isDuplicate: false };
+      }
+      const duplicateEmail = needsCampaignEmail ? firstEmailRow.get(email) : undefined;
+      const phoneKey = phoneDigits.slice(-10);
+      const duplicatePhone = needsCampaignWhatsApp ? firstPhoneRow.get(phoneKey) : undefined;
+      const duplicateOfRow = duplicateEmail ?? duplicatePhone;
+      if (duplicateOfRow !== undefined) return { ...lead, isValid: false, isDuplicate: true, duplicateOfRow };
+      const rowNumber = lead.rowNumber || index + 1;
+      if (needsCampaignEmail) firstEmailRow.set(email, rowNumber);
+      if (needsCampaignWhatsApp) firstPhoneRow.set(phoneKey, rowNumber);
+      return { ...lead, isValid: true, isDuplicate: false };
+    });
+  }, [parsedPreviewLeads, needsCampaignEmail, needsCampaignWhatsApp]);
+  const validCampaignLeads = useMemo(
+    () => campaignPreviewLeads.filter((lead) => lead.isValid && !lead.isDuplicate),
+    [campaignPreviewLeads]
+  );
+  const leadSummary = useMemo(() => summarizeLeads(campaignPreviewLeads), [campaignPreviewLeads]);
   const downloadSkippedRows = () => {
-    const skipped = parsedPreviewLeads.filter((l) => !l.isValid || l.isDuplicate);
+    const skipped = campaignPreviewLeads.filter((l) => !l.isValid || l.isDuplicate);
     if (skipped.length === 0) return;
     const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const csv = [
-      ['row', 'email', 'name', 'company', 'reason'].join(','),
+      ['row', 'email', 'phone', 'name', 'company', 'reason'].join(','),
       ...skipped.map((l) =>
         [
           l.rowNumber,
           esc(l.email),
+          esc(l.phone),
           esc(l.name),
           esc(l.companyName),
           esc(l.isDuplicate ? `Duplicate of row ${l.duplicateOfRow}` : 'Invalid email'),
@@ -407,7 +479,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   ];
 
   const handleLoadSampleLeads = () => {
-    setParsedPreviewLeads(markDuplicateEmails([...SAMPLE_PILGRIMAGE_LEADS]));
+    setParsedPreviewLeads([...SAMPLE_PILGRIMAGE_LEADS]);
     setUploadedFileName('5_Sample_Pilgrimage_Tour_Operators.csv');
     setUploadError(null);
     setCreateCampaignError(null);
@@ -422,27 +494,20 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
       setParsedPreviewLeads([]);
       return;
     }
-    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-    const parsed = lines.map((line, idx) => {
+    const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
+    const parsed = lines.map((line, index) => {
       const parts = line.includes('\t') ? line.split('\t') : line.includes(',') ? line.split(',') : [line];
-      const emailPart = parts.find((p) => p.includes('@')) || parts[0] || '';
+      const emailPart = parts.find((part) => /@/.test(part)) || '';
+      const phonePart = parts.find((part) => part !== emailPart && String(part).replace(/[^\d]/g, '').length >= 8) || '';
       const email = emailPart.replace(/[<>"']/g, '').trim();
-      const remainingParts = parts.filter((p) => p !== emailPart).map((p) => p.trim());
-      const name = remainingParts[0] || (email ? email.split('@')[0] : `Lead ${idx + 1}`);
-      const companyName = remainingParts[1] || `${name}'s Agency`;
-      const phone = remainingParts[2] || '';
-      return {
-        rowNumber: idx + 1,
-        email,
-        name,
-        companyName,
-        phone,
-        designation: 'Director / Owner',
-        isValid: Boolean(email && email.includes('@') && email.includes('.')),
-      };
-    }).filter((l) => l.email);
-
-    setParsedPreviewLeads(markDuplicateEmails(parsed));
+      const phone = String(phonePart || (!emailPart ? parts[0] : '') || '').replace(/[<>"']/g, '').trim();
+      const remaining = parts.filter((part) => part !== emailPart && part !== phonePart).map((part) => part.trim()).filter(Boolean);
+      const name = remaining[0] || (email ? email.split('@')[0] : 'Lead ' + (index + 1));
+      const companyName = remaining[1] || name + "'s Company";
+      const designation = remaining[2] || 'Director / Owner';
+      return { rowNumber: index + 1, email, name, companyName, phone, designation, isValid: Boolean(email || phone) };
+    }).filter((lead) => lead.email || lead.phone);
+    setParsedPreviewLeads(parsed);
     setUploadedFileName(`Pasted_Leads_${parsed.length}_recipients`);
     setUploadError(null);
     setCreateCampaignError(null);
@@ -1171,12 +1236,14 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
           return;
         }
 
-        // Check if row 0 has an email address (indicates no header row)
+        // Detect headerless uploads beginning with either an email address or a phone number.
         let headers: string[] = [];
         let dataRows: any[][] = [];
 
         const firstRowStr = (rows[0] || []).join(' ');
-        const hasHeader = !firstRowStr.includes('@');
+        const firstCell = String(rows[0]?.[0] || '').trim();
+        const firstCellLooksLikePhone = firstCell.replace(/[^\d]/g, '').length >= 8 && !firstCell.includes('@');
+        const hasHeader = !firstRowStr.includes('@') && !firstCellLooksLikePhone;
 
         if (hasHeader && rows.length >= 2) {
           headers = rows[0].map((h: any, i: number) => String(h || `Column_${i + 1}`).trim());
@@ -1184,7 +1251,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
         } else {
           // No header row: synthesize headers
           const maxCols = Math.max(...rows.map((r) => (r ? r.length : 0)), 1);
-          headers = Array.from({ length: maxCols }, (_, i) => i === 0 ? 'Email' : i === 1 ? 'Name' : i === 2 ? 'Company' : `Column_${i + 1}`);
+          headers = Array.from({ length: maxCols }, (_, i) => i === 0 ? (firstCellLooksLikePhone ? 'Phone' : 'Email') : i === 1 ? 'Name' : i === 2 ? 'Company' : i === 3 ? (firstCellLooksLikePhone ? 'Email' : 'Phone') : `Column_${i + 1}`);
           dataRows = rows.filter((r) => r && r.length > 0 && r.some((c) => Boolean(c)));
         }
 
@@ -1200,7 +1267,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
         const findCol = (candidates: string[]) =>
           headers.find((h) => candidates.some((c) => h.toLowerCase().includes(c))) || '';
 
-        const detectedEmail = findCol(['email', 'e-mail', 'mail']) || headers[0] || '';
+        const detectedEmail = findCol(['email', 'e-mail', 'mail']);
         const detectedName = findCol(['name', 'contact', 'person', 'lead']);
         const detectedCompany = findCol(['company', 'agency', 'firm', 'organization', 'operator']);
         const detectedPhone = findCol(['phone', 'mobile', 'whatsapp', 'tel']);
@@ -1230,27 +1297,23 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     const companyIdx = headers.indexOf(mapping.company);
     const phoneIdx = headers.indexOf(mapping.phone);
     const desigIdx = headers.indexOf(mapping.designation);
-
-    const parsed = rows
-      .map((r, i) => {
-        const email = emailIdx >= 0 ? String(r[emailIdx] || '').trim() : '';
-        const name = nameIdx >= 0 ? String(r[nameIdx] || '').trim() : '';
-        const company = companyIdx >= 0 ? String(r[companyIdx] || '').trim() : '';
-        const phone = phoneIdx >= 0 ? String(r[phoneIdx] || '').trim() : '';
-        const designation = desigIdx >= 0 ? String(r[desigIdx] || '').trim() : '';
-        return {
-          rowNumber: i + 1,
-          email,
-          name: name || (email ? email.split('@')[0] : 'Lead'),
-          companyName: company || 'Agency',
-          phone,
-          designation,
-          isValid: Boolean(email && email.includes('@')),
-        };
-      })
-      .filter((l) => l.email);
-
-    setParsedPreviewLeads(markDuplicateEmails(parsed));
+    const parsed = rows.map((row, index) => {
+      const email = emailIdx >= 0 ? String(row[emailIdx] || '').trim() : '';
+      const name = nameIdx >= 0 ? String(row[nameIdx] || '').trim() : '';
+      const company = companyIdx >= 0 ? String(row[companyIdx] || '').trim() : '';
+      const phone = phoneIdx >= 0 ? String(row[phoneIdx] || '').trim() : '';
+      const designation = desigIdx >= 0 ? String(row[desigIdx] || '').trim() : '';
+      return {
+        rowNumber: index + 1,
+        email,
+        name: name || (email ? email.split('@')[0] : 'Lead ' + (index + 1)),
+        companyName: company || 'Company',
+        phone,
+        designation,
+        isValid: Boolean(email || phone),
+      };
+    }).filter((lead) => lead.email || lead.phone);
+    setParsedPreviewLeads(parsed);
   };
 
   const handleColumnMappingChange = (field: keyof typeof columnMapping, colName: string) => {
@@ -1261,7 +1324,11 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
 
   // Preview AI Generated Emails
   const handlePreviewAiEmails = async () => {
-    const validLeads = parsedPreviewLeads.filter((l) => l.isValid);
+    const validLeads = validCampaignLeads;
+    if (!needsCampaignEmail) {
+      alert('AI email preview is available only for campaigns that include Email.');
+      return;
+    }
     if (validLeads.length === 0) {
       alert('Please upload a file with valid leads first.');
       return;
@@ -1298,14 +1365,14 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
       return;
     }
     const isDatabaseSource = leadInputMethod === 'DATABASE';
-    const validLeads = parsedPreviewLeads.filter((l) => l.isValid);
+    const validLeads = validCampaignLeads;
     if (isDatabaseSource) {
       if (!selectedLeadDatabaseId || !selectedLeadDatabase) {
         setCreateCampaignError('Select a saved database first.');
         return;
       }
       if (newCampaignType !== 'EMAIL') {
-        setCreateCampaignError('Saved database campaigns currently support the existing email campaign engine only.');
+        setCreateCampaignError('Saved databases currently support Email only. Upload or paste phone-number audiences for WhatsApp campaigns.');
         return;
       }
       if ((selectedLeadDatabase.emailEligibleCount || 0) < 1) {
@@ -1317,15 +1384,25 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
       return;
     }
 
-    const effectiveTemplateId =
-      campaignMode === 'PREDEFINED'
-        ? selectedTemplateId || selectedTemplateIdRef.current || (templates.length > 0 ? templates[0].templateId : undefined)
-        : undefined;
+    const effectiveTemplateId = needsCampaignEmail && campaignMode === 'PREDEFINED'
+      ? selectedTemplateId || selectedTemplateIdRef.current || (templates.length > 0 ? templates[0].templateId : undefined)
+      : undefined;
 
     const matchedTemplate =
       (selectedTemplateFromDb && selectedTemplateFromDb.templateId === effectiveTemplateId)
         ? selectedTemplateFromDb
-        : templates.find((t) => t.templateId === effectiveTemplateId);
+        : templates.find((template) => template.templateId === effectiveTemplateId);
+    if (needsCampaignEmail && campaignMode === 'PREDEFINED' && !matchedTemplate) {
+      setCreateCampaignError('Choose an available email template before creating this campaign.');
+      return;
+    }
+    const selectedWhatsAppCampaignTemplate = whatsappCampaignTemplates.find((template) =>
+      `${template.name}::${template.language}` === selectedWhatsAppTemplateKey
+    );
+    if (needsCampaignWhatsApp && !selectedWhatsAppCampaignTemplate) {
+      setCreateCampaignError(whatsappTemplateError || 'Choose a currently approved WhatsApp template before creating this campaign.');
+      return;
+    }
 
     let scheduledStartAt: string | null = null;
     if (launchMode === 'SCHEDULE') {
@@ -1356,6 +1433,8 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
           templateName: matchedTemplate?.name,
           templateSubject: matchedTemplate?.subject,
           templateBody: matchedTemplate?.body,
+          whatsappTemplateName: selectedWhatsAppCampaignTemplate?.name,
+          whatsappTemplateLanguage: selectedWhatsAppCampaignTemplate?.language,
           sourceFileName: isDatabaseSource
             ? `Database: ${selectedLeadDatabase?.name || selectedLeadDatabaseId}`
             : uploadedFileName || 'Leads List',
@@ -1417,18 +1496,6 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     setLoading(false);
   };
 
-  function stripHtml(html: string): string {
-    if (!html) return '';
-    try {
-      const tmp = document.createElement('div');
-      tmp.innerHTML = html;
-      return tmp.textContent || tmp.innerText || '';
-    } catch {
-      return html.replace(/<[^>]*>?/gm, '');
-    }
-  }
-
-  // Filtered Leads
   const filteredLeads = useMemo(() => {
     // With Firebase, search runs over the whole campaign via the search index (searchResults);
     // without it, fall back to filtering the loaded rows.
@@ -2314,34 +2381,30 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
 
               {/* Campaign Type Selection */}
               <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">
-                  Campaign Type *
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <div
-                    onClick={() => setNewCampaignType('EMAIL')}
-                    className={`p-3 rounded-xl border cursor-pointer transition flex items-center gap-2 ${
-                      newCampaignType === 'EMAIL'
-                        ? 'bg-blue-50 border-[#155eef] text-[#0848ef] font-semibold'
-                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'
-                    }`}
-                  >
-                    <Mail className="w-4 h-4 text-[#155eef]" />
-                    <div>
-                      <div className="text-xs font-semibold">EMAIL</div>
-                      <div className="text-[10px] text-slate-500">SMTP Active</div>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl border border-slate-200 bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed">
-                    <div className="text-xs font-semibold">WHATSAPP</div>
-                    <div className="text-[10px] text-slate-500">Coming Soon</div>
-                  </div>
-
-                  <div className="p-3 rounded-xl border border-slate-200 bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed">
-                    <div className="text-xs font-semibold">WHATSAPP + EMAIL</div>
-                    <div className="text-[10px] text-slate-500">Coming Soon</div>
-                  </div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Campaign Type *</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {([
+                    { id: 'EMAIL', label: 'EMAIL', detail: 'Email campaign', icon: <Mail className="w-4 h-4" /> },
+                    { id: 'WHATSAPP', label: 'WHATSAPP', detail: 'Approved templates', icon: <MessageSquare className="w-4 h-4" /> },
+                    { id: 'WHATSAPP_EMAIL', label: 'WHATSAPP + EMAIL', detail: 'Both channels', icon: <Layers className="w-4 h-4" /> },
+                  ] as const).map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => {
+                        setNewCampaignType(option.id);
+                        if (option.id === 'WHATSAPP') setCampaignMode('PREDEFINED');
+                        setCreateCampaignError(null);
+                      }}
+                      className={`p-3 rounded-xl border text-left transition flex items-center gap-2 ${newCampaignType === option.id ? 'bg-blue-50 border-[#155eef] text-[#0848ef] font-semibold' : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'}`}
+                    >
+                      <span className="text-[#155eef]">{option.icon}</span>
+                      <span>
+                        <span className="block text-xs font-semibold">{option.label}</span>
+                        <span className="block text-[10px] text-slate-500">{option.detail}</span>
+                      </span>
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -2546,67 +2609,41 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     <span>Auto-Detected Columns Mapping</span>
                   </span>
 
-                  <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                     <div>
-                      <label className="block text-slate-600 mb-1">Email Column (Required) *</label>
-                      <select
-                        value={columnMapping.email}
-                        onChange={(e) => handleColumnMappingChange('email', e.target.value)}
-                        className="w-full p-2 bg-white border border-slate-200 rounded text-slate-800"
-                      >
-                        {rawHeaders.map((h) => (
-                          <option key={h} value={h}>
-                            {h}
-                          </option>
-                        ))}
+                      <label className="block text-slate-600 mb-1">Email Column {needsCampaignEmail ? '(Required) *' : '(Optional)'}</label>
+                      <select value={columnMapping.email} onChange={(e) => handleColumnMappingChange('email', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded text-slate-800">
+                        <option value="">None</option>
+                        {rawHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
                       </select>
                     </div>
-
+                    <div>
+                      <label className="block text-slate-600 mb-1">Phone / WhatsApp Column {needsCampaignWhatsApp ? '(Required) *' : '(Optional)'}</label>
+                      <select value={columnMapping.phone} onChange={(e) => handleColumnMappingChange('phone', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded text-slate-800">
+                        <option value="">None</option>
+                        {rawHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                      <p className="mt-1 text-[10px] text-slate-400">Use an international number with country code, e.g. +91 98765 43210.</p>
+                    </div>
                     <div>
                       <label className="block text-slate-600 mb-1">Name / Contact Column</label>
-                      <select
-                        value={columnMapping.name}
-                        onChange={(e) => handleColumnMappingChange('name', e.target.value)}
-                        className="w-full p-2 bg-white border border-slate-200 rounded text-slate-800"
-                      >
-                        <option value="">None (Use email prefix)</option>
-                        {rawHeaders.map((h) => (
-                          <option key={h} value={h}>
-                            {h}
-                          </option>
-                        ))}
+                      <select value={columnMapping.name} onChange={(e) => handleColumnMappingChange('name', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded text-slate-800">
+                        <option value="">None (Use contact value)</option>
+                        {rawHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
                       </select>
                     </div>
-
                     <div>
                       <label className="block text-slate-600 mb-1">Company Column</label>
-                      <select
-                        value={columnMapping.company}
-                        onChange={(e) => handleColumnMappingChange('company', e.target.value)}
-                        className="w-full p-2 bg-white border border-slate-200 rounded text-slate-800"
-                      >
+                      <select value={columnMapping.company} onChange={(e) => handleColumnMappingChange('company', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded text-slate-800">
                         <option value="">None (Default)</option>
-                        {rawHeaders.map((h) => (
-                          <option key={h} value={h}>
-                            {h}
-                          </option>
-                        ))}
+                        {rawHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
                       </select>
                     </div>
-
                     <div>
                       <label className="block text-slate-600 mb-1">Designation Column</label>
-                      <select
-                        value={columnMapping.designation}
-                        onChange={(e) => handleColumnMappingChange('designation', e.target.value)}
-                        className="w-full p-2 bg-white border border-slate-200 rounded text-slate-800"
-                      >
+                      <select value={columnMapping.designation} onChange={(e) => handleColumnMappingChange('designation', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded text-slate-800">
                         <option value="">None</option>
-                        {rawHeaders.map((h) => (
-                          <option key={h} value={h}>
-                            {h}
-                          </option>
-                        ))}
+                        {rawHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
                       </select>
                     </div>
                   </div>
@@ -2626,12 +2663,12 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                       </div>
                       {leadSummary.duplicates > 0 && (
                         <div className="mt-1 space-y-0.5 text-amber-700">
-                          {parsedPreviewLeads
+                          {campaignPreviewLeads
                             .filter((l) => l.isDuplicate)
                             .slice(0, 3)
                             .map((l) => (
                               <div key={`dup-${l.rowNumber}`} className="font-mono">
-                                {l.email} · row {l.rowNumber} (duplicate of row {l.duplicateOfRow})
+                                {needsCampaignEmail ? l.email : l.phone} · row {l.rowNumber} (duplicate of row {l.duplicateOfRow})
                               </div>
                             ))}
                           {leadSummary.duplicates > 3 && <div>and {leadSummary.duplicates - 3} more</div>}
@@ -2645,9 +2682,9 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     <div className="mt-2 pt-2 border-t border-slate-200 text-[11px] text-slate-500">
                       <span className="font-semibold text-slate-700">Preview (Sample Leads):</span>
                       <div className="mt-1 space-y-1">
-                        {parsedPreviewLeads.filter((l) => l.isValid).slice(0, 3).map((l, i) => (
+                        {validCampaignLeads.slice(0, 3).map((l, i) => (
                           <div key={i} className="flex items-center gap-2 text-slate-700">
-                            <span className="text-[#155eef] font-mono">{l.email}</span>
+                            <span className="text-[#155eef] font-mono">{needsCampaignEmail ? l.email : l.phone}</span>
                             <span>•</span>
                             <span>{l.name}</span>
                             <span>•</span>
@@ -2661,284 +2698,65 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
               )}
 
               <div id="campaign-create-content" className="scroll-mt-20" />
-              {/* Campaign Mode Selection */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">
-                  Campaign Email Generation Mode *
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <div
-                    onClick={() => setCampaignMode('PREDEFINED')}
-                    className={`p-3.5 rounded-xl border cursor-pointer transition ${
-                      campaignMode === 'PREDEFINED'
-                        ? 'bg-blue-50 border-[#155eef] text-slate-900'
-                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 font-semibold text-xs text-slate-900">
-                      <FileText className="w-4 h-4 text-[#155eef]" />
-                      <span>Predefined Template</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Uses standard template with variable replacement ({"{{name}}"}, {"{{company}}"}).
-                    </p>
-                  </div>
-
-                  <div
-                    onClick={() => setCampaignMode('AI_GENERATED')}
-                    className={`p-3.5 rounded-xl border cursor-pointer transition ${
-                      campaignMode === 'AI_GENERATED'
-                        ? 'bg-blue-50 border-[#155eef] text-slate-900'
-                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 font-semibold text-xs text-slate-900">
-                      <Sparkles className="w-4 h-4 text-[#155eef] animate-pulse" />
-                      <span>AI Intelligent Personalization</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Full AI research, web signals, pain points, and Knowledge Base product pitching per lead.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Conditional: Predefined Template Selector or AI Preview Button */}
-              {campaignMode === 'PREDEFINED' ? (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                        Select Predefined Email Template *
-                      </label>
-                      <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-medium">
-                        <Database className="w-3 h-3 text-emerald-600" />
-                        <span>Database Synced</span>
-                      </span>
-                    </div>
-                    <span className="text-[11px] text-[#155eef] font-semibold">
-                      {templates.length} templates in database
-                    </span>
-                  </div>
-
-                  {/* Dropdown Selector */}
-                  <select
-                    value={selectedTemplateId || (templates.length > 0 ? templates[0].templateId : '')}
-                    onChange={(e) => handleSelectTemplate(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-[#155eef] transition"
-                  >
-                    {templates.map((tpl) => (
-                      <option key={tpl.templateId} value={tpl.templateId}>
-                        {tpl.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Visual Selectable Template Cards */}
-                  <div className="space-y-2">
-                    <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                      Or Select Directly from Database:
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-52 overflow-y-auto pr-1">
-                      {templates.map((tpl) => {
-                        const isSelected = (selectedTemplateId || (templates.length > 0 ? templates[0].templateId : '')) === tpl.templateId;
-                        return (
-                          <div
-                            key={tpl.templateId}
-                            onClick={() => handleSelectTemplate(tpl.templateId)}
-                            className={`p-3 rounded-xl border cursor-pointer transition text-left relative flex flex-col justify-between ${
-                              isSelected
-                                ? 'bg-blue-50 border-[#155eef] ring-1 ring-blue-500/30 shadow-2xs'
-                                : 'bg-slate-50 border-slate-200 hover:border-slate-300 text-slate-600'
-                            }`}
-                          >
-                            <div>
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <h4 className={`text-xs font-bold leading-tight ${isSelected ? 'text-[#155eef]' : 'text-slate-900'}`}>
-                                    {tpl.name}
-                                  </h4>
-                                  {(() => {
-                                    if (tpl.format === 'html' || (!tpl.format && (tpl.htmlBody?.includes('<!DOCTYPE') || tpl.htmlBody?.includes('<html') || tpl.htmlBody?.includes('<table')))) {
-                                      return (
-                                        <span className="text-[9px] px-1.5 py-0.5 bg-sky-50 text-sky-700 rounded font-medium">
-                                          HTML Rich Template
-                                        </span>
-                                      );
-                                    }
-                                    if (tpl.format === 'visual' || (!tpl.format && (tpl.isHtml || tpl.htmlBody))) {
-                                      return (
-                                        <span className="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded font-medium">
-                                          Visual Styled Template
-                                        </span>
-                                      );
-                                    }
-                                    return (
-                                      <span className="text-[9px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-medium">
-                                        Plain Text Template
-                                      </span>
-                                    );
-                                  })()}
-                                  {tpl.attachments && tpl.attachments.length > 0 && (
-                                    <span className="text-[9px] px-1.5 py-0.2 bg-amber-50 text-amber-700 rounded font-medium flex items-center gap-0.5">
-                                      <Paperclip className="w-2.5 h-2.5" />
-                                      <span>{tpl.attachments.length}</span>
-                                    </span>
-                                  )}
-                                </div>
-                                <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
-                                  isSelected ? 'border-[#155eef] bg-[#0848ef] text-white' : 'border-slate-300'
-                                }`}>
-                                  {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                                </div>
-                              </div>
-                              <p className="text-[11px] text-slate-500 mt-1 line-clamp-1 font-mono">
-                                {tpl.subject}
-                              </p>
-                              <p className="text-[10px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">
-                                {stripHtml(tpl.htmlBody || tpl.body).slice(0, 100)}...
-                              </p>
-                            </div>
-                            <div className="mt-2 pt-2 border-t border-slate-200 flex items-center justify-between text-[10px]">
-                              <span className={isSelected ? 'text-[#155eef] font-semibold' : 'text-slate-400'}>
-                                {isSelected ? '✓ ACTIVE SELECTION' : 'Click to select from DB'}
-                              </span>
-                              <span className="text-slate-400 font-mono text-[9px]">DB Doc: {tpl.templateId.slice(0, 14)}</span>
-                            </div>
-                          </div>
-                        );
-                      })}
+              {needsCampaignEmail && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Campaign Email Generation Mode *</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button type="button" onClick={() => setCampaignMode('PREDEFINED')} className={`p-3.5 rounded-xl border text-left transition ${campaignMode === 'PREDEFINED' ? 'bg-blue-50 border-[#155eef] text-slate-900' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
+                        <span className="flex items-center gap-2 font-semibold text-xs"><FileText className="w-4 h-4 text-[#155eef]" />Predefined Template</span>
+                        <span className="block text-[11px] text-slate-500 mt-1">Personalize a saved email template for every recipient.</span>
+                      </button>
+                      <button type="button" onClick={() => setCampaignMode('AI_GENERATED')} className={`p-3.5 rounded-xl border text-left transition ${campaignMode === 'AI_GENERATED' ? 'bg-blue-50 border-[#155eef] text-slate-900' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
+                        <span className="flex items-center gap-2 font-semibold text-xs"><Sparkles className="w-4 h-4 text-[#155eef]" />AI Intelligent Personalization</span>
+                        <span className="block text-[11px] text-slate-500 mt-1">Research and personalize an email for every recipient.</span>
+                      </button>
                     </div>
                   </div>
-
-                  {/* Active Selected Template Verification Box */}
-                  {(() => {
-                    const currentId = selectedTemplateId || (templates.length > 0 ? templates[0].templateId : '');
-                    const activeTpl = (selectedTemplateFromDb && selectedTemplateFromDb.templateId === currentId)
-                      ? selectedTemplateFromDb
-                      : templates.find((t) => t.templateId === currentId);
-                    if (!activeTpl) return null;
-                    return (
-                      <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl text-xs space-y-2.5">
-                        <div className="flex items-center justify-between border-b border-blue-100 pb-2">
-                          <div className="flex items-center gap-2">
-                            <Database className="w-4 h-4 text-[#155eef]" />
-                            <span className="text-[11px] font-bold text-[#0848ef] uppercase tracking-wider">
-                              Retrieved from Database:
-                            </span>
-                            {isLoadingTemplateFromDb && (
-                              <RefreshCw className="w-3 h-3 text-[#155eef] animate-spin" />
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {activeTpl.attachments && activeTpl.attachments.length > 0 && (
-                              <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded font-medium flex items-center gap-1">
-                                <Paperclip className="w-3 h-3" />
-                                <span>{activeTpl.attachments.length} File(s) Attached</span>
-                              </span>
-                            )}
-                            <span className="text-[11px] text-[#0848ef] font-bold bg-blue-100 px-2.5 py-0.5 rounded border border-blue-200 font-mono">
-                              {activeTpl.name}
-                            </span>
-                          </div>
-                        </div>
-                        <div>
-                          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
-                            Personalized Subject Line:
-                          </span>
-                          <p className="font-semibold text-slate-800 mt-0.5 bg-white px-3 py-1.5 rounded-lg border border-slate-200 text-xs">
-                            {activeTpl.subject}
-                          </p>
-                        </div>
-                        <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
-                              Email Message Body (from DB):
-                            </span>
-                            <span className="text-[10px] text-slate-500">
-                              (Placeholders like <code className="text-[#155eef] font-mono">{"{{name}}"}</code> & <code className="text-[#155eef] font-mono">{"{{company}}"}</code> will be auto-filled)
-                            </span>
-                          </div>
-                          <div className="max-h-36 overflow-y-auto bg-white p-3 rounded-lg border border-slate-200 text-slate-800 text-xs leading-relaxed shadow-2xs">
-                            {activeTpl.htmlBody ? (
-                              <div
-                                className="prose max-w-none text-xs"
-                                dangerouslySetInnerHTML={{ __html: activeTpl.htmlBody }}
-                              />
-                            ) : (
-                              <div className="font-mono whitespace-pre-wrap">
-                                {activeTpl.body}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Attachments preview box */}
-                        {activeTpl.attachments && activeTpl.attachments.length > 0 && (
-                          <div className="p-2.5 bg-white border border-slate-200 rounded-lg space-y-1.5">
-                            <div className="flex items-center justify-between text-[11px]">
-                              <span className="font-semibold text-slate-700 flex items-center gap-1">
-                                <Paperclip className="w-3.5 h-3.5 text-amber-500" />
-                                <span>Attached to outgoing campaign emails:</span>
-                              </span>
-                              <span className="text-slate-400 font-mono text-[10px]">
-                                Auto-dispatched via SMTP
-                              </span>
-                            </div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {activeTpl.attachments.map((att: any, attIdx: number) => (
-                                <div
-                                  key={att.id || attIdx}
-                                  className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-md text-[10px] text-slate-700 flex items-center gap-1.5"
-                                >
-                                  <File className="w-3 h-3 text-sky-500" />
-                                  <span className="font-medium">{att.name || att.filename}</span>
-                                  {att.size && (
-                                    <span className="text-slate-400 font-mono">
-                                      ({att.size < 1024 * 1024 ? `${(att.size / 1024).toFixed(1)} KB` : `${(att.size / (1024 * 1024)).toFixed(1)} MB`})
-                                    </span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
+                  {campaignMode === 'PREDEFINED' ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">Select Email Template *</label>
+                        <span className="text-[11px] text-[#155eef] font-semibold">{templates.length} saved</span>
                       </div>
-                    );
-                  })()}
-                </div>
-              ) : (
-                <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
-                        <Sparkles className="w-4 h-4 text-[#155eef]" />
-                        <span>AI Personalization Engine Ready</span>
-                      </h4>
-                      <p className="text-[11px] text-slate-600 mt-0.5">
-                        Each lead will receive an individually researched, tailored email referencing their company profile and {brand.companyName} product capabilities.
-                      </p>
+                      <select
+                        value={selectedTemplateId || (templates.length > 0 ? templates[0].templateId : '')}
+                        onChange={(event) => handleSelectTemplate(event.target.value)}
+                        disabled={templates.length === 0}
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-[#155eef] transition disabled:opacity-60"
+                      >
+                        <option value="">{templates.length ? 'Choose an email template' : 'No email templates available'}</option>
+                        {templates.map((template) => <option key={template.templateId} value={template.templateId}>{template.name}</option>)}
+                      </select>
+                      {isLoadingTemplateFromDb && <span className="text-[10px] text-slate-400">Loading selected template…</span>}
+                      {templates.length === 0 && <p className="text-[11px] text-amber-700">Create a campaign email template in Template Studio before launching this campaign.</p>}
                     </div>
-                    <button
-                      type="button"
-                      onClick={handlePreviewAiEmails}
-                      disabled={aiPreviewLoading || parsedPreviewLeads.length === 0 || leadInputMethod === 'DATABASE'}
-                      title={leadInputMethod === 'DATABASE' ? 'AI personalization will be generated during campaign dispatch for the saved database snapshot.' : undefined}
-                      className="px-3.5 py-2 bg-[#0848ef] hover:bg-[#063dcc] disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shrink-0 shadow-xs"
-                    >
-                      {aiPreviewLoading ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Generating AI Preview...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Preview AI Emails</span>
-                        </>
-                      )}
+                  ) : (
+                    <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3">
+                      <h4 className="text-xs font-semibold text-slate-800 flex items-center gap-1.5"><Sparkles className="w-4 h-4 text-[#155eef]" />AI Personalization Engine Ready</h4>
+                      <p className="text-[11px] text-slate-600 mt-1">Each recipient receives a researched, tailored email using your workspace knowledge.</p>
+                      <button type="button" onClick={handlePreviewAiEmails} disabled={aiPreviewLoading || validCampaignLeads.length === 0 || leadInputMethod === 'DATABASE'} className="px-3.5 py-2 bg-[#0848ef] hover:bg-[#063dcc] disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5">
+                        {aiPreviewLoading ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" />Generating preview…</> : <><Eye className="w-3.5 h-3.5" />Preview AI Emails</>}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+              {needsCampaignWhatsApp && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">Select Approved WhatsApp Template *</label>
+                    <button type="button" onClick={() => void fetchWhatsAppCampaignTemplates()} disabled={isLoadingWhatsAppTemplates} className="text-[11px] font-semibold text-[#155eef] disabled:opacity-50">
+                      {isLoadingWhatsAppTemplates ? 'Refreshing…' : 'Refresh'}
                     </button>
                   </div>
+                  <select value={selectedWhatsAppTemplateKey} onChange={(event) => setSelectedWhatsAppTemplateKey(event.target.value)} disabled={isLoadingWhatsAppTemplates || whatsappCampaignTemplates.length === 0} className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-[#155eef] transition disabled:opacity-60">
+                    <option value="">{isLoadingWhatsAppTemplates ? 'Loading approved templates…' : whatsappCampaignTemplates.length ? 'Choose an approved WhatsApp template' : 'No approved WhatsApp templates available'}</option>
+                    {whatsappCampaignTemplates.map((template) => <option key={`${template.name}::${template.language}`} value={`${template.name}::${template.language}`}>{template.name} · {template.language}</option>)}
+                  </select>
+                  {whatsappTemplateError && <p className="text-[11px] text-rose-600">{whatsappTemplateError}</p>}
+                  {!whatsappTemplateError && whatsappCampaignTemplates.length === 0 && !isLoadingWhatsAppTemplates && <p className="text-[11px] text-amber-700">Connect WhatsApp and submit a template in Template Studio. Only templates Meta currently marks Approved can be selected.</p>}
+                  {whatsappCampaignTemplates.length > 0 && <p className="text-[11px] text-slate-500">The server rechecks approval immediately before sending.</p>}
                 </div>
               )}
 
