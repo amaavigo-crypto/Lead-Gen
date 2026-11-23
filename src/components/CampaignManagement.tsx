@@ -71,6 +71,36 @@ type CampaignWhatsAppTemplate = {
   paramCount: number;
 };
 
+/**
+ * Excel can serialize a phone value as scientific notation (for example,
+ * "9.18169E+11"). Expand the decimal string before validation or sending.
+ * Numeric XLSX cells retain their full value; this also handles CSV/text cells
+ * that contain exponent notation literally.
+ */
+const normalizeSpreadsheetPhoneValue = (value: unknown): string => {
+  const raw = String(value ?? '').trim().replace(/^['’]/, '');
+  const scientific = raw.match(/^([+-]?)(\d+)(?:\.(\d*))?[eE]([+-]?\d+)$/);
+  if (!scientific) return raw;
+
+  const exponent = Number(scientific[4]);
+  // Phone numbers never need extreme exponents; avoid expanding malformed input.
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 20) return raw;
+
+  const sign = scientific[1] || '';
+  const whole = scientific[2] || '0';
+  const fraction = scientific[3] || '';
+  const digits = whole + fraction;
+  const decimalPosition = whole.length + exponent;
+
+  if (decimalPosition <= 0) {
+    return sign + '0.' + '0'.repeat(-decimalPosition) + digits;
+  }
+  if (decimalPosition >= digits.length) {
+    return sign + digits + '0'.repeat(decimalPosition - digits.length);
+  }
+  return sign + digits.slice(0, decimalPosition) + '.' + digits.slice(decimalPosition);
+};
+
 interface CampaignManagementProps {
   onOpenConversation?: (conversationId: string) => void;
   conversations?: Conversation[];
@@ -513,9 +543,9 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     const parsed = lines.map((line, index) => {
       const parts = line.includes('\t') ? line.split('\t') : line.includes(',') ? line.split(',') : [line];
       const emailPart = parts.find((part) => /@/.test(part)) || '';
-      const phonePart = parts.find((part) => part !== emailPart && String(part).replace(/[^\d]/g, '').length >= 8) || '';
+      const phonePart = parts.find((part) => part !== emailPart && normalizeSpreadsheetPhoneValue(part).replace(/[^\d]/g, '').length >= 8) || '';
       const email = emailPart.replace(/[<>"']/g, '').trim();
-      const phone = String(phonePart || (!emailPart ? parts[0] : '') || '').replace(/[<>"']/g, '').trim();
+      const phone = normalizeSpreadsheetPhoneValue(String(phonePart || (!emailPart ? parts[0] : '') || '').replace(/[<>\"]/g, '').trim());
       const remaining = parts.filter((part) => part !== emailPart && part !== phonePart).map((part) => part.trim()).filter(Boolean);
       const name = remaining[0] || (email ? email.split('@')[0] : 'Lead ' + (index + 1));
       const companyName = remaining[1] || name + "'s Company";
@@ -1273,7 +1303,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
 
         const firstRowStr = (rows[0] || []).join(' ');
         const firstCell = String(rows[0]?.[0] || '').trim();
-        const firstCellLooksLikePhone = firstCell.replace(/[^\d]/g, '').length >= 8 && !firstCell.includes('@');
+        const firstCellLooksLikePhone = normalizeSpreadsheetPhoneValue(firstCell).replace(/[^\d]/g, '').length >= 8 && !firstCell.includes('@');
         const hasHeader = !firstRowStr.includes('@') && !firstCellLooksLikePhone;
 
         if (hasHeader && rows.length >= 2) {
@@ -1332,7 +1362,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
       const email = emailIdx >= 0 ? String(row[emailIdx] || '').trim() : '';
       const name = nameIdx >= 0 ? String(row[nameIdx] || '').trim() : '';
       const company = companyIdx >= 0 ? String(row[companyIdx] || '').trim() : '';
-      const phone = phoneIdx >= 0 ? String(row[phoneIdx] || '').trim() : '';
+      const phone = phoneIdx >= 0 ? normalizeSpreadsheetPhoneValue(row[phoneIdx]) : '';
       const designation = desigIdx >= 0 ? String(row[desigIdx] || '').trim() : '';
       return {
         rowNumber: index + 1,
@@ -2594,7 +2624,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                       </code>
                       {needsCampaignWhatsApp && (
                         <p className="text-[10px] text-slate-500">
-                          Phone is required. Include the country code (for example, +91 98765 43210). For WhatsApp + Email, Email is required too. In Excel, format the Phone column as Text so the country prefix is preserved.
+                          Phone is required with the country code (for example, +91 98765 43210). For WhatsApp + Email, Email is required too. Excel tip: before pasting, set the Phone column to Text. For an existing CSV, use Data → From Text/CSV and set Phone to Text instead of double-clicking the file. If Excel already rounded the number, re-import the original source; missing digits cannot be recovered.
                         </p>
                       )}
                     </div>
