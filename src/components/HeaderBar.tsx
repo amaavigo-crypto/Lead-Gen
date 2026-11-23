@@ -12,6 +12,7 @@ import {
   Bot,
   Database,
   FileBarChart,
+  QrCode,
   Building2,
   Mail,
   Inbox,
@@ -62,6 +63,7 @@ const TAB_TITLES: Record<ActiveTab, { title: string; icon: React.ReactNode; cate
   campaigns: { title: 'Campaigns', icon: <Send className="h-4 w-4" />, category: 'GROWTH & MARKETING', workspaceLabel: 'Marketing' },
   'email-design-studio': { title: 'Template Studio', icon: <Mail className="h-4 w-4" />, category: 'GROWTH & MARKETING', workspaceLabel: 'Marketing' },
   'campaign-reports': { title: 'AI Campaign Report', icon: <FileBarChart className="h-4 w-4" />, category: 'GROWTH & MARKETING', workspaceLabel: 'Marketing' },
+  'qr-studio': { title: 'QR Studio', icon: <QrCode className="h-4 w-4" />, category: 'GROWTH & MARKETING', workspaceLabel: 'Marketing' },
   database: { title: 'Database', icon: <Database className="h-4 w-4" />, category: 'DATA MANAGEMENT', workspaceLabel: 'Database' },
   knowledge: { title: 'Knowledge Base', icon: <BookOpen className="h-4 w-4" />, category: 'AI KNOWLEDGE', workspaceLabel: 'Knowledge Base' },
   workspace: { title: 'Workspace', icon: <Building2 className="h-4 w-4" />, category: 'WORKSPACE SETTINGS', workspaceLabel: 'Workspace' },
@@ -79,6 +81,7 @@ const MARKETING_TABS: ModuleTab[] = [
   { id: 'campaigns', label: 'Campaigns', icon: <Send className="h-3.5 w-3.5" /> },
   { id: 'email-design-studio', label: 'Template Studio', icon: <Mail className="h-3.5 w-3.5" /> },
   { id: 'campaign-reports', label: 'AI Campaign Report', icon: <FileBarChart className="h-3.5 w-3.5" /> },
+  { id: 'qr-studio', label: 'QR Studio', icon: <QrCode className="h-3.5 w-3.5" /> },
 ];
 
 const SALES_TABS: ModuleTab[] = [
@@ -95,6 +98,7 @@ const MODULE_TABS: Partial<Record<ActiveTab, ModuleTab[]>> = {
   campaigns: MARKETING_TABS,
   'email-design-studio': MARKETING_TABS,
   'campaign-reports': MARKETING_TABS,
+  'qr-studio': MARKETING_TABS,
   dashboard: [{ id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-3.5 w-3.5" /> }],
   database: [{ id: 'database', label: 'Database', icon: <Database className="h-3.5 w-3.5" /> }],
   knowledge: [{ id: 'knowledge', label: 'Knowledge Base', icon: <BookOpen className="h-3.5 w-3.5" /> }],
@@ -113,6 +117,7 @@ const APP_SHORTCUTS: ModuleTab[] = [
   { id: 'campaigns', label: 'Campaigns', icon: <Send className="h-4 w-4" /> },
   { id: 'email-design-studio', label: 'Template Studio', icon: <Mail className="h-4 w-4" /> },
   { id: 'campaign-reports', label: 'Campaign Reports', icon: <FileBarChart className="h-4 w-4" /> },
+  { id: 'qr-studio', label: 'QR Studio', icon: <QrCode className="h-4 w-4" /> },
   { id: 'database', label: 'Lead Database', icon: <Database className="h-4 w-4" /> },
   { id: 'knowledge', label: 'Knowledge Base', icon: <BookOpen className="h-4 w-4" /> },
   { id: 'workspace', label: 'Workspace', icon: <Building2 className="h-4 w-4" /> },

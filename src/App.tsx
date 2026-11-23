@@ -3,6 +3,7 @@ import { lazyNamed, prefetchLazy, markAppLoaded } from './lazyLoad';
 import { BrandProvider, getCurrentBrand } from './context/BrandContext';
 import { brandHost } from './shared/brand';
 import { Navbar, ActiveTab } from './components/Navbar';
+import { PublicQrExperience } from './components/PublicQrExperience';
 import { HeaderBar } from './components/HeaderBar';
 import { UnifiedInbox } from './components/UnifiedInbox';
 import { LoginView } from './components/LoginView';
@@ -60,6 +61,7 @@ import { collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, query, 
 const DashboardView = lazyNamed(() => import('./components/DashboardView'), 'DashboardView');
 const CampaignManagement = lazyNamed(() => import('./components/CampaignManagement'), 'CampaignManagement');
 const CampaignReports = lazyNamed(() => import('./components/CampaignReports'), 'CampaignReports');
+const QRStudioView = lazyNamed(() => import('./components/QRStudio'), 'QRStudio');
 const TemplateStudio = lazyNamed(() => import('./components/TemplateStudio'), 'TemplateStudio');
 const CrmPipeline = lazyNamed(() => import('./components/CrmPipeline'), 'CrmPipeline');
 const LeadScoringView = React.lazy(() => import('./components/LeadScoringView'));
@@ -208,7 +210,7 @@ function toAppUser(u: any): AppUser {
   } as AppUser;
 }
 
-// export default function App() {
+// function AuthenticatedApp() {
 //   // Coming back from "Sign in with Microsoft" (?mailbox=...) opens Settings, where the mailbox panel shows the result.
 //   const [activeTab, setActiveTab] = useState<ActiveTab>(() =>
 //     typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('mailbox') ? 'settings' : 'inbox'
@@ -237,6 +239,7 @@ const ALL_TABS: readonly ActiveTab[] = [
   'auto-followup',
   'database',
   'campaign-reports',
+  'qr-studio',
   'company-profile',
   'agent',
 ];
@@ -288,7 +291,7 @@ function writeTabToLocation(tab: ActiveTab, workspaceSection: WorkspaceSection =
   }
 }
 
-export default function App() {
+function AuthenticatedApp() {
   const [activeTab, setActiveTabState] = useState<ActiveTab>(readTabFromLocation);
   const [workspaceSection, setWorkspaceSection] = useState<WorkspaceSection>(readWorkspaceSectionFromLocation);
   const openWorkspaceSection = useCallback((section: WorkspaceSection) => {
@@ -3021,6 +3024,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
 
             {activeTab === 'database' && <LeadDatabase isAdmin={currentUser.role === 'ADMIN'} tenantId={currentTenantId} />}
             {activeTab === 'campaign-reports' && <CampaignReports tenantId={currentTenantId} />}
+            {activeTab === 'qr-studio' && <QRStudioView tenantId={currentTenantId} />}
           </Suspense>
         )}
       </main>
@@ -3029,6 +3033,16 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
     </AgentProvider>
     </BrandProvider>
   );
+}
+
+export default function App() {
+  const path = typeof window !== 'undefined' ? window.location.pathname : '';
+  const segments = path.startsWith('/q/') ? path.slice(3).split('/') : [];
+  const code = segments.length === 1 || (segments.length === 2 && segments[1] === '')
+    ? segments[0]
+    : '';
+  if (/^[A-Za-z0-9_-]{8,64}$/.test(code)) return <PublicQrExperience code={code} />;
+  return <AuthenticatedApp />;
 }
 
 // Website form confirmation approval callback wiring.
