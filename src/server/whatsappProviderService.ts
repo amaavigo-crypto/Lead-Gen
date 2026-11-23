@@ -233,7 +233,20 @@ export async function listWhatsAppConnections(ctx: TenantContext) {
 }
 
 export async function disconnectWhatsAppConnection(ctx: TenantContext, connectionId: string): Promise<void> {
-  await disconnectWhatsAppProviderConnection(ctx, normalizeId(connectionId));
+  ensureAdapters();
+  const id = normalizeId(connectionId);
+  const connection = await getWhatsAppProviderConnection(ctx, id);
+  if (connection?.webhook?.subscriptionId) {
+    try {
+      const credentials = await getWhatsAppProviderCredentials(ctx, id);
+      const adapter = getWhatsAppProviderAdapter(connection.provider);
+      await adapter.deleteWebhook?.(credentials, connection.webhook.subscriptionId);
+    } catch (error: any) {
+      console.warn('[WhatsApp Provider] Remote webhook cleanup failed:', error?.message || error);
+    }
+  }
+  // Local deactivation remains authoritative even if provider-side unsubscribe fails.
+  await disconnectWhatsAppProviderConnection(ctx, id);
 }
 
 export async function getWhatsAppConnectionForTenant(ctx: TenantContext, connectionId: string) {
@@ -459,10 +472,16 @@ async function claimWebhookEvent(ctx: TenantContext, event: NormalizedWhatsAppEv
 }
 
 async function persistMessageStatus(ctx: TenantContext, event: Extract<NormalizedWhatsAppEvent, { kind: 'MESSAGE_STATUS' }>): Promise<void> {
-  const matches = await getDocs(query(
-    tenantRepo(ctx).whatsappOutbox(),
-    where('providerMessageId', '==', event.providerMessageId)
-  ));
+  const outbox = tenantRepo(ctx).whatsappOutbox();
+  // Most providers return their own message SID/ID. WATI status callbacks also send
+  // the client-supplied localMessageId, so match either key without duplicating a row.
+  const [providerMatches, localMatches] = await Promise.all([
+    getDocs(query(outbox, where('providerMessageId', '==', event.providerMessageId))),
+    getDocs(query(outbox, where('messageId', '==', event.providerMessageId))),
+  ]);
+  const uniqueMatches = new Map<string, any>();
+  for (const item of [...providerMatches.docs, ...localMatches.docs]) uniqueMatches.set(item.id, item);
+  const matches = { docs: [...uniqueMatches.values()] };
   for (const match of matches.docs) {
     const current = match.data() as any;
     const ordering: Record<string, number> = { UNKNOWN: 0, ACCEPTED: 1, SENT: 2, DELIVERED: 3, READ: 4, FAILED: 5 };
@@ -524,7 +543,7 @@ async function processNormalizedEvents(
   const stats = { accepted: 0, duplicates: 0 };
   for (const event of events) {
     if (!event.providerMessageId || event.connectionId !== connection.connectionId || event.provider !== connection.provider) continue;
-    if (event.kind === 'INBOUND_MESSAGE' && event.provider !== 'WATI' && normalizePhone(event.businessPhone) !== normalizePhone(connection.sender.phoneNumber)) continue;
+    if (event.kind === 'INBOUND_MESSAGE' && normalizePhone(event.businessPhone) !== normalizePhone(connection.sender.phoneNumber)) continue;
 
     const claimed = await claimWebhookEvent(ctx, event);
     if (!claimed) { stats.duplicates++; continue; }
@@ -660,9 +679,7 @@ export async function handleMetaProviderWebhook(req: any, res: any): Promise<boo
   const body = req.body || {};
   const phoneId = String(body?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id || '');
   if (!phoneId) {
-    res.statusCode = 200;
-    res.end(JSON.stringify({ received: true, ignored: 'No WhatsApp phone number ID in callback.' }));
-    return true;
+    return false;
   }
   const routeSnap = await getDoc(globalWhatsAppPhoneRouteDoc(phoneId));
   if (!routeSnap.exists()) return false; // Let the legacy Meta handler process existing Embedded Signup connections.

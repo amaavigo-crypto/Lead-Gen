@@ -21,12 +21,15 @@ export interface DuplicateInfo {
  * Marks repeated emails in an uploaded list. Duplicates get `isDuplicate: true`, `duplicateOfRow`, and
  * `isValid: false` (so every "valid leads" filter already excludes them).
  */
-export function markDuplicateEmails<T extends { email?: string; rowNumber?: number; isValid?: boolean }>(
-  list: T[]
+export function markDuplicateEmails<T extends { email?: string; phone?: string; whatsappOptIn?: boolean; rowNumber?: number; isValid?: boolean }>(
+  list: T[],
+  options: { dedupeByPhone?: boolean } = {}
 ): Array<T & { isDuplicate?: boolean; duplicateOfRow?: number }> {
   const firstRowByEmail = new Map<string, number>();
   return list.map((lead, idx) => {
-    const key = normalizeEmail(lead.email);
+    const emailKey = normalizeEmail(lead.email);
+    const phoneKey = String(lead.phone || '').replace(/\D/g, '');
+    const key = options.dedupeByPhone && phoneKey ? `phone:${phoneKey}` : emailKey ? `email:${emailKey}` : phoneKey && lead.whatsappOptIn ? `phone:${phoneKey}` : '';
     const row = lead.rowNumber || idx + 1;
     if (!key || lead.isValid === false) return { ...lead, isDuplicate: false };
     const firstRow = firstRowByEmail.get(key);

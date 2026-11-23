@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Instagram, MessageCircle, Facebook, RefreshCw, ExternalLink } from 'lucide-react';
 import { auth } from '../firebase/config.js';
+import { WhatsAppProviderConnectionsPanel } from './WhatsAppProviderConnectionsPanel.js';
 
 type Connection = {
   username?: string;
@@ -546,6 +547,8 @@ export const ConnectedChannelsPanel: React.FC<Props> = ({ tenantId, canEdit }) =
           )}
         </div>
       </div>
+
+      <WhatsAppProviderConnectionsPanel tenantId={tenantId} canEdit={!!canEdit} />
 
       {!canEdit && <p className="text-[11px] text-slate-500">Only workspace admins can connect or disconnect channels.</p>}
       <p className="text-[11px] leading-relaxed text-slate-500">

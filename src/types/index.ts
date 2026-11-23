@@ -134,6 +134,8 @@ export interface CampaignLead {
   companyName: string;
   email: string;
   phone?: string;
+  whatsappOptIn?: boolean;
+  whatsappMessageId?: string;
   sourceDatabaseId?: string;
   sourceDatabaseEntryId?: string;
   customFields?: Record<string, string>;
@@ -239,6 +241,15 @@ export interface Campaign {
   status: 'DRAFT' | 'SCHEDULED' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'FAILED';
   templateId?: string;
   templateName?: string;
+  whatsappConnectionId?: string;
+  whatsappProvider?: 'META' | 'TWILIO' | 'WATI';
+  whatsappTemplateId?: string;
+  whatsappTemplateName?: string;
+  whatsappTemplateLanguage?: string;
+  whatsappTemplateStatus?: string;
+  whatsappTemplateComponents?: Array<Record<string, unknown>>;
+  whatsappTemplateCustomParams?: Array<Record<string, unknown>>;
+  whatsappTemplateVariableMapping?: Record<string, string>;
   sourceFileName?: string;
   /** Provenance for campaigns created from a saved lead database snapshot. */
   sourceDatabaseId?: string;

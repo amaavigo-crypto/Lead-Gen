@@ -313,7 +313,7 @@ export async function updateWhatsAppProviderWebhookStatus(
   ctx: TenantContext,
   connectionId: string,
   status: WhatsAppWebhookStatus,
-  details?: { lastEventAt?: string; lastError?: string }
+  details?: { lastEventAt?: string; lastError?: string; subscriptionId?: string }
 ): Promise<void> {
   const connection = await getWhatsAppProviderConnection(ctx, connectionId);
   if (!connection) throw new WhatsAppProviderConnectionError(404, 'WhatsApp connection not found.');
@@ -324,6 +324,7 @@ export async function updateWhatsAppProviderWebhookStatus(
       status,
       ...(details?.lastEventAt ? { lastEventAt: details.lastEventAt } : {}),
       ...(details?.lastError ? { lastError: details.lastError.slice(0, 500) } : {}),
+      ...(details?.subscriptionId ? { subscriptionId: details.subscriptionId } : {}),
     },
     updatedAt: new Date().toISOString(),
   });

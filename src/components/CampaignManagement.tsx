@@ -159,6 +159,30 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   // Create Campaign Wizard State
   const [newCampaignName, setNewCampaignName] = useState('');
   const [newCampaignType, setNewCampaignType] = useState<'EMAIL' | 'WHATSAPP' | 'WHATSAPP_EMAIL'>('EMAIL');
+  const [whatsAppConnections, setWhatsAppConnections] = useState<any[]>([]);
+  const [selectedWhatsAppConnectionId, setSelectedWhatsAppConnectionId] = useState('');
+  const [whatsAppTemplates, setWhatsAppTemplates] = useState<any[]>([]);
+  const [selectedWhatsAppTemplateId, setSelectedWhatsAppTemplateId] = useState('');
+  const [whatsAppVariableMapping, setWhatsAppVariableMapping] = useState<Record<string, string>>({});
+  const [isLoadingWhatsAppTemplates, setIsLoadingWhatsAppTemplates] = useState(false);
+  const selectedWhatsAppTemplate = whatsAppTemplates.find((template: any) => template.providerTemplateId === selectedWhatsAppTemplateId);
+  const whatsAppTemplateParameterNames = useMemo(() => {
+    if (!selectedWhatsAppTemplate) return [];
+    const custom = Array.isArray(selectedWhatsAppTemplate.customParams) ? selectedWhatsAppTemplate.customParams : [];
+    const named = custom.map((item: any) => typeof item === 'string' ? item : String(item?.name || item?.paramName || item?.param_name || item?.key || item?.placeholder || '')).map((value: string) => value.trim()).filter(Boolean);
+    if (named.length) return [...new Set(named)];
+    const source = JSON.stringify(selectedWhatsAppTemplate.components || []);
+    return [...new Set([...source.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)].map((match) => String(match[1]).trim()))];
+  }, [selectedWhatsAppTemplate]);
+  useEffect(() => {
+    if (!whatsAppTemplateParameterNames.length) { setWhatsAppVariableMapping({}); return; }
+    const defaults = ['firstName', 'companyName', 'email', 'phone', 'name'];
+    setWhatsAppVariableMapping((previous) => Object.fromEntries(whatsAppTemplateParameterNames.map((name, index) => [
+      name,
+      previous[name] || defaults[index] || 'name',
+    ])));
+  }, [selectedWhatsAppTemplateId, whatsAppTemplateParameterNames.join('|')]);
+
   const [campaignMode, setCampaignMode] = useState<'PREDEFINED' | 'AI_GENERATED'>('PREDEFINED');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const selectedTemplateIdRef = useRef<string>(selectedTemplateId);
@@ -168,6 +192,38 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   useEffect(() => {
     selectedTemplateIdRef.current = selectedTemplateId;
   }, [selectedTemplateId]);
+
+  useEffect(() => {
+    if (!isCreateModalOpen || newCampaignType === 'EMAIL') return;
+    let active = true;
+    fetch('/api/whatsapp/providers').then((response) => response.json()).then((data) => {
+      if (!active) return;
+      const list = Array.isArray(data.connections) ? data.connections.filter((connection: any) => connection.status === 'CONNECTED') : [];
+      setWhatsAppConnections(list);
+      if (!selectedWhatsAppConnectionId && list[0]?.connectionId) setSelectedWhatsAppConnectionId(list[0].connectionId);
+    }).catch((error) => { if (active) console.warn('[WhatsApp campaigns] Could not load provider connections:', error?.message || error); });
+    return () => { active = false; };
+  }, [isCreateModalOpen, newCampaignType]);
+
+  useEffect(() => {
+    if (!isCreateModalOpen || newCampaignType === 'EMAIL' || !selectedWhatsAppConnectionId) {
+      setWhatsAppTemplates([]);
+      setSelectedWhatsAppTemplateId('');
+      setWhatsAppVariableMapping({});
+      return;
+    }
+    let active = true;
+    setIsLoadingWhatsAppTemplates(true);
+    fetch('/api/whatsapp/providers/' + encodeURIComponent(selectedWhatsAppConnectionId) + '/templates').then((response) => response.json()).then((data) => {
+      if (!active) return;
+      const list = Array.isArray(data.templates) ? data.templates : [];
+      setWhatsAppTemplates(list);
+      const approved = list.find((template: any) => ['APPROVED', 'APPROVED_BY_META', 'APPROVED_BY_WABA'].includes(String(template.status || '').toUpperCase()));
+      setSelectedWhatsAppTemplateId(approved?.providerTemplateId || '');
+    }).catch((error) => { if (active) console.warn('[WhatsApp campaigns] Template sync failed:', error?.message || error); })
+      .finally(() => { if (active) setIsLoadingWhatsAppTemplates(false); });
+    return () => { active = false; };
+  }, [isCreateModalOpen, newCampaignType, selectedWhatsAppConnectionId]);
 
   // Fetch all templates directly from Firestore DB & API
   const fetchTemplatesDirectlyFromDb = async (): Promise<EmailTemplate[]> => {
@@ -323,12 +379,14 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     company: string;
     phone: string;
     designation: string;
+    whatsappOptIn: string;
   }>({
     email: '',
     name: '',
     company: '',
     phone: '',
     designation: '',
+    whatsappOptIn: '',
   });
   const [parsedPreviewLeads, setParsedPreviewLeads] = useState<any[]>([]);
   // Upload summary: unique leads that will be created vs. repeated / invalid rows that are skipped.
@@ -440,9 +498,9 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
         designation: 'Director / Owner',
         isValid: Boolean(email && email.includes('@') && email.includes('.')),
       };
-    }).filter((l) => l.email);
+    }).filter((l) => l.email || (newCampaignType === 'WHATSAPP' && l.phone));
 
-    setParsedPreviewLeads(markDuplicateEmails(parsed));
+    setParsedPreviewLeads(markDuplicateEmails(parsed, { dedupeByPhone: newCampaignType === 'WHATSAPP' }));
     setUploadedFileName(`Pasted_Leads_${parsed.length}_recipients`);
     setUploadError(null);
     setCreateCampaignError(null);
@@ -1200,11 +1258,12 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
         const findCol = (candidates: string[]) =>
           headers.find((h) => candidates.some((c) => h.toLowerCase().includes(c))) || '';
 
-        const detectedEmail = findCol(['email', 'e-mail', 'mail']) || headers[0] || '';
+        const detectedEmail = findCol(['email', 'e-mail', 'mail']) || (newCampaignType === 'WHATSAPP' ? '' : headers[0] || '');
         const detectedName = findCol(['name', 'contact', 'person', 'lead']);
         const detectedCompany = findCol(['company', 'agency', 'firm', 'organization', 'operator']);
-        const detectedPhone = findCol(['phone', 'mobile', 'whatsapp', 'tel']);
+        const detectedPhone = findCol(['phone', 'mobile', 'mobile no', 'telephone', 'tel', 'whatsapp number', 'whatsapp phone', 'wa number']);
         const detectedDesignation = findCol(['designation', 'job', 'title', 'role']);
+        const detectedWhatsAppOptIn = findCol(['whatsapp opt', 'whatsapp_opt', 'whatsapp consent', 'wa consent', 'wa_opt', 'opt-in', 'optin', 'consent']);
 
         const mapping = {
           email: detectedEmail,
@@ -1212,6 +1271,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
           company: detectedCompany || '',
           phone: detectedPhone || '',
           designation: detectedDesignation || '',
+          whatsappOptIn: detectedWhatsAppOptIn || '',
         };
         setColumnMapping(mapping);
 
@@ -1230,6 +1290,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     const companyIdx = headers.indexOf(mapping.company);
     const phoneIdx = headers.indexOf(mapping.phone);
     const desigIdx = headers.indexOf(mapping.designation);
+    const optInIdx = headers.indexOf(mapping.whatsappOptIn);
 
     const parsed = rows
       .map((r, i) => {
@@ -1238,6 +1299,8 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
         const company = companyIdx >= 0 ? String(r[companyIdx] || '').trim() : '';
         const phone = phoneIdx >= 0 ? String(r[phoneIdx] || '').trim() : '';
         const designation = desigIdx >= 0 ? String(r[desigIdx] || '').trim() : '';
+        const optInValue = optInIdx >= 0 ? String(r[optInIdx] || '').trim().toLowerCase() : '';
+        const whatsappOptIn = ['yes', 'true', '1', 'y', 'opted-in', 'opted in', 'consented', 'subscribed'].includes(optInValue);
         return {
           rowNumber: i + 1,
           email,
@@ -1245,12 +1308,13 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
           companyName: company || 'Agency',
           phone,
           designation,
-          isValid: Boolean(email && email.includes('@')),
+          whatsappOptIn,
+          isValid: newCampaignType === 'WHATSAPP' ? Boolean(phone) : Boolean(email && email.includes('@')),
         };
       })
-      .filter((l) => l.email);
+      .filter((l) => l.email || (newCampaignType === 'WHATSAPP' && l.phone));
 
-    setParsedPreviewLeads(markDuplicateEmails(parsed));
+    setParsedPreviewLeads(markDuplicateEmails(parsed, { dedupeByPhone: newCampaignType === 'WHATSAPP' }));
   };
 
   const handleColumnMappingChange = (field: keyof typeof columnMapping, colName: string) => {
@@ -1299,6 +1363,24 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     }
     const isDatabaseSource = leadInputMethod === 'DATABASE';
     const validLeads = parsedPreviewLeads.filter((l) => l.isValid);
+    if (newCampaignType !== 'EMAIL') {
+      if (!selectedWhatsAppConnectionId || !selectedWhatsAppTemplateId) {
+        setCreateCampaignError('Connect a WhatsApp sender, sync its templates, and select an approved template first.');
+        return;
+      }
+      if (campaignMode !== 'PREDEFINED') {
+        setCreateCampaignError('WhatsApp campaigns must use an approved provider template. Select predefined campaign mode.');
+        return;
+      }
+      if (validLeads.some((lead) => !String(lead.phone || '').trim())) {
+        setCreateCampaignError('Every WhatsApp recipient needs a phone number with international country code.');
+        return;
+      }
+      if (validLeads.some((lead) => lead.whatsappOptIn !== true)) {
+        setCreateCampaignError('Every WhatsApp recipient must have explicit opt-in. Map a WhatsApp Opt-in column containing Yes, True or 1 for each opted-in contact.');
+        return;
+      }
+    }
     if (isDatabaseSource) {
       if (!selectedLeadDatabaseId || !selectedLeadDatabase) {
         setCreateCampaignError('Select a saved database first.');
@@ -1318,7 +1400,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     }
 
     const effectiveTemplateId =
-      campaignMode === 'PREDEFINED'
+      newCampaignType === 'WHATSAPP' ? undefined : campaignMode === 'PREDEFINED'
         ? selectedTemplateId || selectedTemplateIdRef.current || (templates.length > 0 ? templates[0].templateId : undefined)
         : undefined;
 
@@ -1356,6 +1438,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
           templateName: matchedTemplate?.name,
           templateSubject: matchedTemplate?.subject,
           templateBody: matchedTemplate?.body,
+          ...(newCampaignType !== 'EMAIL' ? { whatsappConnectionId: selectedWhatsAppConnectionId, whatsappTemplateId: selectedWhatsAppTemplateId, whatsappTemplateVariableMapping: whatsAppVariableMapping } : {}),
           sourceFileName: isDatabaseSource
             ? `Database: ${selectedLeadDatabase?.name || selectedLeadDatabaseId}`
             : uploadedFileName || 'Leads List',
@@ -1392,6 +1475,11 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
       setLaunchMode('NOW');
       setScheduleLocal('');
       setNewCampaignName('');
+      setSelectedWhatsAppConnectionId('');
+      setSelectedWhatsAppTemplateId('');
+      setWhatsAppVariableMapping({});
+      setWhatsAppTemplates([]);
+      setNewCampaignType('EMAIL');
       setUploadedFileName('');
       setPastedLeadsText('');
       setLeadInputMethod('UPLOAD');
@@ -1746,7 +1834,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                 {(() => {
                   const currentRunNum = selectedCampaign.lastRunNumber || 1;
                   const isRestartRun = currentRunNum > 1;
-                  const isEmailCampaign = selectedCampaign.type === 'EMAIL' || !selectedCampaign.type;
+                  const isEmailCampaign = selectedCampaign.type !== 'WHATSAPP' || !selectedCampaign.type;
 
                   // Campaign counters are server-maintained totals; do not derive them from the paginated leads table.
                   const liveTotalLeads = selectedCampaign.totalLeads || 0;
@@ -1777,7 +1865,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
 
                       <div className={tileClass}>
                         <div className="flex items-center justify-between gap-1">
-                          <p className={labelClass}>Emails Sent</p>
+                          <p className={labelClass}>{selectedCampaign.type === 'WHATSAPP' ? 'WhatsApp Sent' : selectedCampaign.type === 'WHATSAPP_EMAIL' ? 'Messages Sent' : 'Emails Sent'}</p>
                           {isRestartRun && <span className="shrink-0 text-[8px] font-semibold text-sky-700">RUN {currentRunNum}</span>}
                         </div>
                         <div className="mt-1 flex items-baseline gap-1">
@@ -2333,16 +2421,49 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-xl border border-slate-200 bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed">
-                    <div className="text-xs font-semibold">WHATSAPP</div>
-                    <div className="text-[10px] text-slate-500">Coming Soon</div>
-                  </div>
+                  <button type="button" onClick={() => setNewCampaignType('WHATSAPP')} className={`text-left p-3 rounded-xl border transition flex items-center gap-2 ${newCampaignType === 'WHATSAPP' ? 'bg-emerald-50 border-emerald-500 text-emerald-800 font-semibold' : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                    <MessageSquare className="w-4 h-4 text-emerald-600" />
+                    <div><div className="text-xs font-semibold">WHATSAPP</div><div className="text-[10px] text-slate-500">Approved template</div></div>
+                  </button>
 
-                  <div className="p-3 rounded-xl border border-slate-200 bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed">
-                    <div className="text-xs font-semibold">WHATSAPP + EMAIL</div>
-                    <div className="text-[10px] text-slate-500">Coming Soon</div>
-                  </div>
+                  <button type="button" onClick={() => setNewCampaignType('WHATSAPP_EMAIL')} className={`text-left p-3 rounded-xl border transition flex items-center gap-2 ${newCampaignType === 'WHATSAPP_EMAIL' ? 'bg-emerald-50 border-emerald-500 text-emerald-800 font-semibold' : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                    <div><div className="text-xs font-semibold">WHATSAPP + EMAIL</div><div className="text-[10px] text-slate-500">Unified multi-channel</div></div>
+                  </button>
                 </div>
+                {newCampaignType !== 'EMAIL' && (
+                  <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">WhatsApp sender connection *</label>
+                      <select value={selectedWhatsAppConnectionId} onChange={(event) => setSelectedWhatsAppConnectionId(event.target.value)} disabled={whatsAppConnections.length === 0} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs">
+                        <option value="">{whatsAppConnections.length ? 'Choose a connected sender' : 'No connected WhatsApp sender — connect one in Workspace → Channels'}</option>
+                        {whatsAppConnections.map((connection: any) => <option key={connection.connectionId} value={connection.connectionId}>{connection.displayName || connection.provider} · {connection.sender?.phoneNumber} ({connection.provider})</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">Approved WhatsApp template *</label>
+                      <select value={selectedWhatsAppTemplateId} onChange={(event) => setSelectedWhatsAppTemplateId(event.target.value)} disabled={isLoadingWhatsAppTemplates || !whatsAppTemplates.length} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs">
+                        <option value="">{isLoadingWhatsAppTemplates ? 'Syncing provider templates…' : 'Choose an approved template'}</option>
+                        {whatsAppTemplates.filter((template: any) => ['APPROVED', 'APPROVED_BY_META', 'APPROVED_BY_WABA'].includes(String(template.status || '').toUpperCase())).map((template: any) => <option key={template.providerTemplateId} value={template.providerTemplateId}>{template.name} · {template.language}</option>)}
+                      </select>
+                      <p className="mt-1 text-[10px] text-slate-500">Templates are scoped to the selected provider sender and revalidated by the server before campaign creation and send.</p>
+                      {whatsAppTemplateParameterNames.length > 0 && (
+                        <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+                          <p className="text-[11px] font-bold text-slate-700">Template variable mapping</p>
+                          <p className="text-[10px] text-slate-500">Map each approved template variable to a field in the uploaded contact list. WATI named variables are sent using their exact parameter names.</p>
+                          {whatsAppTemplateParameterNames.map((parameter) => (
+                            <label key={parameter} className="grid grid-cols-2 items-center gap-2 text-[11px] font-semibold text-slate-600">
+                              <span className="truncate">{'{{' + parameter + '}}'}</span>
+                              <select value={whatsAppVariableMapping[parameter] || 'name'} onChange={(event) => setWhatsAppVariableMapping((previous) => ({ ...previous, [parameter]: event.target.value }))} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-[11px]">
+                                <option value="firstName">First name</option><option value="lastName">Last name</option><option value="name">Full name</option><option value="companyName">Company</option><option value="email">Email</option><option value="phone">Phone</option><option value="designation">Designation</option>
+                              </select>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-emerald-900">Use only contacts who explicitly consented to receive WhatsApp messages. Upload a per-row WhatsApp Opt-in column; the campaign will not start if any recipient lacks consent.</p>
+                  </div>
+                )}
               </div>
 
               <div id="campaign-create-audience" className="scroll-mt-20" />
@@ -2607,6 +2728,18 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                             {h}
                           </option>
                         ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-600 mb-1">WhatsApp Opt-in / Consent Column</label>
+                      <select
+                        value={columnMapping.whatsappOptIn}
+                        onChange={(e) => handleColumnMappingChange('whatsappOptIn', e.target.value)}
+                        className="w-full p-2 bg-white border border-slate-200 rounded text-slate-800"
+                      >
+                        <option value="">None (not consented)</option>
+                        {rawHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
                       </select>
                     </div>
                   </div>

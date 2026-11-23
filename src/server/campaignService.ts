@@ -1507,6 +1507,17 @@ export async function deleteCampaign(campaignId: string): Promise<boolean> {
   return true;
 }
 
+function whatsappTemplateParameterNames(template: any): string[] {
+  const customParams = Array.isArray(template?.customParams) ? template.customParams : [];
+  const names = customParams.map((item: any) =>
+    typeof item === 'string' ? item : String(item?.name || item?.paramName || item?.param_name || item?.key || item?.placeholder || '')
+  ).map((value: string) => value.trim()).filter(Boolean);
+  if (names.length) return [...new Set(names)];
+  const source = JSON.stringify(template?.components || []);
+  const found = [...source.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)].map((match) => String(match[1]).trim());
+  return [...new Set(found)];
+}
+
 /**
  * Creates a new Campaign with uploaded leads and selected template
  */
@@ -1533,7 +1544,11 @@ export async function createCampaign(params: {
     rowNumber?: number;
     customFields?: Record<string, string>;
     databaseEntryId?: string;
+    whatsappOptIn?: boolean;
   }>;
+  whatsappConnectionId?: string;
+  whatsappTemplateId?: string;
+  whatsappTemplateVariableMapping?: Record<string, string>;
   startImmediately?: boolean;
   /** Start automatically at this moment (UTC ISO) instead of now. Wins over startImmediately. */
   scheduledStartAt?: string;
@@ -1555,6 +1570,28 @@ export async function createCampaign(params: {
   const campaignId = `camp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const mode = params.campaignMode || 'PREDEFINED';
   const deliveryMode = params.deliveryMode || 'LIVE_SMTP';
+  const campaignType = params.type || 'EMAIL';
+  let verifiedWhatsAppConnection: any = null;
+  let verifiedWhatsAppTemplate: any = null;
+  if (campaignType !== 'EMAIL') {
+    if (mode !== 'PREDEFINED') throw new Error('WhatsApp campaigns must use an approved provider template; AI-generated free-form WhatsApp content is not enabled.');
+    if (!params.whatsappConnectionId || !params.whatsappTemplateId) throw new Error('Select a connected WhatsApp sender and an approved template for this campaign.');
+    const providerService = await import('./whatsappProviderService.js');
+    verifiedWhatsAppConnection = await providerService.getWhatsAppConnectionForTenant(getCampaignActiveCtx(), params.whatsappConnectionId);
+    if (!verifiedWhatsAppConnection || verifiedWhatsAppConnection.status !== 'CONNECTED') throw new Error('The selected WhatsApp connection is not active in this workspace.');
+    const providerTemplates = await providerService.listWhatsAppConnectionTemplates(getCampaignActiveCtx(), params.whatsappConnectionId);
+    verifiedWhatsAppTemplate = providerTemplates.find((template) => template.providerTemplateId === params.whatsappTemplateId);
+    if (!verifiedWhatsAppTemplate || !['APPROVED', 'APPROVED_BY_META', 'APPROVED_BY_WABA'].includes(String(verifiedWhatsAppTemplate.status || '').toUpperCase())) {
+      throw new Error('Select a currently approved WhatsApp template synced from the selected provider connection.');
+    }
+    const invalidRecipients = rawLeads.filter((lead) => !String(lead.phone || '').replace(/\D/g, '').match(/^[1-9]\d{7,14}$/) || lead.whatsappOptIn !== true || (campaignType === 'WHATSAPP_EMAIL' && !normalizeEmail(lead.email)));
+    const parameterNames = whatsappTemplateParameterNames(verifiedWhatsAppTemplate);
+    const mapping = params.whatsappTemplateVariableMapping || {};
+    if (invalidRecipients.length) throw new Error('Every WhatsApp recipient must have a valid international phone number and explicit opt-in. Combined WhatsApp + Email recipients also need a valid email address.');
+    const unmapped = parameterNames.filter((name) => !supportedFields.has(String(mapping[name] || '')));
+    if (unmapped.length) throw new Error('Map every WhatsApp template variable to a lead field before creating the campaign: ' + unmapped.join(', '));
+    if (invalidRecipients.length) throw new Error('Every WhatsApp recipient must have a valid international phone number and an explicit WhatsApp opt-in value in the uploaded audience.');
+  }
 
   // Dynamically resolve the selected template directly from Firestore DB
   let selectedTemplate: EmailTemplate | undefined;
@@ -1604,7 +1641,18 @@ export async function createCampaign(params: {
   const initialCampaign: Campaign = {
     campaignId,
     name: params.name,
-    type: params.type || 'EMAIL',
+    type: campaignType,
+    ...(campaignType !== 'EMAIL' ? {
+      whatsappConnectionId: params.whatsappConnectionId,
+      whatsappProvider: verifiedWhatsAppConnection.provider,
+      whatsappTemplateId: verifiedWhatsAppTemplate.providerTemplateId,
+      whatsappTemplateName: verifiedWhatsAppTemplate.name,
+      whatsappTemplateLanguage: verifiedWhatsAppTemplate.language,
+      whatsappTemplateStatus: verifiedWhatsAppTemplate.status,
+      whatsappTemplateComponents: verifiedWhatsAppTemplate.components || [],
+      whatsappTemplateCustomParams: verifiedWhatsAppTemplate.customParams || [],
+      whatsappTemplateVariableMapping: params.whatsappTemplateVariableMapping || {},
+    } : {}),
     campaignMode: mode,
     deliveryMode,
     status: schedule ? 'SCHEDULED' : 'DRAFT',
@@ -1643,22 +1691,29 @@ export async function createCampaign(params: {
   // email in one campaign.
   const createdLeads: CampaignLead[] = [];
   const firstRowByEmail = new Map<string, number>();
+  const firstRowByPhone = new Map<string, number>();
   const duplicates: DuplicateInfo[] = [];
   params.leads.forEach((l, idx) => {
     const cleanEmail = normalizeEmail(l.email);
-    if (!cleanEmail) return;
+    const phoneKey = String(l.phone || '').replace(/\D/g, '');
+    const identityKey = campaignType === 'WHATSAPP' ? phoneKey : cleanEmail;
+    if (!identityKey) return;
 
     const rowNum = l.rowNumber || idx + 1;
-    const firstRow = firstRowByEmail.get(cleanEmail);
+    const duplicateMap = campaignType === 'WHATSAPP' ? firstRowByPhone : firstRowByEmail;
+    const duplicateKey = identityKey;
+    const firstRow = duplicateMap.get(duplicateKey);
     if (firstRow !== undefined) {
       duplicates.push({ rowNumber: rowNum, email: cleanEmail, duplicateOfRow: firstRow });
       return;
     }
-    firstRowByEmail.set(cleanEmail, rowNum);
-    const campaignLeadId = `clead-${campaignId}-${crypto.createHash('sha1').update(cleanEmail).digest('hex').slice(0, 16)}`;
-    const leadId = `lead-${cleanEmail.replace(/[^a-z0-9]/gi, '_')}`;
+    duplicateMap.set(duplicateKey, rowNum);
+    const campaignLeadId = `clead-${campaignId}-${crypto.createHash('sha1').update(identityKey).digest('hex').slice(0, 16)}`;
+    const leadId = campaignType === 'WHATSAPP'
+      ? `lead-wa-${crypto.createHash('sha1').update(phoneKey).digest('hex').slice(0, 16)}`
+      : `lead-${cleanEmail.replace(/[^a-z0-9]/gi, '_')}`;
 
-    const leadName = l.name || [l.firstName, l.lastName].filter(Boolean).join(' ') || cleanEmail.split('@')[0];
+    const leadName = l.name || [l.firstName, l.lastName].filter(Boolean).join(' ') || cleanEmail.split('@')[0] || (campaignType === 'WHATSAPP' ? String(l.phone || 'WhatsApp lead') : 'Lead');
     const company = l.companyName || `${leadName}'s Agency`;
 
     let initialSubject: string | undefined = undefined;
@@ -1687,6 +1742,7 @@ export async function createCampaign(params: {
       companyName: company,
       email: cleanEmail,
       phone: l.phone,
+      whatsappOptIn: l.whatsappOptIn === true,
       // Last 10 digits of the phone, so an inbound WhatsApp reply can find this lead with one equality query.
       ...(String(l.phone || '').replace(/[^\d]/g, '').length >= 7
         ? { phoneLast10: String(l.phone).replace(/[^\d]/g, '').slice(-10) }
@@ -2388,7 +2444,7 @@ export async function processNextCampaignSendBatch(
   // not a lead failure. Touch nothing in the database: every lead stays PENDING, so a correctly configured
   // server can deliver it. The note is kept in memory only, so it is shown on this server's screen and
   // never reaches other servers.
-  if (campaign.deliveryMode !== 'SIMULATION') {
+  if (campaign.type !== 'WHATSAPP' && campaign.deliveryMode !== 'SIMULATION') {
     const readiness = await getEmailSendReadiness(getCampaignActiveCtx().tenantId);
     if (!readiness.ok) {
       const pendingCount = await countPendingLeads(campaignId);
@@ -2471,9 +2527,9 @@ export async function processNextCampaignSendBatch(
         continue;
       }
 
-    const emailLower = lead.email.toLowerCase();
-    const runHistoryKey = `${campaignId}_${currentRunId}_${emailLower}`;
-    const campaignHistoryKey = `${campaignId}_${emailLower}`;
+    const leadIdentity = campaign.type === 'WHATSAPP' ? String(lead.phone || '').replace(/\D/g, '') : lead.email.toLowerCase();
+    const runHistoryKey = `${campaignId}_${currentRunId}_${leadIdentity}`;
+    const campaignHistoryKey = `${campaignId}_${leadIdentity}`;
 
     // STRICT DEDUPLICATION:
     // If lead is already SENT, SENDING, in send history, or in-flight, skip immediately!
@@ -2557,34 +2613,65 @@ export async function processNextCampaignSendBatch(
 
     try {
       const isSimulationMode = campaign.deliveryMode === 'SIMULATION';
-      const sendResult = isSimulationMode
-        ? {
+      const sendResult: any = await (async () => {
+        if (isSimulationMode) {
+          return {
             success: true,
             messageId: `<sim-camp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@umrah360.in>`,
             simulated: true,
-          }
-        : await sendLiveEmail({
-            tenantId: getCampaignActiveCtx().tenantId,
-            to: lead.email,
-            subject: subject,
-            text: body,
-            html: htmlContent,
-            usageCategory: 'cold',
-            attachments: activeAttachments.length > 0 ? activeAttachments : undefined,
-            // Echoed back by Resend on open/click/bounce events, so the webhook finds the lead with no lookup.
-            tags: [
-              { name: 'tenant', value: getCampaignActiveCtx().tenantId },
-              { name: 'campaign', value: campaignId },
-              { name: 'lead', value: lead.campaignLeadId },
-            ],
+          };
+        }
+        if (campaign.type !== 'EMAIL') {
+          const providerService = await import('./whatsappProviderService.js');
+          const whatsappResult = await providerService.sendWhatsAppProviderMessage(getCampaignActiveCtx(), {
+            connectionId: String(campaign.whatsappConnectionId || ''),
+            recipientPhone: String(lead.phone || ''),
+            template: {
+              providerTemplateId: String(campaign.whatsappTemplateId || ''),
+              name: String(campaign.whatsappTemplateName || ''),
+              language: String(campaign.whatsappTemplateLanguage || 'en'),
+              status: String(campaign.whatsappTemplateStatus || ''),
+              components: campaign.whatsappTemplateComponents || [],
+              customParams: campaign.whatsappTemplateCustomParams || [],
+            },
+            variables: Object.fromEntries(Object.entries(campaign.whatsappTemplateVariableMapping || {}).map(([parameter, source]) => {
+              const value = (lead as any)[source];
+              return [parameter, String(value ?? '')];
+            })),
+            conversationId,
+            clientMessageId: `campwa_${crypto.createHash('sha1').update(`${campaignId}:${lead.campaignLeadId}`).digest('hex').slice(0, 24)}`,
+            campaignId,
+            campaignLeadId: lead.campaignLeadId,
+            senderType: 'CAMPAIGN',
           });
+          lead.whatsappMessageId = whatsappResult.providerMessageId;
+          if (campaign.type === 'WHATSAPP') {
+            return { success: true, messageId: whatsappResult.providerMessageId, whatsappMessageId: whatsappResult.providerMessageId };
+          }
+        }
+        const emailResult = await sendLiveEmail({
+          tenantId: getCampaignActiveCtx().tenantId,
+          to: lead.email,
+          subject: subject,
+          text: body,
+          html: htmlContent,
+          usageCategory: 'cold',
+          attachments: activeAttachments.length > 0 ? activeAttachments : undefined,
+          tags: [
+            { name: 'tenant', value: getCampaignActiveCtx().tenantId },
+            { name: 'campaign', value: campaignId },
+            { name: 'lead', value: lead.campaignLeadId },
+          ],
+        });
+        return { ...emailResult, ...(lead.whatsappMessageId ? { whatsappMessageId: lead.whatsappMessageId } : {}) };
+      })();
 
       const now = new Date().toISOString();
       await writeTenantAuditEvent(getCampaignActiveCtx(), {
-        action: !sendResult.success ? 'CAMPAIGN_EMAIL_SEND_FAILED' : sendResult.simulated ? 'CAMPAIGN_EMAIL_SIMULATED' : 'CAMPAIGN_EMAIL_SENT',
+        action: !sendResult.success ? `CAMPAIGN_${campaign.type}_SEND_FAILED` : sendResult.simulated ? `CAMPAIGN_${campaign.type}_SIMULATED` : `CAMPAIGN_${campaign.type}_SENT`,
         module: 'CAMPAIGNS',
         severity: sendResult.success ? 'INFO' : 'WARNING',
-        description: !sendResult.success ? 'Campaign email failed to send.' : sendResult.simulated ? 'Campaign email was simulated and not delivered.' : 'Campaign email was sent to a campaign lead.',
+        description: !sendResult.success ? `Campaign ${campaign.type.toLowerCase()} message failed to send.` : sendResult.simulated ? `Campaign ${campaign.type.toLowerCase()} message was simulated and not delivered.` : `Campaign ${campaign.type.toLowerCase()} message was sent to a campaign lead.`,
         target: { type: 'Campaign Lead', id: lead.campaignLeadId, name: campaign.name },
         actor: { userId: 'system:campaign-worker', name: 'Campaign Dispatch Worker', email: 'campaign-worker@system.local', role: 'SYSTEM' },
         metadata: { campaignId, campaignRunId: currentRunId, channel: 'EMAIL', simulated: Boolean(sendResult.simulated) },
@@ -2596,14 +2683,17 @@ export async function processNextCampaignSendBatch(
         lead.sendCount = (lead.sendCount || 0) + 1;
         lead.lastSentAt = now;
         if (lead.engaged === undefined) lead.engaged = false;
-        lead.gmailMessageId = sentMsgId;
-        lead.gmailThreadId = gmailThreadId;
+        if (campaign.type !== 'WHATSAPP') {
+          lead.gmailMessageId = sentMsgId;
+          lead.gmailThreadId = gmailThreadId;
+        }
+        if (sendResult.whatsappMessageId) lead.whatsappMessageId = sendResult.whatsappMessageId;
         lead.conversationId = conversationId;
         lead.lastError = undefined;
         lead.updatedAt = now;
 
         sendHistorySet.add(runHistoryKey);
-        sendHistorySet.add(`${campaignId}_${lead.email.toLowerCase()}`);
+        sendHistorySet.add(campaignHistoryKey);
 
         const historyRecord: CampaignSendHistory = {
           historyId: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -2623,35 +2713,37 @@ export async function processNextCampaignSendBatch(
           currentRun.sentCount = (currentRun.sentCount || 0) + 1;
         }
 
-        appendOutboundMessageToThread(conversationId, {
-          messageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          gmailMessageId: sentMsgId,
-          gmailThreadId,
-          conversationId,
-          channel: 'EMAIL',
-          direction: 'OUTBOUND',
-          senderType: 'AGENT',
-          senderName: campaignSenderName(await getTenantBrand(getCampaignActiveCtx().tenantId)),
-          senderEmail: senderFrom,
-          text: body,
-          sentAt: now,
-          receivedAt: now,
-          createdAt: now,
-          timestamp: now,
-          emailMeta: {
-            subject: subject,
-            from: senderFrom,
-            to: lead.email,
-            messageId: sentMsgId,
-          },
-        });
+        if (campaign.type !== 'WHATSAPP') {
+          appendOutboundMessageToThread(conversationId, {
+            messageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            gmailMessageId: sentMsgId,
+            gmailThreadId,
+            conversationId,
+            channel: 'EMAIL',
+            direction: 'OUTBOUND',
+            senderType: 'AGENT',
+            senderName: campaignSenderName(await getTenantBrand(getCampaignActiveCtx().tenantId)),
+            senderEmail: senderFrom,
+            text: body,
+            sentAt: now,
+            receivedAt: now,
+            createdAt: now,
+            timestamp: now,
+            emailMeta: {
+              subject: subject,
+              from: senderFrom,
+              to: lead.email,
+              messageId: sentMsgId,
+            },
+          });
+        }
 
         if (isFirebaseConfigured && db) {
-          const emailSettings = await getTenantEmailSettings(getCampaignActiveCtx().tenantId).catch(() => ({} as any));
+          const emailSettings = campaign.type === 'WHATSAPP' ? ({} as any) : await getTenantEmailSettings(getCampaignActiveCtx().tenantId).catch(() => ({} as any));
           await safeSetDoc(tenantRepo(getCampaignActiveCtx()).campaignLeadDoc(lead.campaignLeadId), {
             sendStatus: 'SENT', sendCount: lead.sendCount, lastSentAt: lead.lastSentAt,
-            gmailMessageId: lead.gmailMessageId, gmailThreadId: lead.gmailThreadId, conversationId: lead.conversationId,
-            lastError: null, trackingEnabledAtSend: emailSettings.trackingEnabled !== false,
+            gmailMessageId: lead.gmailMessageId, gmailThreadId: lead.gmailThreadId, whatsappMessageId: lead.whatsappMessageId, whatsappOptIn: lead.whatsappOptIn, conversationId: lead.conversationId,
+            lastError: null, trackingEnabledAtSend: campaign.type === 'WHATSAPP' ? false : emailSettings.trackingEnabled !== false,
             generatedSubject: lead.generatedSubject, generatedBody: lead.generatedBody,
             researchData: lead.researchData, selectedPainPoint: lead.selectedPainPoint,
             selectedCapabilities: lead.selectedCapabilities, personalizationEvidence: lead.personalizationEvidence,

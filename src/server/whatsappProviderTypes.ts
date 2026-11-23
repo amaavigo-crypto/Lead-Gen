@@ -72,6 +72,7 @@ export interface WhatsAppProviderConnection {
     status: WhatsAppWebhookStatus;
     lastEventAt?: string;
     lastError?: string;
+    subscriptionId?: string;
   };
   credentialsRef: string;
   createdAt: string;
@@ -90,6 +91,7 @@ export interface WhatsAppProviderTemplate {
   status: string;
   components: Array<Record<string, unknown>>;
   updatedAt?: string;
+  customParams?: Array<Record<string, unknown>>;
 }
 
 export interface WhatsAppMediaReference {
@@ -104,6 +106,7 @@ export interface WhatsAppSendTextInput {
   recipientPhone: string;
   sender: WhatsAppSender;
   text: string;
+  providerConversationId?: string;
   clientMessageId?: string;
 }
 
@@ -119,6 +122,7 @@ export interface WhatsAppSendMediaInput {
   recipientPhone: string;
   sender: WhatsAppSender;
   media: WhatsAppMediaReference;
+  providerConversationId?: string;
   clientMessageId?: string;
 }
 
@@ -142,6 +146,7 @@ export interface WhatsAppInboundMessageEvent {
   provider: WhatsAppProvider;
   connectionId: string;
   providerMessageId: string;
+  providerConversationId?: string;
   senderPhone: string;
   businessPhone: string;
   messageType: string;
@@ -213,4 +218,9 @@ export interface WhatsAppProviderAdapter {
     callbackUrl: string,
     statusCallbackUrl?: string
   ): Promise<{ subscriptionId?: string; status: WhatsAppWebhookStatus }>;
+
+  deleteWebhook?(
+    credentials: WhatsAppProviderCredentials,
+    subscriptionId: string
+  ): Promise<void>;
 }

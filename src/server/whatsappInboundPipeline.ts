@@ -18,12 +18,14 @@ const DEFAULT_UMRAH_CTX: TenantContext = {
 };
 
 let activeWhatsAppCtx: TenantContext = DEFAULT_UMRAH_CTX;
+const whatsappContextStorage = new AsyncLocalStorage<TenantContext>();
 export function setWhatsAppActiveContext(ctx: TenantContext) {
   activeWhatsAppCtx = ctx;
 }
 function getWACtx(): TenantContext {
-  return activeWhatsAppCtx;
+  return whatsappContextStorage.getStore() ?? activeWhatsAppCtx;
 }
+import { AsyncLocalStorage } from 'node:async_hooks';
 import OpenAI from 'openai';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -96,6 +98,10 @@ export interface InboundWhatsAppCrmEntities {
     contactId: string;
     leadId: string;
     channel: 'WHATSAPP';
+    whatsappConnectionId?: string;
+    whatsappProvider?: 'META' | 'TWILIO' | 'WATI';
+    providerConversationId?: string;
+    businessSenderNumber?: string;
     direction: 'INBOUND' | 'OUTBOUND';
     status: 'ACTIVE' | 'REVIEW';
     aiEnabled: boolean;
@@ -332,13 +338,30 @@ export function getWhatsAppGatewayStatus(): WhatsAppGatewayStatus {
  */
 export async function sendLiveMetaWhatsAppMessage(
   recipientPhone: string,
-  messageText: string
+  messageText: string,
+  options?: { connectionId?: string; conversationId?: string; clientMessageId?: string; tenantCtx?: TenantContext }
 ): Promise<{
   success: boolean;
   externalMessageId?: string;
   error?: string;
-  providerUsed: 'META_CLOUD_API' | 'TWILIO' | 'INTERNAL_CRM_LOG';
+  providerUsed: 'META_CLOUD_API' | 'TWILIO' | 'WATI' | 'INTERNAL_CRM_LOG';
 }> {
+  if (options?.connectionId) {
+    try {
+      const providerService = await import('./whatsappProviderService.js');
+      const sent = await providerService.sendWhatsAppProviderMessage(options.tenantCtx || getWACtx(), {
+        connectionId: options.connectionId,
+        recipientPhone,
+        text: formatAiResponseForChannel(messageText, 'WHATSAPP'),
+        conversationId: options.conversationId,
+        clientMessageId: options.clientMessageId,
+        senderType: 'AI',
+      });
+      return { success: true, externalMessageId: sent.providerMessageId, providerUsed: sent.provider === 'META' ? 'META_CLOUD_API' : sent.provider };
+    } catch (error: any) {
+      return { success: false, error: error?.message || 'Provider WhatsApp send failed.', providerUsed: 'INTERNAL_CRM_LOG' };
+    }
+  }
   const metaToken = process.env.META_ACCESS_TOKEN || process.env.WHATSAPP_API_TOKEN || process.env.WHATSAPP_TOKEN;
   const phoneId = process.env.META_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
   const twilioSid = process.env.TWILIO_ACCOUNT_SID;
@@ -802,23 +825,24 @@ www.umrah360.in`;
  * 9. Lead activity logging
  * 10. Single-source Firestore persistence
  */
-export async function processLiveInboundWhatsApp(
-  payload: {
-    from: string;
-    fromName?: string;
-    to?: string;
-    body: string;
-    messageId?: string;
-    companyName?: string;
-    direction?: 'INBOUND' | 'OUTBOUND';
-    senderType?: 'CUSTOMER' | 'PROSPECT' | 'AI' | 'AGENT';
-    isTestSimulation?: boolean;
-  },
-  tenantCtx?: TenantContext
+export interface WhatsAppInboundPipelineInput {
+  from: string;
+  fromName?: string;
+  to?: string;
+  body: string;
+  messageId?: string;
+  companyName?: string;
+  direction?: 'INBOUND' | 'OUTBOUND';
+  senderType?: 'CUSTOMER' | 'PROSPECT' | 'AI' | 'AGENT';
+  isTestSimulation?: boolean;
+  providerConversationId?: string;
+  connectionId?: string;
+  provider?: 'META' | 'TWILIO' | 'WATI';
+  media?: Array<{ url?: string; providerMediaId?: string; mimeType?: string; fileName?: string; caption?: string }>;
+}
+async function processLiveInboundWhatsAppInternal(
+  payload: WhatsAppInboundPipelineInput
 ): Promise<ProcessedInboundWhatsAppResult> {
-  if (tenantCtx) {
-    setWhatsAppActiveContext(tenantCtx);
-  }
   const channelMode = await getTenantChannelMode(getWACtx(), 'WHATSAPP', normalizeChannelMode(pipelineConfig.mode));
   const targetNumber = TARGET_WHATSAPP_NUMBER;
   const targetNumberFormatted = TARGET_WHATSAPP_NUMBER_DISPLAY;
@@ -827,13 +851,14 @@ export async function processLiveInboundWhatsApp(
   const nowIso = new Date().toISOString();
 
   const senderPhone = normalizePhoneNumber(payload.from);
+  const turnKey = payload.connectionId ? `${payload.connectionId}:${senderPhone}` : senderPhone;
   const targetPhone = normalizePhoneNumber(payload.to || targetNumber);
   const incomingMsgId = payload.messageId || `wa-msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
   const safePhoneId = senderPhone.replace(/[^a-z0-9]/gi, '_');
   const contactId = `contact-wa-${safePhoneId}`;
   const leadId = `lead-wa-${safePhoneId}`;
-  const conversationId = `conv-wa-${safePhoneId}`;
+  const conversationId = payload.connectionId ? `conv-wa-${safePhoneId}-${payload.connectionId.slice(0, 8)}` : `conv-wa-${safePhoneId}`;
 
   const displayName = payload.fromName || formatDisplayPhone(senderPhone);
   const nameParts = displayName.split(' ');
@@ -898,7 +923,7 @@ export async function processLiveInboundWhatsApp(
       crmEntities: {
         contact: { contactId, firstName, lastName, phone: senderPhone, whatsappUserId: senderPhone, companyName: payload.companyName || (isUmrahBrand ? 'Umrah360 Internal' : `${brand.companyName} Internal`), createdAt: nowIso, updatedAt: nowIso, lastActivityAt: nowIso },
         lead: { leadId, contactId, source: 'WHATSAPP', leadType: 'INBOUND', status: 'ENGAGED', leadScore: 50, intent: 'MEDIUM', buyingStage: 'ENGAGED', serviceInterest: 'WhatsApp Inquiry', requirements: [], aiSummary: 'Outbound message recorded', createdAt: nowIso, updatedAt: nowIso, lastActivityAt: nowIso },
-        conversation: { conversationId, contactId, leadId, channel: 'WHATSAPP', direction: 'OUTBOUND', status: 'ACTIVE', aiEnabled: false, humanHandoff: false, conversationSummary: `Outbound WhatsApp to ${displayName}`, startedAt: nowIso, lastMessageAt: nowIso, lastMessageText: payload.body.slice(0, 120), unreadCount: 0, createdAt: nowIso, updatedAt: nowIso },
+        conversation: { conversationId, contactId, leadId, channel: 'WHATSAPP', ...(payload.connectionId ? { whatsappConnectionId: payload.connectionId } : {}), ...(payload.provider ? { whatsappProvider: payload.provider } : {}), ...(payload.providerConversationId ? { providerConversationId: payload.providerConversationId } : {}), ...(payload.to ? { businessSenderNumber: payload.to } : {}), direction: 'OUTBOUND', status: 'ACTIVE', aiEnabled: false, humanHandoff: false, conversationSummary: `Outbound WhatsApp to ${displayName}`, startedAt: nowIso, lastMessageAt: nowIso, lastMessageText: payload.body.slice(0, 120), unreadCount: 0, createdAt: nowIso, updatedAt: nowIso },
         incomingMessage: outboundMsg as any,
         activity: { activityId: `act-wa-out-${Date.now()}`, leadId, contactId, type: 'AGENT_REPLIED', title: 'Outbound WhatsApp Sent', description: `Message dispatched to ${senderPhone}`, timestamp: nowIso },
         allThreadMessages: [...thread],
@@ -911,7 +936,7 @@ export async function processLiveInboundWhatsApp(
   // =========================================================================
   const existingRecord = processedWaRecordsMap.get(incomingMsgId);
   const isAlreadyReplied = existingRecord && existingRecord.aiReplied;
-  const turnState = waConversationTurnMap.get(senderPhone);
+  const turnState = waConversationTurnMap.get(turnKey);
   const isTurnAlreadyReplied = Boolean(
     turnState && turnState.waitingForCustomerReply && turnState.lastRepliedMessageId === incomingMsgId
   );
@@ -942,7 +967,7 @@ export async function processLiveInboundWhatsApp(
       crmEntities: {
         contact: { contactId, firstName, lastName, phone: senderPhone, whatsappUserId: senderPhone, companyName: payload.companyName || `${firstName}'s ${isUmrahBrand ? 'Agency' : 'Company'}`, createdAt: nowIso, updatedAt: nowIso, lastActivityAt: nowIso },
         lead: { leadId, contactId, source: 'WHATSAPP', leadType: 'INBOUND', status: 'ENGAGED', leadScore: 75, intent: 'HIGH', buyingStage: 'ENGAGED', serviceInterest: 'WhatsApp Inquiry', requirements: [], aiSummary: 'Duplicate message filtered', createdAt: nowIso, updatedAt: nowIso, lastActivityAt: nowIso },
-        conversation: { conversationId, contactId, leadId, channel: 'WHATSAPP', direction: 'INBOUND', status: 'ACTIVE', aiEnabled: true, humanHandoff: false, conversationSummary: `WhatsApp dialogue with ${displayName}`, startedAt: nowIso, lastMessageAt: nowIso, lastMessageText: payload.body.slice(0, 120), unreadCount: 0, createdAt: nowIso, updatedAt: nowIso },
+        conversation: { conversationId, contactId, leadId, channel: 'WHATSAPP', ...(payload.connectionId ? { whatsappConnectionId: payload.connectionId } : {}), ...(payload.provider ? { whatsappProvider: payload.provider } : {}), ...(payload.providerConversationId ? { providerConversationId: payload.providerConversationId } : {}), ...(payload.to ? { businessSenderNumber: payload.to } : {}), direction: 'INBOUND', status: 'ACTIVE', aiEnabled: true, humanHandoff: false, conversationSummary: `WhatsApp dialogue with ${displayName}`, startedAt: nowIso, lastMessageAt: nowIso, lastMessageText: payload.body.slice(0, 120), unreadCount: 0, createdAt: nowIso, updatedAt: nowIso },
         incomingMessage: {
           messageId: incomingMsgId,
           conversationId,
@@ -973,6 +998,10 @@ export async function processLiveInboundWhatsApp(
     senderName: displayName,
     senderPhone,
     text: payload.body,
+    ...(payload.connectionId ? { whatsappConnectionId: payload.connectionId } : {}),
+    ...(payload.provider ? { whatsappProvider: payload.provider } : {}),
+    ...(payload.providerConversationId ? { providerConversationId: payload.providerConversationId } : {}),
+    ...(payload.media?.length ? { media: payload.media } : {}),
     timestamp: nowIso,
     sentAt: nowIso,
     receivedAt: nowIso,
@@ -1097,7 +1126,7 @@ export async function processLiveInboundWhatsApp(
     });
 
     // Update Turn Tracker
-    waConversationTurnMap.set(senderPhone, {
+    waConversationTurnMap.set(turnKey, {
       phone: senderPhone,
       lastIncomingMessageId: incomingMsgId,
       lastIncomingText: payload.body,
@@ -1123,8 +1152,14 @@ export async function processLiveInboundWhatsApp(
 
   if (shouldSendAutoReply && aiReplyMessage && aiResult.handoffTriggered !== true) {
     const dispatchResults: Array<Awaited<ReturnType<typeof sendLiveMetaWhatsAppMessage>>> = [];
-    for (const bubble of replyBubbles) {
-      const dispatch = await sendLiveMetaWhatsAppMessage(senderPhone, bubble);
+    for (let index = 0; index < replyBubbles.length; index++) {
+      const bubble = replyBubbles[index];
+      const dispatch = await sendLiveMetaWhatsAppMessage(senderPhone, bubble, {
+        connectionId: payload.connectionId,
+        conversationId,
+        clientMessageId: aiReplyMessages[index]?.messageId,
+        tenantCtx: getWACtx(),
+      });
       dispatchResults.push(dispatch);
       if (!dispatch.success) break;
     }
@@ -1200,6 +1235,10 @@ export async function processLiveInboundWhatsApp(
       contactId,
       leadId,
       channel: 'WHATSAPP',
+      ...(payload.connectionId ? { whatsappConnectionId: payload.connectionId } : {}),
+      ...(payload.provider ? { whatsappProvider: payload.provider } : {}),
+      ...(payload.providerConversationId ? { providerConversationId: payload.providerConversationId } : {}),
+      ...(payload.to ? { businessSenderNumber: payload.to } : {}),
       direction: 'INBOUND',
       status: shouldCreateDraft ? 'REVIEW' : 'ACTIVE',
       aiEnabled: !aiResult.handoffTriggered,
@@ -1308,4 +1347,13 @@ export async function processLiveInboundWhatsApp(
   }
 
   return result;
+}
+
+/** Run the full CRM/AI pipeline inside an async tenant scope for webhook concurrency safety. */
+export async function processLiveInboundWhatsApp(
+  payload: WhatsAppInboundPipelineInput,
+  tenantCtx?: TenantContext
+): Promise<ProcessedInboundWhatsAppResult> {
+  if (tenantCtx) return whatsappContextStorage.run(tenantCtx, () => processLiveInboundWhatsAppInternal(payload));
+  return processLiveInboundWhatsAppInternal(payload);
 }

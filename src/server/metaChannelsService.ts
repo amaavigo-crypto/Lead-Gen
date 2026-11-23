@@ -28,6 +28,8 @@ export type MetaChannel = 'whatsapp' | 'messenger';
 type WhatsAppConnection = {
   phoneNumberId: string;
   wabaId: string;
+  /** Meta "Messaging Account" that owns templates when it differs from wabaId (first-party / evolved account model). */
+  messagingAccountId?: string;
   displayPhoneNumber: string;
   verifiedName: string;
   qualityRating?: string;
@@ -123,7 +125,13 @@ function metaGraphError(status: number, body: any, fallback: string): MetaChanne
         401,
         'Meta invalidated this WhatsApp authorization because the Facebook user session was logged out or access was revoked. Reconnect WhatsApp from Settings → Connected Channels and complete the WhatsApp Business App Coexistence flow, then retry the upload. If this is the temporary App Review test connection, replace its token with a fresh token from WhatsApp > API Setup. Meta cannot restore a logged-out session token by retrying it.'
       )
-    : new MetaChannelError(status >= 500 ? 502 : 400, rawMessage);
+    : new MetaChannelError(status >= 500 ? 502 : 400, [
+        rawMessage,
+        String(metaError.error_user_title || '').trim(),
+        String(metaError.error_user_msg || '').trim(),
+        code ? 'Meta code ' + code + (subcode ? '/' + subcode : '') : '',
+        metaError.fbtrace_id ? 'trace ' + String(metaError.fbtrace_id) : '',
+      ].filter(Boolean).join(' | '));
   (error as any).metaCode = code || undefined;
   (error as any).metaSubcode = subcode || undefined;
   (error as any).metaTraceId = String(metaError.fbtrace_id || '');
@@ -474,7 +482,7 @@ export async function listWhatsAppTemplatesForManagement(ctx: TenantContext): Pr
   const connection = await getWhatsAppConnection(ctx);
   if (!connection || connection.status !== 'connected') throw new MetaChannelError(409, 'WhatsApp is not connected.');
   const token = await getSecret(ctx, 'whatsapp_access_token');
-  const firstUrl = new URL(`${GRAPH}/${encodeURIComponent(connection.wabaId)}/message_templates`);
+  const firstUrl = new URL(`${GRAPH}/${encodeURIComponent(connection.messagingAccountId || connection.wabaId)}/message_templates`);
   firstUrl.searchParams.set('fields', 'id,name,language,status,category,components,quality_score,parameter_format');
   firstUrl.searchParams.set('limit', '100');
 
@@ -813,7 +821,7 @@ export async function createWhatsAppTemplate(
   }
 
   const token = await getSecret(ctx, 'whatsapp_access_token');
-  const result = await graphJson(GRAPH + '/' + encodeURIComponent(connection.wabaId) + '/message_templates', {
+  const result = await graphJson(GRAPH + '/' + encodeURIComponent(connection.messagingAccountId || connection.wabaId) + '/message_templates', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, language, category, parameter_format: 'POSITIONAL', components }),

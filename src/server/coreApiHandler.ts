@@ -223,6 +223,10 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
 
   // Robust Universal Body Parsing (Vercel Serverless, Express, Connect/Vite)
   let body: any = req.body;
+  // Preserve the exact body bytes for provider webhook signature verification before parsing.
+  if ((req as any).rawBody == null && (typeof body === 'string' || Buffer.isBuffer(body))) {
+    (req as any).rawBody = Buffer.isBuffer(body) ? Buffer.from(body) : Buffer.from(body, 'utf8');
+  }
 
   if (typeof body === 'string') {
     try {
@@ -253,7 +257,9 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
           chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
         }
         if (chunks.length > 0) {
-          const rawBody = Buffer.concat(chunks).toString('utf-8');
+          const rawBuffer = Buffer.concat(chunks);
+          if ((req as any).rawBody == null) (req as any).rawBody = rawBuffer;
+          const rawBody = rawBuffer.toString('utf-8');
           if (rawBody) {
             try {
               body = JSON.parse(rawBody);
@@ -656,7 +662,14 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   }
   // Meta messaging webhooks. The dedicated Vercel functions pass the exact raw bytes in req.rawBody
   // so the x-hub-signature-256 check can run; Express registers its own raw-body route instead.
+  const providerWebhookMatch = url.match(/^\/api\/webhooks\/whatsapp\/(META|TWILIO|WATI)\/(wa_[a-f0-9]{32})$/i);
+  if (providerWebhookMatch) {
+    const providerService = await import('./whatsappProviderService.js');
+    return await providerService.handleWhatsAppProviderWebhook(req, res, providerWebhookMatch[1], providerWebhookMatch[2]);
+  }
   if (url === '/api/webhooks/meta') {
+    const providerService = await import('./whatsappProviderService.js');
+    if (await providerService.handleMetaProviderWebhook(req, res)) return true;
     const meta = await import('./metaChannelsService.js');
     return await meta.handleMetaWebhook(req, res);
   }
@@ -924,6 +937,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       const targetTenantId = String(body?.targetTenantId || '').trim();
       const wabaId = String(body?.wabaId || '').trim();
       const phoneNumberId = String(body?.phoneNumberId || '').trim();
+      const messagingAccountId = String(body?.messagingAccountId || '').trim();
       const accessToken = String(body?.accessToken || '').trim();
 
       // Platform admins may connect the selected Amaavigo-owned WABA and phone number.
@@ -931,6 +945,11 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       if (!targetTenantId || !/^\d{5,30}$/.test(wabaId) || !/^\d{5,30}$/.test(phoneNumberId)) {
         res.statusCode = 400;
         res.end(JSON.stringify({ error: 'Choose the Amaavigo tenant and enter valid numeric WhatsApp Business Account and Phone Number IDs (5–30 digits each).' }));
+        return true;
+      }
+      if (messagingAccountId && !/^\d{5,30}$/.test(messagingAccountId)) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: 'Messaging Account ID must contain digits only.' }));
         return true;
       }
       if (accessToken.length < 40 || /\s/.test(accessToken)) {
@@ -1069,7 +1088,20 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       // The legacy WABA ID is the Messaging Account ID in Meta's evolved model.
       // Subscribe this app to its webhook updates; this operation is idempotent.
       // Webhook field subscriptions remain configured in the Meta dashboard.
-      await callMeta(`${encodeURIComponent(wabaId)}/subscribed_apps`, { method: 'POST' });
+      // Meta rejects POST subscribed_apps (code 100 / subcode 2388339) for a WABA that is owned by the
+      // app's own business portfolio: the app is already attached, so webhooks are configured in the
+      // Meta dashboard instead. Treat only that specific rejection as non-fatal; anything else still fails.
+      let webhookSubscribed = true;
+      try {
+        await callMeta(`${encodeURIComponent(wabaId)}/subscribed_apps`, { method: 'POST' });
+      } catch (subscribeError: any) {
+        if (subscribeError?.metaCode === 100 && subscribeError?.metaSubcode === 2388339) {
+          webhookSubscribed = false;
+          console.warn('[Platform WhatsApp] subscribed_apps not supported for first-party WABA; relying on dashboard webhook configuration.');
+        } else {
+          throw subscribeError;
+        }
+      }
 
       if (hasDifferentExistingNumber && existingStatus === 'disconnected') {
         const staleRouteRef = doc(db, 'channel_routes', existingPhoneNumberId);
@@ -1090,9 +1122,12 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
         verifiedName,
         isOnBusinessApp: true,
         platformType: 'CLOUD_API',
-        webhookSubscriptionStatus: 'subscribed',
+        webhookSubscriptionStatus: webhookSubscribed ? 'subscribed' : 'needs_setup',
         internalManaged: true,
         connectionMethod: 'system_user_direct',
+        ...(messagingAccountId ? { messagingAccountId } : {}),
+        // The save below merges into any earlier connection; clear a stale App Review test-number flag.
+        isTestConnection: false,
         status: 'connected',
         connectedAt: existing?.connectedAt || now,
         updatedAt: now,
@@ -1127,7 +1162,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
           verifiedName,
           isOnBusinessApp: true,
           platformType: 'CLOUD_API',
-          webhookSubscriptionStatus: 'subscribed',
+          webhookSubscriptionStatus: webhookSubscribed ? 'subscribed' : 'needs_setup',
         },
         message: 'Amaavigo WhatsApp is connected to its internal tenant. No contact or history sync was requested.',
       }));
@@ -2426,6 +2461,82 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     return true;
   }
 
+  // Third-party WhatsApp provider connections. Credentials are written to encrypted tenant secrets only.
+  const ensureWhatsAppConnectionAdmin = () => {
+    if (activeTenantCtx.role !== 'member' || isPlatformAdmin) return true;
+    res.statusCode = 403;
+    res.end(JSON.stringify({ success: false, error: 'Only workspace admins can manage WhatsApp provider connections.' }));
+    return false;
+  };
+  if (url === '/api/whatsapp/providers' && req.method === 'GET') {
+    try {
+      const providerService = await import('./whatsappProviderService.js');
+      const connections = await providerService.listWhatsAppConnections(activeTenantCtx);
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, providers: ['META', 'TWILIO', 'WATI'], connections }));
+    } catch (error: any) {
+      res.statusCode = Number(error?.statusCode || error?.status || 500);
+      res.end(JSON.stringify({ success: false, error: error?.message || 'Could not load WhatsApp provider connections.' }));
+    }
+    return true;
+  }
+  const providerActionMatch = url.match(/^\/api\/whatsapp\/providers\/(META|TWILIO|WATI)\/(validate|connect)$/i);
+  if (providerActionMatch && req.method === 'POST') {
+    if (!ensureWhatsAppConnectionAdmin()) return true;
+    try {
+      const providerService = await import('./whatsappProviderService.js');
+      const provider = providerActionMatch[1].toUpperCase();
+      if (providerActionMatch[2] === 'validate') {
+        const validation = await providerService.validateWhatsAppProviderCredentials(provider, body?.credentials || {});
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, validation }));
+      } else {
+        const configured = String(process.env.APP_URL || process.env.PUBLIC_APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || '').trim();
+        const hostValue = req.headers?.['x-forwarded-host'] || req.headers?.host || '';
+        const protoValue = req.headers?.['x-forwarded-proto'] || 'https';
+        const host = String(Array.isArray(hostValue) ? hostValue[0] : hostValue).split(',')[0].trim();
+        const protocol = String(Array.isArray(protoValue) ? protoValue[0] : protoValue).split(',')[0].trim();
+        const origin = configured ? (/^https?:\/\//i.test(configured) ? configured : 'https://' + configured).replace(/\/+$/, '') : host ? (protocol === 'http' ? 'http' : 'https') + '://' + host : '';
+        const result = await providerService.connectWhatsAppProvider(activeTenantCtx, provider, {
+          credentials: body?.credentials || {}, sender: body?.sender || {}, displayName: body?.displayName, origin,
+        });
+        res.statusCode = 201;
+        res.end(JSON.stringify({ success: true, ...result }));
+      }
+    } catch (error: any) {
+      res.statusCode = Number(error?.statusCode || error?.status || 500);
+      res.end(JSON.stringify({ success: false, error: error?.message || 'WhatsApp provider request failed.' }));
+    }
+    return true;
+  }
+  const providerTemplatesMatch = url.match(/^\/api\/whatsapp\/providers\/([a-f0-9]{32})\/templates$/i);
+  if (providerTemplatesMatch && req.method === 'GET') {
+    try {
+      const providerService = await import('./whatsappProviderService.js');
+      const templates = await providerService.listWhatsAppConnectionTemplates(activeTenantCtx, providerTemplatesMatch[1]);
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, templates }));
+    } catch (error: any) {
+      res.statusCode = Number(error?.statusCode || error?.status || 500);
+      res.end(JSON.stringify({ success: false, error: error?.message || 'Could not sync provider templates.' }));
+    }
+    return true;
+  }
+  const providerDisconnectMatch = url.match(/^\/api\/whatsapp\/providers\/([a-f0-9]{32})$/i);
+  if (providerDisconnectMatch && req.method === 'DELETE') {
+    if (!ensureWhatsAppConnectionAdmin()) return true;
+    try {
+      const providerService = await import('./whatsappProviderService.js');
+      await providerService.disconnectWhatsAppConnection(activeTenantCtx, providerDisconnectMatch[1]);
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true }));
+    } catch (error: any) {
+      res.statusCode = Number(error?.statusCode || error?.status || 500);
+      res.end(JSON.stringify({ success: false, error: error?.message || 'Could not disconnect WhatsApp provider.' }));
+    }
+    return true;
+  }
+
   // CONNECTED CHANNELS (WhatsApp / Instagram / Messenger) - per-workspace status & Instagram connect
   // =========================================================================
   if (url === '/api/channels/status' && req.method === 'GET') {
@@ -2732,9 +2843,30 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       if (channel === 'INSTAGRAM') {
         const ig = await import('./instagramIntegrationService.js');
         result = await ig.sendInstagramMessage(activeTenantCtx, recipientId, text);
-      } else if (channel === 'WHATSAPP' || channel === 'FACEBOOK') {
+      } else if (channel === 'WHATSAPP') {
+        let connectionId = String(body?.whatsappConnectionId || body?.connectionId || '').trim();
+        if (!connectionId && body?.conversationId) {
+          const conversationSnap = await getDoc(tenantRepo(activeTenantCtx).conversationDoc(String(body.conversationId)));
+          if (conversationSnap.exists()) connectionId = String((conversationSnap.data() as any)?.whatsappConnectionId || '').trim();
+        }
+        if (connectionId) {
+          const providerService = await import('./whatsappProviderService.js');
+          result = await providerService.sendWhatsAppProviderMessage(activeTenantCtx, {
+            connectionId,
+            recipientPhone: String(body?.recipientPhone || recipientId),
+            text,
+            conversationId: body?.conversationId ? String(body.conversationId) : undefined,
+            providerConversationId: body?.providerConversationId ? String(body.providerConversationId) : undefined,
+            clientMessageId: body?.clientMessageId ? String(body.clientMessageId) : undefined,
+            senderType: body?.senderType === 'AI' ? 'AI' : 'AGENT',
+          });
+        } else {
+          const meta = await import('./metaChannelsService.js');
+          result = await meta.sendMetaText(activeTenantCtx, 'whatsapp', recipientId, text);
+        }
+      } else if (channel === 'FACEBOOK') {
         const meta = await import('./metaChannelsService.js');
-        result = await meta.sendMetaText(activeTenantCtx, channel === 'WHATSAPP' ? 'whatsapp' : 'messenger', recipientId, text);
+        result = await meta.sendMetaText(activeTenantCtx, 'messenger', recipientId, text);
       } else {
         res.statusCode = 400;
         res.end(JSON.stringify({ error: 'Unsupported channel.' }));
