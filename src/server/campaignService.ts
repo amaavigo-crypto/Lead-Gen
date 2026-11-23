@@ -2815,9 +2815,6 @@ export async function processNextCampaignSendBatch(
             updatedAt: now,
           } as any, { merge: true });
           await safeSetDoc(tenantRepo(getCampaignActiveCtx()).campaignSendHistoryDoc(historyRecord.historyId), historyRecord);
-          if (currentRun) {
-            await safeSetDoc(tenantRepo(getCampaignActiveCtx()).campaignRunDoc(currentRun.runId), currentRun, { merge: true });
-          }
         }
       } else if (sendResult.notConfigured) {
         // THIS server cannot send (e.g. Resend refused the key here). Not this lead's failure: put it back
