@@ -422,7 +422,7 @@ const watiAdapter:WhatsAppProviderAdapter={
    const presented=clean(h['x-webhook-secret']||h['x-wati-signature']||h.authorization).replace(/^Bearer\s+/i,'');
    return constantTimeString(presented,secret);
  },
- async normalizeWebhook(req,connectionId,sender?:WhatsAppSender){
+ async normalizeWebhook(req,connectionId,connectionSender?:WhatsAppSender){
    const b:any=req.body||{},root=b.eventData||b.data||b.payload||b;
    const eventType=clean(root.eventType||b.eventType);
    const messageId=clean(root.whatsappMessageId||root.whatsapp_message_id||root.id||root.messageId);
