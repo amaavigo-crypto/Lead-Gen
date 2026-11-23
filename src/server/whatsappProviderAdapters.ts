@@ -177,7 +177,7 @@ async function validateTwilio(c:WhatsAppProviderCredentials):Promise<WhatsAppPro
   capabilities:twilioCapabilities(),validatedAt:now(),warnings:['Configure both inbound webhook and status callback on the WhatsApp-enabled Twilio sender.']};
 }
 async function sendTwilio(c:WhatsAppProviderCredentials,i:any):Promise<WhatsAppSendResult>{
- const {sid,header}=twilioAuth(c), from=e164(c.sender.phoneNumber), to=e164(i.recipientPhone);
+ const {sid,header}=twilioAuth(c), from=e164(i.sender.phoneNumber), to=e164(i.recipientPhone);
  const form=new URLSearchParams({To:'whatsapp:'+to});
  if(c.messagingServiceSid) form.set('MessagingServiceSid',clean(c.messagingServiceSid));
  else form.set('From','whatsapp:'+from);
@@ -422,7 +422,7 @@ const watiAdapter:WhatsAppProviderAdapter={
    const presented=clean(h['x-webhook-secret']||h['x-wati-signature']||h.authorization).replace(/^Bearer\s+/i,'');
    return constantTimeString(presented,secret);
  },
- async normalizeWebhook(req,connectionId){
+ async normalizeWebhook(req,connectionId,sender?:WhatsAppSender){
    const b:any=req.body||{},root=b.eventData||b.data||b.payload||b;
    const eventType=clean(root.eventType||b.eventType);
    const messageId=clean(root.whatsappMessageId||root.whatsapp_message_id||root.id||root.messageId);
@@ -449,7 +449,7 @@ const watiAdapter:WhatsAppProviderAdapter={
      {url:mediaUrl||undefined,mimeType:clean(root.data?.mimeType||root.mimeType),fileName:clean(root.data?.fileName||root.fileName),caption:clean(root.caption)},
    ]:[];
    const text=clean(root.text||root.textBody||root.messageText||root.body||root.buttonReply?.text||root.interactiveButtonReply?.text||root.listReply?.title||'');
-   out.push({kind:'INBOUND_MESSAGE',provider:'WATI',connectionId,providerMessageId:id,providerConversationId:clean(root.conversationId)||undefined,senderPhone:e164(sender),businessPhone:e164(root.channelPhoneNumber||root.businessPhone||root.tenantPhoneNumber||c.senderNumber),messageType:type,text,media,senderName:clean(root.senderName||root.contactName),timestamp:watiTimestamp(root.timestamp||root.created)});
+   out.push({kind:'INBOUND_MESSAGE',provider:'WATI',connectionId,providerMessageId:id,providerConversationId:clean(root.conversationId)||undefined,senderPhone:e164(sender),businessPhone:e164(root.channelPhoneNumber||root.businessPhone||root.tenantPhoneNumber||sender?.phoneNumber||''),messageType:type,text,media,senderName:clean(root.senderName||root.contactName),timestamp:watiTimestamp(root.timestamp||root.created)});
    return out;
  },
  async registerWebhook(c,callbackUrl){

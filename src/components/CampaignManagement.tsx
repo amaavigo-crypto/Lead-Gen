@@ -185,10 +185,14 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   const whatsAppTemplateParameterNames = useMemo(() => {
     if (!selectedWhatsAppTemplate) return [];
     const custom = Array.isArray(selectedWhatsAppTemplate.customParams) ? selectedWhatsAppTemplate.customParams : [];
-    const named = custom.map((item: any) => typeof item === 'string' ? item : String(item?.name || item?.paramName || item?.param_name || item?.key || item?.placeholder || '')).map((value: string) => value.trim()).filter(Boolean);
-    if (named.length) return [...new Set(named)];
+    const named: string[] = custom
+      .map((item: any): string => typeof item === 'string' ? item : String(item?.name || item?.paramName || item?.param_name || item?.key || item?.placeholder || ''))
+      .map((value: string) => value.trim())
+      .filter((value: string) => Boolean(value));
+    if (named.length) return Array.from(new Set<string>(named));
     const source = JSON.stringify(selectedWhatsAppTemplate.components || []);
-    return [...new Set([...source.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)].map((match) => String(match[1]).trim()))];
+    const found: string[] = Array.from(source.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g), (match) => String(match[1]).trim());
+    return Array.from(new Set<string>(found));
   }, [selectedWhatsAppTemplate]);
   useEffect(() => {
     if (!whatsAppTemplateParameterNames.length) { setWhatsAppVariableMapping({}); return; }

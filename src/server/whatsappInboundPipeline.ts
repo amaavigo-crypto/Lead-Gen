@@ -163,7 +163,7 @@ export interface ProcessedInboundWhatsAppResult {
     channel: 'WHATSAPP';
     targetNumber: string;
     messageId?: string;
-    providerUsed?: 'META_CLOUD_API' | 'TWILIO' | 'INTERNAL_CRM_LOG';
+    providerUsed?: 'META_CLOUD_API' | 'TWILIO' | 'WATI' | 'INTERNAL_CRM_LOG';
     error?: string;
   };
   handoffTriggered: boolean;
@@ -1143,7 +1143,7 @@ async function processLiveInboundWhatsAppInternal(
     success: boolean;
     externalMessageId?: string;
     error?: string;
-    providerUsed: 'META_CLOUD_API' | 'TWILIO' | 'INTERNAL_CRM_LOG';
+    providerUsed: 'META_CLOUD_API' | 'TWILIO' | 'WATI' | 'INTERNAL_CRM_LOG';
   } = {
     success: false,
     error: shouldSendAutoReply ? undefined : replyDecisionReason,

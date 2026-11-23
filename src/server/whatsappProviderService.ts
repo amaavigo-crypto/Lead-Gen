@@ -179,7 +179,7 @@ export async function connectWhatsAppProvider(
 
   const inboundUrl = webhookUrl(origin, provider, webhookRouteId);
   const setup: string[] = [];
-  let webhookSetupStatus: 'ACTIVE' | 'PENDING' | 'ERROR' = 'PENDING';
+  let webhookSetupStatus: 'ACTIVE' | 'PENDING' | 'ERROR' | 'DISABLED' = 'PENDING';
   let webhookSubscriptionId: string | undefined;
   if (adapter.registerWebhook) {
     try {
@@ -647,7 +647,7 @@ export async function handleWhatsAppProviderWebhook(
       res.end(JSON.stringify({ error: 'WhatsApp webhook signature validation failed.' }));
       return true;
     }
-    const events = await adapter.normalizeWebhook(request, connection.connectionId);
+    const events = await adapter.normalizeWebhook(request, connection.connectionId, connection.sender);
     const normalized = events.map((event) => event.kind === 'INBOUND_MESSAGE' && event.provider === 'WATI'
       ? { ...event, businessPhone: connection.sender.phoneNumber }
       : event);
@@ -730,7 +730,7 @@ export async function handleMetaProviderWebhook(req: any, res: any): Promise<boo
         res.end(JSON.stringify({ error: 'Meta webhook signature validation failed.' }));
         return true;
       }
-      const events = await adapter.normalizeWebhook(request, connection.connectionId);
+      const events = await adapter.normalizeWebhook(request, connection.connectionId, connection.sender);
       const result = await processNormalizedEvents(ctx, connection, events);
       totals.accepted += result.accepted;
       totals.duplicates += result.duplicates;

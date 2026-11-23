@@ -1509,13 +1509,14 @@ export async function deleteCampaign(campaignId: string): Promise<boolean> {
 
 function whatsappTemplateParameterNames(template: any): string[] {
   const customParams = Array.isArray(template?.customParams) ? template.customParams : [];
-  const names = customParams.map((item: any) =>
-    typeof item === 'string' ? item : String(item?.name || item?.paramName || item?.param_name || item?.key || item?.placeholder || '')
-  ).map((value: string) => value.trim()).filter(Boolean);
-  if (names.length) return [...new Set(names)];
+  const names: string[] = customParams
+    .map((item: any): string => typeof item === 'string' ? item : String(item?.name || item?.paramName || item?.param_name || item?.key || item?.placeholder || ''))
+    .map((value: string) => value.trim())
+    .filter((value: string) => Boolean(value));
+  if (names.length) return Array.from(new Set<string>(names));
   const source = JSON.stringify(template?.components || []);
-  const found = [...source.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)].map((match) => String(match[1]).trim());
-  return [...new Set(found)];
+  const found: string[] = Array.from(source.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g), (match) => String(match[1]).trim());
+  return Array.from(new Set<string>(found));
 }
 
 /**

@@ -210,7 +210,8 @@ export interface WhatsAppProviderAdapter {
 
   normalizeWebhook(
     request: WhatsAppWebhookRequest,
-    connectionId: string
+    connectionId: string,
+    sender?: WhatsAppSender
   ): Promise<NormalizedWhatsAppEvent[]>;
 
   registerWebhook?(
