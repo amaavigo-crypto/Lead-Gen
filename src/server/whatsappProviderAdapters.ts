@@ -449,7 +449,7 @@ const watiAdapter:WhatsAppProviderAdapter={
      {url:mediaUrl||undefined,mimeType:clean(root.data?.mimeType||root.mimeType),fileName:clean(root.data?.fileName||root.fileName),caption:clean(root.caption)},
    ]:[];
    const text=clean(root.text||root.textBody||root.messageText||root.body||root.buttonReply?.text||root.interactiveButtonReply?.text||root.listReply?.title||'');
-   out.push({kind:'INBOUND_MESSAGE',provider:'WATI',connectionId,providerMessageId:id,providerConversationId:clean(root.conversationId)||undefined,senderPhone:e164(sender),businessPhone:e164(root.channelPhoneNumber||root.businessPhone||root.tenantPhoneNumber||sender?.phoneNumber||''),messageType:type,text,media,senderName:clean(root.senderName||root.contactName),timestamp:watiTimestamp(root.timestamp||root.created)});
+   out.push({kind:'INBOUND_MESSAGE',provider:'WATI',connectionId,providerMessageId:id,providerConversationId:clean(root.conversationId)||undefined,senderPhone:e164(sender),businessPhone:e164(root.channelPhoneNumber||root.businessPhone||root.tenantPhoneNumber||connectionSender?.phoneNumber||''),messageType:type,text,media,senderName:clean(root.senderName||root.contactName),timestamp:watiTimestamp(root.timestamp||root.created)});
    return out;
  },
  async registerWebhook(c,callbackUrl){

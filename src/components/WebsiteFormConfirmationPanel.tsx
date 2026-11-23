@@ -128,7 +128,8 @@ export const WebsiteFormConfirmationPanel: React.FC<{ tenantId: string; canEdit:
       whatsappTemplateName: match?.name || '',
       whatsappLanguage: match?.language || '',
       whatsappParameterMapping: match
-        ? Array.from({ length: Math.max(0, Number(match.paramCount || 0)) }, (_, index) => current.whatsappParameterMapping[index] || '')
+        ? Array.from({ length: Math.max(0, Number(match.paramCount || 0)) }, (_, index) => current.whatsappParameterMapping[index])
+            .filter((field): field is FieldChoice => Boolean(field))
         : [],
     }));
   };

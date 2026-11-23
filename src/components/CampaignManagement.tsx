@@ -2925,7 +2925,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                                         </span>
                                       );
                                     }
-                                    if (tpl.format === 'visual' || (!tpl.format && (tpl.isHtml || tpl.htmlBody))) {
+                                    if (String(tpl.format || '') === 'visual' || (!tpl.format && (tpl.isHtml || tpl.htmlBody))) {
                                       return (
                                         <span className="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded font-medium">
                                           Visual Styled Template
