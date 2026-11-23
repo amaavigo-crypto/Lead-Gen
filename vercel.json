@@ -46,10 +46,6 @@
       "destination": "/api/index"
     },
     {
-      "source": "/api/webhooks/whatsapp/(.*)",
-      "destination": "/api/webhooks/whatsapp/$1"
-    },
-    {
       "source": "/api/(.*)",
       "destination": "/api/[...path]"
     },

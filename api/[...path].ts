@@ -96,10 +96,54 @@ async function handleSeoPageRequest(req: IncomingMessage, res: ServerResponse) {
  * Vercel Serverless Catch-All Function for /api/*
  * Bundles all server routes: SMTP/IMAP inbound sync, auto-replies, campaign dispatch, and lead webhooks
  */
-export default async function handler(req: IncomingMessage & { body?: any }, res: ServerResponse) {
+// Route all non-dedicated API paths (including provider-specific WhatsApp callbacks)
+ // through this existing function to stay within the Vercel Hobby 12-function limit.
+export const config = { api: { bodyParser: false } };
+
+type CatchAllRequest = IncomingMessage & { body?: any; rawBody?: Buffer };
+
+async function parseCatchAllBody(req: CatchAllRequest, res: ServerResponse): Promise<boolean> {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(req.method || '').toUpperCase())) {
+    req.body = req.body ?? {};
+    return true;
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  const rawBody = Buffer.concat(chunks);
+  req.rawBody = rawBody;
+  const contentType = String(req.headers['content-type'] || '').toLowerCase();
+
+  if (!rawBody.length) {
+    req.body = {};
+    return true;
+  }
+  if (contentType.includes('application/json') || contentType.includes('+json')) {
+    try {
+      req.body = JSON.parse(rawBody.toString('utf8'));
+      return true;
+    } catch {
+      res.statusCode = 400;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: 'Invalid JSON request body.' }));
+      return false;
+    }
+  }
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    const params = new URLSearchParams(rawBody.toString('utf8'));
+    const form: Record<string, string> = {};
+    params.forEach((value, key) => { form[key] = value; });
+    req.body = form;
+    return true;
+  }
+  // Preserve binary/unknown content for endpoints that explicitly consume raw payloads.
+  req.body = rawBody;
+  return true;
+}
+
+export default async function handler(req: CatchAllRequest, res: ServerResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Google-Access-Token');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Google-Access-Token, X-Twilio-Signature, X-Wati-Signature, X-Webhook-Secret');
 
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
@@ -170,6 +214,10 @@ export default async function handler(req: IncomingMessage & { body?: any }, res
       })
     );
   }
+
+  // Read request bytes exactly once. Provider webhooks use the raw body for signature checks;
+  // ordinary API routes still receive parsed JSON or form data through req.body.
+  if (!(await parseCatchAllBody(req, res))) return;
 
   let handleCoreApi: any;
   const loadErrors: string[] = [];
