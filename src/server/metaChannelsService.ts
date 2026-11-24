@@ -926,6 +926,9 @@ export async function createWhatsAppTemplate(
     headerFormat: submittedHeaderFormat,
     headerMediaAssetId: headerMediaAssetId || undefined,
     footer,
+    parameterFormat: 'POSITIONAL',
+    parameterNames: templatePlaceholderNames(body, 'POSITIONAL'),
+    headerParameterNames: [],
     paramCount: validatedBody.indexes.length,
   };
 }
