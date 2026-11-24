@@ -2283,8 +2283,9 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
       )}
 
       {/* 11. TeleCRM Lead 360° Slide-over Drawer (Right Sheet) */}
-      {drawerLead && drawerContact && (
-        <div className="crm-drawer-overlay fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-2xs flex justify-end">
+      {drawerLead && drawerContact && createPortal(
+        <div className="crm-workspace crm-drawer-portal-scope" style={{ display: 'contents' }}>
+        <div className="crm-drawer-overlay fixed inset-0 z-[1300] bg-slate-950/40 backdrop-blur-2xs flex justify-end" role="dialog" aria-modal="true" aria-label="Lead 360 profile">
           <div className="crm-drawer bg-white w-full max-w-xl h-full shadow-2xl border-l border-slate-200 flex flex-col animate-in slide-in-from-right duration-200">
             {/* Drawer Header */}
             <div className="p-5 border-b border-slate-200 bg-slate-50/80 flex items-start justify-between">
@@ -2548,6 +2549,8 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
             </div>
           </div>
         </div>
+        </div>,
+        document.body
       )}
     </div>
     </ModuleShell>

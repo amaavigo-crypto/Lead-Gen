@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { uploadCompanyAsset, fileToDataUrl, getImageDimensions } from '../services/assetClientService';
 import {
   AlertCircle,
@@ -374,9 +375,9 @@ export const WhatsAppMarketingTemplateForm: React.FC<Props> = ({ onCancel, onBac
     LIMITED_TIME_OFFER: 'Limited-time offer',
   };
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-3 sm:p-4" role="dialog" aria-modal="true" aria-label="Create WhatsApp marketing template">
-      <form onSubmit={handleSubmit} className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+  return createPortal(
+    <div className="whatsapp-template-modal-portal fixed inset-0 z-[1300] flex items-center justify-center bg-slate-950/50 p-3 sm:p-4" role="dialog" aria-modal="true" aria-label="Create WhatsApp marketing template">
+      <form onSubmit={handleSubmit} className="flex max-h-[calc(100dvh-24px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div className="flex items-center gap-3">
             <button type="button" onClick={onBack} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Back to Utility template"><ChevronLeft className="h-5 w-5" /></button>
@@ -583,6 +584,7 @@ export const WhatsAppMarketingTemplateForm: React.FC<Props> = ({ onCancel, onBac
           </div>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body
   );
 };

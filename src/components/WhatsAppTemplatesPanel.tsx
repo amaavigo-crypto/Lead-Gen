@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { WhatsAppMarketingTemplateForm } from './WhatsAppMarketingTemplateForm';
 import { fetchCompanyAssets } from '../services/assetClientService';
 import type { CompanyAsset } from '../types';
@@ -339,8 +340,8 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
           : undefined;
         const cards = Array.isArray(carouselComponent?.cards) ? carouselComponent.cards : [];
         const offer = offerComponent?.limited_time_offer || {};
-        return (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label={'Preview WhatsApp template ' + previewTemplate.name} onClick={() => setPreviewTemplate(null)}>
+        return createPortal((
+          <div className="whatsapp-template-modal-portal fixed inset-0 z-[1320] flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label={'Preview WhatsApp template ' + previewTemplate.name} onClick={() => setPreviewTemplate(null)}>
             <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
               <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
                 <div className="min-w-0">
@@ -425,7 +426,7 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
               </div>
             </div>
           </div>
-        );
+        ), document.body);
       })()}
 
       {isCreateOpen && category === 'MARKETING' && (
@@ -441,8 +442,8 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
         />
       )}
 
-      {isCreateOpen && category === 'UTILITY' && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-label="Create WhatsApp template">
+      {isCreateOpen && category === 'UTILITY' && createPortal((
+        <div className="whatsapp-template-modal-portal fixed inset-0 z-[1300] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-label="Create WhatsApp template">
           <form onSubmit={handleSubmit} className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div><h3 className="text-base font-bold text-slate-900">Create WhatsApp Template</h3><p className="mt-0.5 text-xs text-slate-500">Meta reviews the template before it can be used for sending.</p></div>
@@ -480,7 +481,7 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
             </div>
           </form>
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 };

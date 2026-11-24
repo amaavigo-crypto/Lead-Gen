@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useBrand } from '../context/BrandContext';
 import { ModuleShell, ModuleStatGrid } from './ModulePage';
 import {
@@ -624,10 +625,10 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
         </div>
 
       {/* Modal for Add / Edit Article */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[1000] flex items-center justify-center p-4" role="presentation">
-          <div className="knowledge-article-modal bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95" role="dialog" aria-modal="true" aria-label={editingDoc.id ? "Edit knowledge article" : "Create knowledge article"}>
-            <div className="flex items-center justify-between -mx-6 -mt-6 mb-1 px-6 py-4 border-b border-white/10 bg-[#05051f] rounded-t-2xl">
+      {isModalOpen && createPortal(
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[1300] flex items-center justify-center p-4" role="presentation">
+          <div className="knowledge-article-modal bg-white border border-slate-200 rounded-2xl max-h-[calc(100dvh-32px)] max-w-2xl w-full overflow-y-auto p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95" role="dialog" aria-modal="true" aria-label={editingDoc.id ? "Edit knowledge article" : "Create knowledge article"}>
+            <div className="sticky top-0 z-10 flex items-center justify-between -mx-6 -mt-6 mb-1 px-6 py-4 border-b border-white/10 bg-[#05051f] rounded-t-2xl">
               <h3 className="font-extrabold !text-white text-base flex items-center space-x-2">
                 <BookOpen className="w-5 h-5 text-white" />
                 <span>{editingDoc.id ? 'Edit Knowledge Document Master' : 'New Document Master'}</span>
@@ -706,7 +707,8 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Delete Confirmation Modal */}

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { BusinessCardReader } from './BusinessCardReader';
 import { ModuleShell, ModuleStatGrid } from './ModulePage';
 import {
@@ -732,12 +733,13 @@ const LeadTable: React.FC<{ leads: LeadRecord[]; allLeads?: boolean; loading?: b
 const Pagination: React.FC<{ nextCursor: string | null; loading: boolean; onMore: () => void }> = ({ nextCursor, loading, onMore }) => (
   <div className="lead-db-pagination"><span>Records are loaded 50 at a time</span>{nextCursor ? <button onClick={onMore} disabled={loading}>{loading ? <Loader2 size={14} className="animate-spin" /> : <ChevronDown size={15} />} Load more</button> : <span className="lead-db-end-of-list">End of list</span>}</div>
 );
-const Modal: React.FC<{ title: string; eyebrow: string; onClose: () => void; wide?: boolean; brandHeader?: boolean; children: React.ReactNode }> = ({ title, eyebrow, onClose, wide = false, brandHeader = false, children }) => (
+const Modal: React.FC<{ title: string; eyebrow: string; onClose: () => void; wide?: boolean; brandHeader?: boolean; children: React.ReactNode }> = ({ title, eyebrow, onClose, wide = false, brandHeader = false, children }) => createPortal(
   <div className="lead-db-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className={'lead-db-modal ' + (wide ? 'lead-db-modal--wide' : '') + (brandHeader ? ' lead-db-modal--brand-header' : '')} role="dialog" aria-modal="true" aria-label={title}>
       <header><div><span>{eyebrow}</span><h2>{title}</h2></div><button onClick={onClose} aria-label="Close dialog"><X size={18} /></button></header>{children}
     </section>
-  </div>
+  </div>,
+  document.body
 );
 
 export default LeadDatabase;
