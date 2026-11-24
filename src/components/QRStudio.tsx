@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ArrowDown, ArrowLeft, ArrowUp, BarChart3, Bell, BookOpen, Check, ChevronDown, ChevronRight, CirclePause, Copy,
   Download, ExternalLink, Eye, FileImage, FileText, Filter, Globe, Image as ImageIcon, Layers3, Link2, Loader2,
@@ -144,6 +145,13 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, []);
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true); setError('');
@@ -156,21 +164,21 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
     } catch (reason: any) { setError(reason?.message || 'Could not create QR code.'); }
     finally { setBusy(false); }
   };
-  return <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-sm" role="dialog" aria-modal="true">
-    <form onSubmit={submit} className="w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl">
-      <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5"><div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-blue-600">QR Studio</p><h2 className="mt-1 text-xl font-bold text-slate-900">Create a QR experience</h2></div><button type="button" onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
-      <div className="space-y-5 p-6">
+  return <div className="fixed inset-0 z-[1010] flex items-start justify-center overflow-y-auto bg-slate-950/55 p-3 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur-sm sm:items-center sm:p-5" role="dialog" aria-modal="true">
+    <form onSubmit={submit} className="my-auto flex max-h-[calc(100dvh-24px-env(safe-area-inset-top))] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6 sm:py-5"><div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-blue-600">QR Studio</p><h2 className="mt-1 text-xl font-bold text-slate-900">Create a QR experience</h2></div><button type="button" onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-5 sm:p-6">
         <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-700">Internal QR name</span><input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Mumbai store — welcome counter" className="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" /></label>
         <div><span className="mb-2 block text-xs font-semibold text-slate-700">Choose a starting template</span><div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {TEMPLATES.map((item) => <button type="button" key={item.id} onClick={() => setTemplate(item.id)} className={`flex items-start gap-3 rounded-xl border p-3 text-left transition ${template === item.id ? 'border-blue-500 bg-blue-50/70 ring-2 ring-blue-500/10' : 'border-slate-200 hover:border-slate-300'}`}><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${template === item.id ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>{item.icon}</span><span><span className="block text-xs font-bold text-slate-900">{item.name}</span><span className="mt-1 block text-[10px] text-slate-500">{item.description}</span></span></button>)}
         </div></div>
-        <div><span className="mb-2 block text-xs font-semibold text-slate-700">What should happen after scanning?</span><div className="grid grid-cols-2 gap-2">
+        <div><span className="mb-2 block text-xs font-semibold text-slate-700">What should happen after scanning?</span><div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <button type="button" onClick={() => setDestination('page')} className={`rounded-xl border p-3 text-left ${destination === 'page' ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}><span className="flex items-center gap-2 text-xs font-bold text-slate-900"><Layers3 className="h-4 w-4 text-blue-600" />Custom experience</span><span className="mt-1 block text-[10px] text-slate-500">Build a mobile page in QR Studio</span></button>
           <button type="button" onClick={() => setDestination('url')} className={`rounded-xl border p-3 text-left ${destination === 'url' ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}><span className="flex items-center gap-2 text-xs font-bold text-slate-900"><ExternalLink className="h-4 w-4 text-blue-600" />Open a website</span><span className="mt-1 block text-[10px] text-slate-500">Redirect to an external destination</span></button>
         </div>{destination === 'url' && <input required type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com" className="mt-3 w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-blue-500" />}</div>
         {error && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>}
       </div>
-      <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-6 py-4"><p className="text-[10px] text-slate-500">You can change the page, destination and design later.</p><button disabled={busy} type="submit" className="inline-flex items-center gap-2 rounded-xl bg-[#155eef] px-5 py-3 text-xs font-bold text-white shadow-lg shadow-blue-600/20 disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create QR code</button></div>
+      <div className="flex shrink-0 flex-col-reverse items-stretch gap-3 border-t border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6"><p className="text-[10px] text-slate-500">You can change the page, destination and design later.</p><button disabled={busy} type="submit" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#155eef] px-5 py-3 text-xs font-bold text-white shadow-lg shadow-blue-600/20 disabled:opacity-50 sm:w-auto">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create QR code</button></div>
     </form>
   </div>;
 }
@@ -191,6 +199,12 @@ function QrBuilder({ initial, onClose, onSaved }: { initial: QrStudioCode; onClo
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, []);
 
   const page = working.pageData;
   const selected = page.blocks.find((block) => block.id === selectedId) || null;
@@ -330,13 +344,13 @@ function QrBuilder({ initial, onClose, onSaved }: { initial: QrStudioCode; onClo
   };
   const scheduleValue = (value?: string) => value ? new Date(value).toISOString().slice(0, 16) : '';
 
-  return <div className="fixed inset-0 z-[80] flex flex-col bg-[#f5f7fb]" role="dialog" aria-modal="true" aria-label="QR experience builder">
-    <header className="flex min-h-[66px] items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 sm:px-6">
+  return <div className="fixed inset-0 z-[1000] flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[#f5f7fb]" role="dialog" aria-modal="true" aria-label="QR experience builder">
+    <header className="flex min-h-[66px] shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 sm:px-6">
       <div className="flex min-w-0 items-center gap-3"><button onClick={onClose} className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /></button><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{working.name}</p><p className="text-[10px] text-slate-400">Experience builder · {working.status}</p></div></div>
-      <div className="flex items-center gap-2"><button onClick={() => void save()} disabled={saving} className="hidden items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 sm:inline-flex">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save draft</button><button onClick={() => setMobileSettingsOpen((open) => !open)} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 lg:hidden"><Settings2 className="h-4 w-4" />Settings</button><button onClick={() => void publish()} disabled={publishing || saving} className="inline-flex items-center gap-2 rounded-xl bg-[#155eef] px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-600/20">{publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Publish</button></div>
+      <div className="flex items-center gap-2"><button onClick={() => void save()} disabled={saving} className="hidden items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 sm:inline-flex">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save draft</button><button onClick={() => setMobileSettingsOpen((open) => !open)} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 xl:hidden"><Settings2 className="h-4 w-4" />Settings</button><button onClick={() => void publish()} disabled={publishing || saving} className="inline-flex items-center gap-2 rounded-xl bg-[#155eef] px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-600/20">{publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Publish</button></div>
     </header>
     <div className="flex min-h-0 flex-1 overflow-hidden">
-      <aside className="hidden w-[230px] shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
+      <aside className="hidden w-[230px] shrink-0 flex-col border-r border-slate-200 bg-white 2xl:flex">
         <div className="border-b border-slate-100 p-4"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-400">Page content</p><p className="mt-1 text-xs text-slate-500">Select a section or add a new one.</p></div>
         <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3">
           {page.blocks.map((block, index) => <div key={block.id} className={`flex items-center gap-1 rounded-xl border p-1.5 ${selectedId === block.id ? 'border-blue-300 bg-blue-50' : 'border-transparent hover:bg-slate-50'}`}>
@@ -350,8 +364,8 @@ function QrBuilder({ initial, onClose, onSaved }: { initial: QrStudioCode; onClo
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-6">
-        <div className="mx-auto flex max-w-[980px] flex-col items-center gap-4">
+      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-6">
+        <div className="mx-auto flex w-full min-w-0 max-w-[980px] flex-col items-center gap-4">
           <div className="flex w-full flex-wrap items-center justify-between gap-2"><div><p className="text-[10px] font-bold uppercase tracking-[.15em] text-slate-400">Live mobile preview</p><p className="mt-1 text-xs text-slate-500">Changes appear as you edit. Test with a real phone after publishing.</p></div><div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1"><button onClick={() => setPane('content')} className={`rounded-lg px-3 py-2 text-[10px] font-bold ${pane === 'content' ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>Content</button><button onClick={() => setPane('design')} className={`rounded-lg px-3 py-2 text-[10px] font-bold ${pane === 'design' ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>Design</button><button onClick={() => setPane('qr')} className={`rounded-lg px-3 py-2 text-[10px] font-bold ${pane === 'qr' ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>QR design</button><button onClick={() => setPane('publish')} className={`rounded-lg px-3 py-2 text-[10px] font-bold ${pane === 'publish' ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>Publish</button></div></div>
           <div className="w-full max-w-[420px] overflow-hidden rounded-[34px] border-[8px] border-slate-900 bg-white shadow-[0_28px_80px_rgba(15,23,42,.16)]">
             <div className="mx-auto mt-1 h-1.5 w-20 rounded-full bg-slate-900" />
@@ -363,9 +377,10 @@ function QrBuilder({ initial, onClose, onSaved }: { initial: QrStudioCode; onClo
         </div>
       </main>
 
-      <aside className={`flex w-full max-w-[330px] shrink-0 flex-col border-l border-slate-200 bg-white max-[860px]:hidden ${mobileSettingsOpen ? 'qr-mobile-settings-open' : ''}`}>
-        <div className="border-b border-slate-100 px-4 py-4"><div className="flex items-center justify-between"><p className="text-xs font-bold text-slate-900">{pane === 'content' ? 'Section settings' : pane === 'design' ? 'Page design' : pane === 'qr' ? 'QR code style' : 'Publishing'}</p><button onClick={() => setMobileSettingsOpen(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 lg:hidden"><X className="h-4 w-4" /></button></div><p className="mt-1 text-[10px] text-slate-400">Customize the selected experience.</p></div>
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"><div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50 p-3 lg:hidden">
+      {mobileSettingsOpen && <button type="button" aria-label="Close settings panel" onClick={() => setMobileSettingsOpen(false)} className="fixed inset-0 z-[1001] bg-slate-950/30 xl:hidden" />}
+      <aside className={`hidden w-[330px] shrink-0 flex-col border-l border-slate-200 bg-white xl:flex ${mobileSettingsOpen ? 'qr-mobile-settings-open' : ''}`}>
+        <div className="border-b border-slate-100 px-4 py-4"><div className="flex items-center justify-between"><p className="text-xs font-bold text-slate-900">{pane === 'content' ? 'Section settings' : pane === 'design' ? 'Page design' : pane === 'qr' ? 'QR code style' : 'Publishing'}</p><button onClick={() => setMobileSettingsOpen(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 xl:hidden"><X className="h-4 w-4" /></button></div><p className="mt-1 text-[10px] text-slate-400">Customize the selected experience.</p></div>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"><div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50 p-3 xl:hidden">
             <div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Page sections</p><div className="mt-2 flex flex-wrap gap-1.5">
               {page.blocks.map((block) => <button key={block.id} onClick={() => { setSelectedId(block.id); setPane('content'); }} className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold ${selectedId === block.id ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600'}`}>{block.title || block.label || block.type}</button>)}
             </div></div>
@@ -624,7 +639,7 @@ export const QRStudio: React.FC<Props> = ({ tenantId }) => {
 
     {tab === 'themes' && <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-sm font-bold text-slate-900">Brand themes and reusable sections</h2><p className="mt-1 text-xs text-slate-500">Save design systems and page sections from the experience builder, then reuse them across QR codes.</p></div><button onClick={() => codes[0] ? setEditing(codes[0]) : setCreateOpen(true)} className="rounded-xl bg-[#155eef] px-4 py-2.5 text-xs font-bold text-white">{codes[0] ? 'Open experience builder' : 'Create a QR code'}</button></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{themes.map((theme) => <div key={theme.id} className="rounded-2xl border border-slate-200 bg-white p-4"><div className="mb-3 flex items-center justify-between"><span className="rounded-full bg-blue-50 px-2.5 py-1 text-[9px] font-bold uppercase text-blue-700">{theme.kind}</span><Layers3 className="h-4 w-4 text-slate-400" /></div><p className="text-sm font-bold text-slate-900">{theme.name}</p><p className="mt-1 text-[10px] text-slate-400">{theme.kind === 'theme' ? 'Reusable typography, backgrounds and colours' : 'Reusable content section'}</p>{theme.theme && <div className="mt-4 flex gap-1">{[theme.theme.backgroundColor, theme.theme.accentColor, theme.theme.gradientFrom, theme.theme.gradientTo].filter(Boolean).map((color, index) => <span key={index} className="h-6 flex-1 rounded-md border border-black/5" style={{ backgroundColor: color }} />)}</div>}</div>)}{themes.length === 0 && <div className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center"><Palette className="mx-auto h-7 w-7 text-slate-300" /><p className="mt-3 text-sm font-bold text-slate-700">No saved themes yet</p><p className="mt-1 text-xs text-slate-500">Create a design in the builder and save it as a reusable theme or section.</p></div>}</div></div>}
     {toast && <div role="status" className="fixed bottom-5 right-5 z-[95] rounded-xl bg-slate-900 px-4 py-3 text-xs font-semibold text-white shadow-xl">{toast}</div>}
-    {createOpen && <CreateDialog onClose={() => setCreateOpen(false)} onCreated={onCreated} />}
-    {editing && <QrBuilder initial={editing} onClose={() => setEditing(null)} onSaved={onSaved} />}
+    {createOpen && createPortal(<CreateDialog onClose={() => setCreateOpen(false)} onCreated={onCreated} />, document.body)}
+    {editing && createPortal(<QrBuilder initial={editing} onClose={() => setEditing(null)} onSaved={onSaved} />, document.body)}
   </div>;
 };

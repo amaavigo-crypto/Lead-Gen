@@ -22,4 +22,4 @@
 @keyframes qrFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-7px)} }
 @media (prefers-reduced-motion:reduce) { .qr-motion-fade,.qr-motion-slide,.qr-motion-zoom,.qr-motion-float,.qr-motion-parallax {animation:none!important} .qr-motion-scroll{opacity:1;transform:none;transition:none} }
 
-.qr-mobile-settings-open { display:flex!important; position:fixed; top:66px; right:0; bottom:0; width:min(92vw,360px); max-width:none; z-index:85; box-shadow:-18px 0 45px rgba(15,23,42,.18); }
+.qr-mobile-settings-open { display:flex!important; position:fixed; top:0; right:0; bottom:0; width:min(92vw,390px); max-width:none; z-index:1002; overflow:hidden; padding-bottom:env(safe-area-inset-bottom); box-shadow:-18px 0 45px rgba(15,23,42,.18); }
