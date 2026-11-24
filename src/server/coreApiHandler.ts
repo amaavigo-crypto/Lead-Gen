@@ -2594,6 +2594,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
           language: String(body?.language || ''),
           params: Array.isArray(body?.params) ? body.params : [],
           headerParams: Array.isArray(body?.headerParams) ? body.headerParams : [],
+          headerMediaAssetId: String(body?.headerMediaAssetId || ''),
         });
         result = { success: true, ...sent };
       }
@@ -2675,6 +2676,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
           headerFormat: String(body?.headerFormat || 'TEXT'),
           headerText: String(body?.headerText ?? body?.header ?? ''),
           headerMediaHandle: String(body?.headerMediaHandle || ''),
+          headerMediaAssetId: String(body?.headerMediaAssetId || ''),
           body: String(body?.body || ''),
           footer: String(body?.footer || ''),
           samples: Array.isArray(body?.samples) ? body.samples.map((sample: unknown) => String(sample)) : [],

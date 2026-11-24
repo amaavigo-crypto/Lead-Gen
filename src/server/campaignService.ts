@@ -1667,6 +1667,7 @@ export async function createCampaign(params: {
   type?: 'EMAIL' | 'WHATSAPP' | 'WHATSAPP_EMAIL';
   whatsappTemplateName?: string;
   whatsappTemplateLanguage?: string;
+  whatsappTemplateHeaderMediaAssetId?: string;
   campaignMode?: 'PREDEFINED' | 'AI_GENERATED';
   deliveryMode?: 'LIVE_SMTP' | 'SIMULATION';
   templateId?: string;
@@ -1720,6 +1721,12 @@ export async function createCampaign(params: {
       item.name === templateName && item.language === templateLanguage && String(item.status || '').toUpperCase() === 'APPROVED'
     );
     if (!approvedWhatsAppTemplate) throw new Error('The selected WhatsApp template is no longer approved. Refresh templates and choose one that Meta currently marks Approved.');
+    if (String(approvedWhatsAppTemplate.headerFormat || '').toUpperCase() === 'IMAGE') {
+      const headerAssetId = String(params.whatsappTemplateHeaderMediaAssetId || approvedWhatsAppTemplate.headerMediaAssetId || '').trim();
+      if (!headerAssetId) throw new Error('This WhatsApp template has an image header. Choose an image from Company Assets before creating the campaign.');
+      await meta.saveWhatsAppTemplateAssetAssociation(getCampaignActiveCtx(), templateName, templateLanguage, headerAssetId, approvedWhatsAppTemplate.id);
+      approvedWhatsAppTemplate.headerMediaAssetId = headerAssetId;
+    }
   }
 
   const now = new Date().toISOString();
@@ -1778,7 +1785,12 @@ export async function createCampaign(params: {
     name: params.name,
     type: campaignType,
     campaignMode: mode,
-    ...(needsWhatsApp ? { whatsappTemplateName: approvedWhatsAppTemplate.name, whatsappTemplateLanguage: approvedWhatsAppTemplate.language, whatsappTemplateParamCount: approvedWhatsAppTemplate.paramCount } : {}),
+    ...(needsWhatsApp ? {
+      whatsappTemplateName: approvedWhatsAppTemplate.name,
+      whatsappTemplateLanguage: approvedWhatsAppTemplate.language,
+      whatsappTemplateParamCount: approvedWhatsAppTemplate.paramCount,
+      ...(approvedWhatsAppTemplate.headerMediaAssetId ? { whatsappTemplateHeaderMediaAssetId: approvedWhatsAppTemplate.headerMediaAssetId } : {}),
+    } : {}),
     deliveryMode,
     status: schedule ? 'SCHEDULED' : 'DRAFT',
     ...(schedule
@@ -2844,6 +2856,7 @@ export async function processNextCampaignSendBatch(
               language: String(campaign.whatsappTemplateLanguage || ''),
               params,
               headerParams,
+              headerMediaAssetId: String(campaign.whatsappTemplateHeaderMediaAssetId || approvedWhatsAppTemplate?.headerMediaAssetId || ''),
             }, approvedWhatsAppTemplate);
             lead.whatsappSendStatus = 'SENT';
             lead.whatsappMessageId = waResult.messageId;

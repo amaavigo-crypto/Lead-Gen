@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { uploadCompanyAsset, fileToDataUrl, getImageDimensions } from '../services/assetClientService';
 import {
   AlertCircle,
   CheckCircle2,
@@ -150,6 +151,7 @@ export const WhatsAppMarketingTemplateForm: React.FC<Props> = ({ onCancel, onBac
   const [headerText, setHeaderText] = useState('');
   const [headerFileName, setHeaderFileName] = useState('');
   const [headerFileHandle, setHeaderFileHandle] = useState('');
+  const [headerMediaAssetId, setHeaderMediaAssetId] = useState('');
   const [headerPreviewUrl, setHeaderPreviewUrl] = useState('');
   const [headerMediaMime, setHeaderMediaMime] = useState('');
   const [headerUploading, setHeaderUploading] = useState(false);
@@ -213,17 +215,36 @@ export const WhatsAppMarketingTemplateForm: React.FC<Props> = ({ onCancel, onBac
     setError(null);
     setHeaderFileName(file.name);
     setHeaderFileHandle('');
+    setHeaderMediaAssetId('');
     setHeaderPreviewUrl(URL.createObjectURL(file));
     setHeaderMediaMime(fileMime(file));
     setHeaderUploading(true);
     setHeaderProgress(0);
     try {
+      // Keep a tenant-owned copy of image headers in Company Assets. Meta's header_handle
+      // is only an approval sample handle and cannot be reused as a send-time media ID.
+      if (headerFormat === 'IMAGE') {
+        const dataUrl = await fileToDataUrl(file);
+        const dimensions = await getImageDimensions(dataUrl);
+        const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ').trim();
+        const asset = await uploadCompanyAsset({
+          name: cleanName || 'WhatsApp template header',
+          category: 'BANNER',
+          mimeType: fileMime(file),
+          dataUrl,
+          size: file.size,
+          dimensions,
+          altText: cleanName || 'WhatsApp template header',
+        });
+        setHeaderMediaAssetId(asset.id);
+      }
       const handle = await uploadMetaMedia(file, setHeaderProgress);
       setHeaderFileHandle(handle);
     } catch (e: any) {
       setError(e?.message || 'Header media upload failed.');
       setHeaderFileName('');
       setHeaderFileHandle('');
+      setHeaderMediaAssetId('');
       setHeaderPreviewUrl('');
     } finally {
       setHeaderUploading(false);
@@ -306,6 +327,7 @@ export const WhatsAppMarketingTemplateForm: React.FC<Props> = ({ onCancel, onBac
         headerFormat,
         headerText: headerFormat === 'TEXT' ? headerText.trim() : '',
         headerMediaHandle: hasHeaderMedia ? headerFileHandle : '',
+        headerMediaAssetId: headerFormat === 'IMAGE' ? headerMediaAssetId : '',
         body: body.trim(),
         footer: templateFormat === 'LIMITED_TIME_OFFER' || templateFormat === 'CAROUSEL' ? '' : footer.trim(),
         samples: variables.map((index) => String(samples[index] || '').trim()),
@@ -423,6 +445,7 @@ export const WhatsAppMarketingTemplateForm: React.FC<Props> = ({ onCancel, onBac
                   setHeaderFormat(next);
                   setHeaderFileName('');
                   setHeaderFileHandle('');
+                  setHeaderMediaAssetId('');
                   setHeaderText('');
                   setError(null);
                 }}>

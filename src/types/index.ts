@@ -264,6 +264,8 @@ export interface Campaign {
   whatsappTemplateName?: string;
   whatsappTemplateLanguage?: string;
   whatsappTemplateParamCount?: number;
+  /** Tenant Company Asset used as this campaign's WhatsApp image header. */
+  whatsappTemplateHeaderMediaAssetId?: string;
   sourceFileName?: string;
   /** Provenance for campaigns created from a saved lead database snapshot. */
   sourceDatabaseId?: string;

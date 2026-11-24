@@ -8,6 +8,7 @@ import { evaluateHumanHandoff, persistHumanHandoff, describeHandoff } from './hu
 import { getTenantChannelMode } from './channelModeService.js';
 import { getApplicableAiFeedback, buildAiFeedbackPromptSection, buildAiFeedbackSystemGuard } from './aiFeedbackService.js';
 import { recordAiCompletionUsage } from './usageService.js';
+import { resolveAssetRaw } from './assetService.js';
 import { AI_RESPONSE_FORMATTING_INSTRUCTIONS, formatAiResponseForChannel } from '../shared/aiResponseFormatting.js';
 
 /**
@@ -460,6 +461,8 @@ export type WhatsAppTemplate = {
   parameterNames: string[];
   /** Placeholder names/indices in a text header, in header order. */
   headerParameterNames: string[];
+  /** Tenant-owned Company Asset used for an image header when sending this template. */
+  headerMediaAssetId?: string;
   paramCount: number;
 };
 
@@ -531,7 +534,18 @@ export async function listWhatsAppTemplatesForManagement(ctx: TenantContext): Pr
     pageUrl = parsedNext.toString();
     pageCount++;
   }
-  return all.map(mapMetaWhatsAppTemplate).sort((a, b) => {
+  const assetByTemplateKey = new Map<string, string>();
+  const associations = await getDocs(tenantRepo(ctx).collection('whatsapp_template_assets')).catch(() => null);
+  if (associations) associations.forEach((entry) => {
+    const data = entry.data() as any;
+    if (data?.name && data?.language && data?.headerMediaAssetId) {
+      assetByTemplateKey.set(String(data.name) + '::' + String(data.language), String(data.headerMediaAssetId));
+    }
+  });
+  return all.map(mapMetaWhatsAppTemplate).map((template) => ({
+    ...template,
+    headerMediaAssetId: assetByTemplateKey.get(template.name + '::' + template.language),
+  })).sort((a, b) => {
     const aStatus = String(a.status || '');
     const bStatus = String(b.status || '');
     if (aStatus !== bStatus) return aStatus.localeCompare(bStatus);
@@ -544,12 +558,50 @@ export async function listWhatsAppTemplates(ctx: TenantContext): Promise<WhatsAp
   return (await listWhatsAppTemplatesForManagement(ctx)).filter((template) => template.status === 'APPROVED');
 }
 
+function whatsappTemplateAssetAssociationId(name: string, language: string): string {
+  return crypto.createHash('sha256').update(String(name).trim() + '::' + String(language).trim()).digest('hex');
+}
+
+/** Persist the tenant-owned Company Asset associated with a WhatsApp template image header. */
+export async function saveWhatsAppTemplateAssetAssociation(
+  ctx: TenantContext,
+  name: string,
+  language: string,
+  assetId: string,
+  templateId?: string
+): Promise<void> {
+  const cleanName = String(name || '').trim();
+  const cleanLanguage = String(language || '').trim();
+  const cleanAssetId = String(assetId || '').trim();
+  if (!cleanName || !cleanLanguage || !cleanAssetId) throw new MetaChannelError(400, 'Template name, language and Company Asset are required.');
+  if (!cleanAssetId.startsWith('ast_' + ctx.tenantId + '__')) throw new MetaChannelError(403, 'Choose an image from this workspace’s Company Assets.');
+  const assetSnapshot = await getDoc(tenantRepo(ctx).assetDoc(cleanAssetId));
+  if (!assetSnapshot.exists()) throw new MetaChannelError(404, 'The selected image could not be found in Company Assets. Refresh the asset list and choose it again.');
+  const asset = assetSnapshot.data() as any;
+  const mimeType = String(asset?.mimeType || '').toLowerCase();
+  if (asset?.tenantId !== ctx.tenantId || !['image/jpeg', 'image/png'].includes(mimeType) || !asset?.dataUrl) {
+    throw new MetaChannelError(400, 'WhatsApp image headers require a saved JPG or PNG image from this workspace’s Company Assets.');
+  }
+  if (Number(asset.size || 0) > 5 * 1024 * 1024) throw new MetaChannelError(400, 'WhatsApp image headers must be 5 MB or smaller.');
+  const now = new Date().toISOString();
+  await setDoc(tenantRepo(ctx).doc('whatsapp_template_assets', whatsappTemplateAssetAssociationId(cleanName, cleanLanguage)), {
+    tenantId: ctx.tenantId,
+    name: cleanName,
+    language: cleanLanguage,
+    templateId: templateId || null,
+    headerFormat: 'IMAGE',
+    headerMediaAssetId: cleanAssetId,
+    updatedAt: now,
+    createdAt: now,
+  }, { merge: true });
+}
+
 
 type WhatsAppTemplateButtonInput = { type?: string; text?: string; url?: string; phoneNumber?: string };
 type WhatsAppCarouselCardInput = { mediaFormat?: string; mediaHandle?: string; body?: string; url?: string };
 type WhatsAppTemplateCreateInput = {
   name?: string; language?: string; category?: string; templateType?: string;
-  headerFormat?: string; headerText?: string; headerMediaHandle?: string;
+  headerFormat?: string; headerText?: string; headerMediaHandle?: string; headerMediaAssetId?: string;
   body?: string; footer?: string; samples?: string[]; buttons?: WhatsAppTemplateButtonInput[];
   couponCodeExample?: string; offerText?: string; offerHasExpiration?: boolean;
   offerUrl?: string; offerUrlText?: string; carouselButtonText?: string;
@@ -754,6 +806,7 @@ export async function createWhatsAppTemplate(
   const templateType = String(input?.templateType || 'STANDARD').trim().toUpperCase();
   const body = String(input?.body || '').trim();
   const footer = String(input?.footer || '').trim();
+  const headerMediaAssetId = String(input?.headerMediaAssetId || '').trim();
 
   if (!/^[a-z][a-z0-9_]{0,511}$/.test(name)) throw new MetaChannelError(400, 'Template name must use lowercase letters, numbers, and underscores only.');
   if (!/^[a-z]{2}(?:_[A-Z]{2})?$/.test(language)) throw new MetaChannelError(400, 'Enter a supported Meta language code, such as en_US, en_GB, or hi.');
@@ -850,6 +903,14 @@ export async function createWhatsAppTemplate(
     throw new MetaChannelError(400, 'Choose a supported Marketing template format.');
   }
 
+  const submittedHeaderFormat = String(input.headerFormat || 'TEXT').trim().toUpperCase();
+  if (submittedHeaderFormat === 'IMAGE' && String(input.headerMediaHandle || '').trim() && !headerMediaAssetId) {
+    throw new MetaChannelError(400, 'Save the image header in Company Assets before submitting this template. Select the image again to retry.');
+  }
+  if (submittedHeaderFormat === 'IMAGE' && headerMediaAssetId) {
+    await saveWhatsAppTemplateAssetAssociation(ctx, name, language, headerMediaAssetId);
+  }
+
   const token = await getSecret(ctx, 'whatsapp_access_token');
   const result = await graphJson(GRAPH + '/' + encodeURIComponent(connection.messagingAccountId || connection.wabaId) + '/message_templates', {
     method: 'POST',
@@ -862,9 +923,89 @@ export async function createWhatsAppTemplate(
     status: String(result?.status || 'PENDING').toUpperCase(),
     body, components,
     header: String(input.headerText || ''),
+    headerFormat: submittedHeaderFormat,
+    headerMediaAssetId: headerMediaAssetId || undefined,
     footer,
     paramCount: validatedBody.indexes.length,
   };
+}
+
+
+const whatsappMediaUploadFlights = new Map<string, Promise<string>>();
+
+/** Upload a tenant Company Asset to the connected WhatsApp number and cache its media ID. */
+async function getWhatsAppMediaIdForCompanyAsset(
+  ctx: TenantContext,
+  connection: WhatsAppConnection,
+  assetId: string
+): Promise<string> {
+  const flightKey = ctx.tenantId + ':' + connection.phoneNumberId + ':' + assetId;
+  const existingFlight = whatsappMediaUploadFlights.get(flightKey);
+  if (existingFlight) return existingFlight;
+
+  const uploadPromise = (async () => {
+    const cacheId = crypto.createHash('sha256').update(flightKey).digest('hex');
+    const cacheRef = tenantRepo(ctx).doc('whatsapp_media_cache', cacheId);
+    const cachedSnapshot = await getDoc(cacheRef).catch(() => null);
+    if (cachedSnapshot?.exists()) {
+      const cached = cachedSnapshot.data() as any;
+      if (cached?.mediaId && Number(cached?.expiresAtMs || 0) > Date.now() + 60_000) return String(cached.mediaId);
+    }
+
+    if (!assetId.startsWith('ast_' + ctx.tenantId + '__')) throw new MetaChannelError(403, 'The selected image does not belong to this workspace.');
+    const asset = await resolveAssetRaw(assetId);
+    if (!asset || !['image/jpeg', 'image/png'].includes(String(asset.mimeType || '').toLowerCase())) {
+      throw new MetaChannelError(422, 'The saved WhatsApp header image is missing or is not a JPG/PNG. Re-upload it to Company Assets.');
+    }
+    if (!asset.buffer.length || asset.buffer.length > 5 * 1024 * 1024) {
+      throw new MetaChannelError(422, 'WhatsApp image headers must be 5 MB or smaller. Choose a smaller image in Company Assets.');
+    }
+
+    const token = await getSecret(ctx, 'whatsapp_access_token');
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('file', new Blob([new Uint8Array(asset.buffer)], { type: asset.mimeType }), asset.filename || 'campaign-header.jpg');
+    let response: Response;
+    let result: any;
+    try {
+      response = await fetch(GRAPH + '/' + encodeURIComponent(connection.phoneNumberId) + '/media', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token },
+        body: form,
+      });
+      result = await response.json().catch(() => ({}));
+    } catch (error) {
+      if (isInvalidMetaSession(error)) await markWhatsAppReauthorizationRequired(ctx);
+      throw error;
+    }
+    if (!response.ok) {
+      const error = metaGraphError(response.status, result, 'WhatsApp media upload failed.');
+      if (isInvalidMetaSession(error)) await markWhatsAppReauthorizationRequired(ctx);
+      throw error;
+    }
+    const mediaId = String(result?.id || '').trim();
+    if (!mediaId) throw new MetaChannelError(502, 'WhatsApp accepted the header image upload but did not return a media ID.');
+    const uploadedAt = new Date().toISOString();
+    // Uploaded WhatsApp media persists for 30 days. Refresh the cached ID before expiry.
+    await setDoc(cacheRef, {
+      tenantId: ctx.tenantId,
+      assetId,
+      phoneNumberId: connection.phoneNumberId,
+      mediaId,
+      uploadedAt,
+      expiresAtMs: Date.now() + 25 * 24 * 60 * 60 * 1000,
+    }, { merge: true }).catch((error) => {
+      console.warn('[WhatsApp Media] Could not persist media cache; this send will still use the fresh media ID:', error?.message || error);
+    });
+    return mediaId;
+  })();
+
+  whatsappMediaUploadFlights.set(flightKey, uploadPromise);
+  try {
+    return await uploadPromise;
+  } finally {
+    if (whatsappMediaUploadFlights.get(flightKey) === uploadPromise) whatsappMediaUploadFlights.delete(flightKey);
+  }
 }
 
 function friendlyWhatsAppError(err: any): MetaChannelError {
@@ -878,7 +1019,7 @@ function friendlyWhatsAppError(err: any): MetaChannelError {
 export async function sendWhatsAppTemplate(
   ctx: TenantContext,
   to: string,
-  template: { name: string; language: string; params?: string[]; headerParams?: string[] },
+  template: { name: string; language: string; params?: string[]; headerParams?: string[]; headerMediaAssetId?: string },
   approvedTemplateSnapshot?: WhatsAppTemplate
 ): Promise<{ messageId: string; renderedText: string }> {
   const connection = await getWhatsAppConnection(ctx);
@@ -901,8 +1042,12 @@ export async function sendWhatsAppTemplate(
     throw new MetaChannelError(400, 'The selected WhatsApp template requires ' + (approvedTemplate.headerParameterNames || []).length + ' text-header parameter(s), but ' + headerParams.length + ' were provided.');
   }
   const headerFormat = String(approvedTemplate.headerFormat || 'NONE').toUpperCase();
-  if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerFormat)) {
-    throw new MetaChannelError(422, 'This approved WhatsApp template uses a ' + headerFormat.toLowerCase() + ' header. Campaign sending currently supports text headers only; add a per-recipient media header before using this template.');
+  const headerMediaAssetId = String(template.headerMediaAssetId || approvedTemplate.headerMediaAssetId || '').trim();
+  if (['VIDEO', 'DOCUMENT'].includes(headerFormat)) {
+    throw new MetaChannelError(422, 'This approved WhatsApp template uses a ' + headerFormat.toLowerCase() + ' header. Campaign sending currently supports saved JPG/PNG image headers from Company Assets.');
+  }
+  if (headerFormat === 'IMAGE' && !headerMediaAssetId) {
+    throw new MetaChannelError(422, 'This approved WhatsApp template needs an image header. Choose and save a JPG/PNG image in Company Assets, then associate it with this template in the campaign setup.');
   }
   const templateComponents = Array.isArray(approvedTemplate.components) ? approvedTemplate.components : [];
   const dynamicUrlButton = templateComponents
@@ -918,9 +1063,14 @@ export async function sendWhatsAppTemplate(
     text,
   }));
   const components: any[] = [];
-  if (headerParams.length) components.push({ type: 'header', parameters: makeParameters(headerParams, approvedTemplate.headerParameterNames || []) });
-  if (params.length) components.push({ type: 'body', parameters: makeParameters(params, approvedTemplate.parameterNames || []) });
   try {
+    if (headerFormat === 'IMAGE') {
+      const mediaId = await getWhatsAppMediaIdForCompanyAsset(ctx, connection, headerMediaAssetId);
+      components.push({ type: 'header', parameters: [{ type: 'image', image: { id: mediaId } }] });
+    } else if (headerParams.length) {
+      components.push({ type: 'header', parameters: makeParameters(headerParams, approvedTemplate.headerParameterNames || []) });
+    }
+    if (params.length) components.push({ type: 'body', parameters: makeParameters(params, approvedTemplate.parameterNames || []) });
     const token = await getSecret(ctx, 'whatsapp_access_token');
     const result = await graphJson(`${GRAPH}/${encodeURIComponent(connection.phoneNumberId)}/messages`, {
       method: 'POST',
