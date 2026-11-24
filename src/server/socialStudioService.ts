@@ -56,7 +56,7 @@ export interface PostizMediaReference {
 }
 
 export async function listPostizIntegrations(ctx: TenantContext): Promise<PostizIntegration[]> {
-  const response = await postizRequest<any>('/integrations', { method: 'GET' });
+  const response = await postizRequest<any>(ctx, '/integrations', { method: 'GET' });
   if (!Array.isArray(response)) {
     throw new PostizApiError('Postiz returned an invalid connected-channel list.', 502);
   }
@@ -83,7 +83,7 @@ export async function createPostizConnectLink(
   if (!POSTIZ_LINKABLE_PROVIDERS.includes(provider as PostizLinkableProvider)) {
     throw new PostizApiError('This provider is not supported by the Postiz connect-link flow.', 400);
   }
-  const response = await postizRequest<{ url?: string }>('/integrations/connect', {
+  const response = await postizRequest<{ url?: string }>(ctx, '/integrations/connect', {
     method: 'POST',
     body: JSON.stringify({ integration: provider, redirectUrl }),
   });
@@ -99,6 +99,7 @@ export async function createPostizReconnectUrl(
 ): Promise<{ url: string }> {
   const query = new URLSearchParams({ refresh: integration.id });
   const response = await postizRequest<{ url?: string }>(
+    ctx,
     '/social/' + encodeURIComponent(integration.identifier) + '?' + query.toString(),
     { method: 'GET' }
   );
@@ -110,6 +111,7 @@ export async function createPostizReconnectUrl(
 
 export async function deletePostizIntegration(ctx: TenantContext, integrationId: string) {
   return postizRequest<any>(
+    ctx,
     '/integrations/' + encodeURIComponent(integrationId),
     { method: 'DELETE' }
   );
@@ -121,7 +123,7 @@ export async function listPostizPosts(
   endDate: string
 ) {
   const query = new URLSearchParams({ startDate, endDate });
-  return postizRequest<any>('/posts?' + query.toString(), { method: 'GET' });
+  return postizRequest<any>(ctx, '/posts?' + query.toString(), { method: 'GET' });
 }
 
 export async function uploadTenantAssetToPostiz(
@@ -164,7 +166,7 @@ export async function uploadTenantAssetToPostiz(
   form.append('file', new Blob([new Uint8Array(raw.buffer)], { type: mimeType }), raw.filename || asset.name || 'social-media');
   form.append('adjust', 'true');
 
-  const uploaded = await postizRequest<any>('/upload', {
+  const uploaded = await postizRequest<any>(ctx, '/upload', {
     method: 'POST',
     body: form,
   });
@@ -279,7 +281,7 @@ export async function createSocialStudioPost(
     };
   });
 
-  return postizRequest<any>('/posts', {
+  return postizRequest<any>(ctx, '/posts', {
     method: 'POST',
     body: JSON.stringify({
       type: input.type,
@@ -293,6 +295,7 @@ export async function createSocialStudioPost(
 
 export async function deleteSocialStudioPost(ctx: TenantContext, postId: string) {
   return postizRequest<any>(
+    ctx,
     '/posts/' + encodeURIComponent(postId),
     { method: 'DELETE' }
   );
@@ -310,6 +313,7 @@ export async function getSocialStudioAnalytics(
   const lookbackDays = Math.max(1, Math.min(365, Math.floor(Number(days) || 30)));
   const query = new URLSearchParams({ date: String(lookbackDays) });
   return postizRequest<any>(
+    ctx,
     '/analytics/' + encodeURIComponent(integrationId) + '?' + query.toString(),
     { method: 'GET' }
   );
@@ -318,6 +322,7 @@ export async function getSocialStudioAnalytics(
 export async function getSocialStudioPostAnalytics(ctx: TenantContext, postId: string) {
   const query = new URLSearchParams({ date: String(Math.floor(Date.now() / 1000)) });
   return postizRequest<any>(
+    ctx,
     '/analytics/post/' + encodeURIComponent(postId) + '?' + query.toString(),
     { method: 'GET' }
   );

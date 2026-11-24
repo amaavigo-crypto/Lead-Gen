@@ -26,6 +26,7 @@ import {
   Lightbulb,
   Bug,
   CheckCircle2,
+  Share2,
 } from 'lucide-react';
 import { useBrand } from '../context/BrandContext';
 import { ActiveTab } from './Navbar';
@@ -68,6 +69,7 @@ const TAB_TITLES: Record<ActiveTab, { title: string; icon: React.ReactNode; cate
   settings: { title: 'Workspace', icon: <Settings className="h-4 w-4" />, category: 'WORKSPACE SETTINGS', workspaceLabel: 'Workspace' },
   'company-profile': { title: 'Workspace', icon: <Building2 className="h-4 w-4" />, category: 'WORKSPACE SETTINGS', workspaceLabel: 'Workspace' },
   'audit-logs': { title: 'Workspace', icon: <ShieldCheck className="h-4 w-4" />, category: 'WORKSPACE SETTINGS', workspaceLabel: 'Workspace' },
+  'social-studio': { title: 'Social Studio', icon: <Share2 className="h-4 w-4" />, category: 'SOCIAL PUBLISHING', workspaceLabel: 'Social Studio' },
 };
 
 const AI_TABS: ModuleTab[] = [
@@ -147,6 +149,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const [feedbackError, setFeedbackError] = useState('');
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [globalQuery, setGlobalQuery] = useState('');
+  const [moduleQuery, setModuleQuery] = useState('');
   const [globalResults, setGlobalResults] = useState<any[]>([]);
   const [globalLoading, setGlobalLoading] = useState(false);
   const [globalError, setGlobalError] = useState('');
