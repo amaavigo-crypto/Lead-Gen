@@ -72,6 +72,7 @@ const LeadDatabase = lazyNamed(() => import('./components/LeadDatabase'), 'LeadD
 const PlatformConsole = lazyNamed(() => import('./components/PlatformConsole'), 'PlatformConsole');
 const MarketingWebsite = lazyNamed(() => import('./components/MarketingWebsite'), 'MarketingWebsite');
 const BillingView = lazyNamed(() => import('./components/BillingView'), 'BillingView');
+const SocialStudioView = lazyNamed(() => import('./components/SocialStudioView'), 'SocialStudioView');
 
 function ScreenLoading() {
   return (
@@ -238,6 +239,7 @@ const ALL_TABS: readonly ActiveTab[] = [
   'database',
   'campaign-reports',
   'company-profile',
+  'social-studio',
   'agent',
 ];
 
@@ -2693,6 +2695,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
     (currentUser.allowedModules || []).includes(activeTab) ||
     (activeTab === 'email-design-studio' && (currentUser.allowedModules || []).includes('settings')) ||
     (activeTab === 'lead-scoring' && (currentUser.allowedModules || []).includes('crm')) ||
+    (activeTab === 'social-studio' && (currentUser.allowedModules || []).includes('social-studio')) ||
     activeTab === 'dashboard' ||
     activeTab === 'database' ||
     activeTab === 'company-profile' ||
@@ -2740,7 +2743,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
           onSwitchTenant={(tenantId) => setCurrentTenantId(tenantId)}
           entitlements={entitlements}
           planLocked={planLocked}
-          hideModuleNavigation={activeTab === 'inbox' || activeTab === 'dashboard' || activeTab === 'agent'}
+          hideModuleNavigation={activeTab === 'inbox' || activeTab === 'dashboard' || activeTab === 'agent' || activeTab === 'social-studio'}
         />
 
         <main className={`app-workspace-content flex-1 min-w-0 min-h-0 ${activeTab === 'dashboard' ? 'app-workspace-content--dark p-0 overflow-y-auto' : activeTab === 'inbox' ? 'p-0 overflow-hidden flex flex-col' : activeTab === 'agent' ? 'p-0 overflow-hidden flex flex-col' : 'app-workspace-content--joined p-3 sm:p-5 overflow-y-auto'}`}>
@@ -3021,6 +3024,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
 
             {activeTab === 'database' && <LeadDatabase isAdmin={currentUser.role === 'ADMIN'} tenantId={currentTenantId} />}
             {activeTab === 'campaign-reports' && <CampaignReports tenantId={currentTenantId} />}
+            {activeTab === 'social-studio' && <SocialStudioView tenantId={currentTenantId} tenantName={currentTenant?.name} currentUser={currentUser} onBackToLeadGen={() => setActiveTab('dashboard')} />}
           </Suspense>
         )}
       </main>

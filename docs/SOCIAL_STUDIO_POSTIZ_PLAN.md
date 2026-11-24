@@ -1,10 +1,28 @@
 # Social Studio — Postiz Integration Plan
 
-**Status:** Planning / technical validation  
+**Status:** Initial implementation committed to feature branch; VPS/provider onboarding and runtime validation remain  
 **Date:** 2026-11-24  
 **Amaavigo repo:** `amaavigo-crypto/Lead-Gen`  
 **Branch:** `feature/social-studio-postiz-integration`  
 **Base:** `main` at `5c768d739377c29d9e5613697c269127603d1df0`
+
+## Implementation snapshot — 2026-11-24
+
+The initial Social Studio implementation has been prepared on `feature/social-studio-postiz-integration`:
+
+- New Social Studio navigation and dedicated customer-facing screens (overview, channels, composer, calendar, posts, media library and analytics).
+- Server-only Postiz Public API client with encrypted per-tenant API keys and a validation step that compares Postiz `/me` organization ID with the selected Amaavigo tenant mapping.
+- Platform Console tenant provisioning UI. This deliberately uses one manually created Postiz Organization + API key per Amaavigo tenant because the self-hosted Public API does not document arbitrary Organization creation/key issuance.
+- Connect, reconnect, disconnect, channel listing, post listing, draft / publish-now / schedule, deletion and provider analytics integration.
+- Tenant-owned Company Assets are streamed server-to-server into the tenant's Postiz media library.
+- Request de-duplication prevents accidental repost after uncertain network outcomes.
+- AI caption drafting uses the existing OpenAI tenant quota and usage ledger.
+- Tenant module permissions separate Social Studio access from publishing/scheduling permission.
+- Self-hosted Docker Compose, Nginx reverse-proxy example, secret template and deployment runbook.
+
+**Not yet completed outside this repository:** no VPS has been changed, no Postiz containers have been started, no provider developer credentials have been supplied, no external app reviews have been completed, and no social-account publish test has been run. Build/type-check/runtime QA must be run against the assembled branch before customer rollout. The AGPL-3.0 commercial deployment model requires legal review.
+
+---
 
 ## 1. Product decision
 

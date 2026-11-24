@@ -8,6 +8,7 @@ import {
   Database,
   BookOpen,
   Building2,
+  Share2,
   Lock,
   LogOut,
   Menu,
@@ -34,6 +35,7 @@ export type ActiveTab =
   | 'database'
   | 'campaign-reports'
   | 'company-profile'
+  | 'social-studio'
   | 'agent';
 
 export interface NavbarProps {
@@ -101,6 +103,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'database', label: 'Database', icon: <Database className="h-4 w-4 shrink-0" />, route: 'database', tabs: ['database'] },
     { id: 'knowledge', label: 'Knowledge Base', icon: <BookOpen className="h-4 w-4 shrink-0" />, route: 'knowledge', tabs: ['knowledge'] },
     { id: 'workspace', label: 'Workspace', icon: <Building2 className="h-4 w-4 shrink-0" />, route: 'workspace', tabs: ['workspace'] },
+    { id: 'social-studio', label: 'Social Studio', icon: <Share2 className="h-4 w-4 shrink-0" />, route: 'social-studio', tabs: ['social-studio'] },
   ];
 
   const handleSelectTab = (tabId: ActiveTab) => {

@@ -275,5 +275,6 @@ export function featureForUrl(url: string): string | null {
   if (/^\/api\/calendar\/(availability|book|bookings|cancel|reschedule|schedule-turn)$/.test(url)) return 'scheduling';
   if (url === '/api/knowledge' || url.startsWith('/api/knowledge/')) return 'knowledge_base';
   if (/^\/api\/tenants\/[^/]+\/email(\/.*)?$/.test(url)) return 'custom_domain';
+  if (url === '/api/social-studio' || url.startsWith('/api/social-studio/')) return 'social_studio';
   return null;
 }

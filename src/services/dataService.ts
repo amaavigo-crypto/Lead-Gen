@@ -42,6 +42,8 @@ export const PLATFORM_MODULES: PlatformModule[] = [
   { id: 'settings', name: 'Channels & Settings', description: 'Autopilot rules, email signatures, and integrations' },
   { id: 'auto-followup', name: 'Auto Follow-Up', description: 'AI follow-ups for leads who stop replying' },
   { id: 'database', name: 'Database', description: 'Reusable workspace lead databases' },
+  { id: 'social-studio', name: 'Social Studio', description: 'Connect social accounts, create drafts and manage content' },
+  { id: 'social-studio-publish', name: 'Social Studio Publishing', description: 'Publish and schedule approved social posts' },
 ];
 
 // Initial pre-configured users stored in Firestore DB

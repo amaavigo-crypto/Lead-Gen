@@ -23,6 +23,7 @@ import {
   MessageSquare,
   Clock,
   CheckCircle2,
+  Share2,
   Save,
 } from 'lucide-react';
 
@@ -148,7 +149,14 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [view, setView] = useState<'workspaces' | 'feedback' | 'plans' | 'legal' | 'seo' | 'resources' | 'internal-whatsapp'>('workspaces');
+  const [view, setView] = useState<'workspaces' | 'feedback' | 'plans' | 'legal' | 'seo' | 'resources' | 'internal-whatsapp' | 'social-studio'>('workspaces');
+  const [socialStudioTenantId, setSocialStudioTenantId] = useState('');
+  const [socialStudioOrganizationId, setSocialStudioOrganizationId] = useState('');
+  const [socialStudioApiKey, setSocialStudioApiKey] = useState('');
+  const [socialStudioBusy, setSocialStudioBusy] = useState(false);
+  const [socialStudioMessage, setSocialStudioMessage] = useState<string | null>(null);
+  const [socialStudioError, setSocialStudioError] = useState<string | null>(null);
+  const [socialStudioStatus, setSocialStudioStatus] = useState<{ provisioned: boolean; organizationId?: string | null; connectedChannels?: number; lastVerifiedAt?: string | null } | null>(null);
   const [internalWhatsAppTenantId, setInternalWhatsAppTenantId] = useState('');
   const [internalWhatsAppWabaId, setInternalWhatsAppWabaId] = useState('1099005263137931');
   const [internalWhatsAppPhoneNumberId, setInternalWhatsAppPhoneNumberId] = useState('1360665160467566');
@@ -208,6 +216,11 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
       const data = await api<{ tenants: Tenant[] }>(`/api/tenants?${params.toString()}`);
       const nextTenants = data.tenants || [];
       setTenants(nextTenants);
+      setSocialStudioTenantId((current) =>
+        current && nextTenants.some((tenant) => tenant.id === current)
+          ? current
+          : nextTenants[0]?.id || ''
+      );
       const amaavigoTenants = nextTenants.filter((tenant) =>
         `${tenant.id} ${tenant.name || ''}`.toLowerCase().includes('amaavigo')
       );
@@ -265,6 +278,83 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
       setInternalWhatsAppError(connectError?.message || 'Could not connect the internal WhatsApp account.');
     } finally {
       setInternalWhatsAppBusy(false);
+    }
+  };
+
+  const loadSocialStudioStatus = useCallback(async (tenantId: string) => {
+    if (!tenantId) {
+      setSocialStudioStatus(null);
+      return;
+    }
+    setSocialStudioError(null);
+    try {
+      const status = await api<{ provisioned: boolean; organizationId?: string | null; connectedChannelCount?: number; lastVerifiedAt?: string | null }>(
+        '/api/social-studio/admin/tenants/' + encodeURIComponent(tenantId)
+      );
+      setSocialStudioStatus({
+        provisioned: Boolean(status.provisioned),
+        organizationId: status.organizationId || null,
+        connectedChannels: Number(status.connectedChannelCount || 0),
+        lastVerifiedAt: status.lastVerifiedAt || null,
+      });
+      if (status.organizationId) setSocialStudioOrganizationId(status.organizationId);
+    } catch (statusError: any) {
+      setSocialStudioStatus(null);
+      setSocialStudioError(statusError?.message || 'Could not load this workspace social publishing status.');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (view === 'social-studio' && socialStudioTenantId) {
+      void loadSocialStudioStatus(socialStudioTenantId);
+    }
+  }, [view, socialStudioTenantId, loadSocialStudioStatus]);
+
+  const provisionSocialStudio = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!socialStudioTenantId || !socialStudioOrganizationId.trim() || !socialStudioApiKey.trim()) return;
+    setSocialStudioBusy(true);
+    setSocialStudioError(null);
+    setSocialStudioMessage(null);
+    try {
+      const result = await api<{ success: boolean; organizationId: string; connectedChannelCount: number }>(
+        '/api/social-studio/admin/tenants/' + encodeURIComponent(socialStudioTenantId) + '/provision',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            organizationId: socialStudioOrganizationId.trim(),
+            apiKey: socialStudioApiKey.trim(),
+          }),
+        }
+      );
+      setSocialStudioApiKey('');
+      setSocialStudioMessage(
+        'Postiz organization verified and securely linked. ' +
+        result.connectedChannelCount + ' connected channel(s) were found.'
+      );
+      await loadSocialStudioStatus(socialStudioTenantId);
+    } catch (provisionError: any) {
+      setSocialStudioError(provisionError?.message || 'Could not provision this workspace.');
+    } finally {
+      setSocialStudioBusy(false);
+    }
+  };
+
+  const removeSocialStudioProvisioning = async () => {
+    if (!socialStudioTenantId || !window.confirm('Remove the saved Postiz connection for this workspace? This deletes only the Amaavigo API key and metadata; it does not delete the Postiz organization or social accounts.')) return;
+    setSocialStudioBusy(true);
+    setSocialStudioError(null);
+    setSocialStudioMessage(null);
+    try {
+      await api('/api/social-studio/admin/tenants/' + encodeURIComponent(socialStudioTenantId) + '/provision', { method: 'DELETE' });
+      setSocialStudioApiKey('');
+      setSocialStudioOrganizationId('');
+      setSocialStudioStatus({ provisioned: false });
+      setSocialStudioMessage('Amaavigo has removed the stored Postiz key for this workspace. The Postiz organization itself was not deleted.');
+    } catch (removeError: any) {
+      setSocialStudioError(removeError?.message || 'Could not remove this workspace Postiz connection.');
+    } finally {
+      setSocialStudioBusy(false);
     }
   };
 
@@ -352,13 +442,13 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-5">
         <div className="inline-flex rounded-lg bg-slate-200/60 p-1 text-sm font-semibold">
-          {(['workspaces', 'feedback', 'plans', 'legal', 'seo', 'resources', 'internal-whatsapp'] as const).map((v) => (
+          {(['workspaces', 'feedback', 'plans', 'legal', 'seo', 'resources', 'internal-whatsapp', 'social-studio'] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
               className={`px-4 py-1.5 rounded-md capitalize ${view === v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
             >
-              {v === 'feedback' ? 'Ideas & Bugs' : v === 'seo' ? 'Website SEO' : v === 'resources' ? 'Resources' : v === 'internal-whatsapp' ? 'Internal WhatsApp' : v}
+              {v === 'feedback' ? 'Ideas & Bugs' : v === 'seo' ? 'Website SEO' : v === 'resources' ? 'Resources' : v === 'internal-whatsapp' ? 'Internal WhatsApp' : v === 'social-studio' ? 'Social Studio' : v}
               {v === 'feedback' && feedbackItems.some((item) => item.status === 'NEW') && <span className="ml-1.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-bold text-rose-700">{feedbackItems.filter((item) => item.status === 'NEW').length}</span>}
             </button>
           ))}
@@ -631,6 +721,77 @@ export const PlatformConsole: React.FC<Props> = ({ email, onLogout }) => {
               )}
             </section>
           </div>
+        </main>
+      )}
+
+      {view === 'social-studio' && (
+        <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+          <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <Share2 className="h-5 w-5 text-blue-700" />
+              <h1 className="text-base font-bold text-slate-900">Social Studio · Postiz provisioning</h1>
+            </div>
+            <p className="text-xs leading-relaxed text-slate-600">
+              Link one dedicated Postiz Organization to one Amaavigo tenant. The API key is validated against Postiz /me, encrypted with Amaavigo's master secret, and stored server-side. It is never returned to this screen after saving.
+            </p>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
+              Self-hosted Postiz Public API currently documents publishing and connection flows, but not automated creation of tenant Organizations and API keys. Create the tenant's Postiz Organization through the supported Postiz administration flow first. Do not reuse one Postiz API key across Amaavigo tenants.
+            </div>
+            {socialStudioError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">{socialStudioError}</div>}
+            {socialStudioMessage && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{socialStudioMessage}</div>}
+            <label className="block text-xs font-semibold text-slate-700">
+              Amaavigo tenant
+              <select value={socialStudioTenantId} onChange={(event) => { setSocialStudioTenantId(event.target.value); setSocialStudioStatus(null); setSocialStudioMessage(null); setSocialStudioError(null); }} required className={inputCls + ' mt-1'}>
+                <option value="">Select tenant</option>
+                {tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name || tenant.id} ({tenant.id})</option>)}
+              </select>
+            </label>
+            {socialStudioTenantId && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-800">{socialStudioStatus?.provisioned ? 'Postiz connection active' : 'Postiz connection not configured'}</p>
+                    <p className="mt-1 text-[11px] text-slate-500">{socialStudioStatus?.provisioned ? 'Organization ' + (socialStudioStatus.organizationId || 'verified') + ' · ' + (socialStudioStatus.connectedChannels || 0) + ' channel(s)' : 'A separate Postiz Organization and API key are required for this tenant.'}</p>
+                    {socialStudioStatus?.lastVerifiedAt && <p className="mt-1 text-[10px] text-slate-400">Last verified: {fmtDate(socialStudioStatus.lastVerifiedAt)}</p>}
+                  </div>
+                  <button type="button" onClick={() => void loadSocialStudioStatus(socialStudioTenantId)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100">
+                    <RefreshCw className="h-3 w-3" /> Verify
+                  </button>
+                </div>
+              </div>
+            )}
+            <form onSubmit={provisionSocialStudio} className="space-y-3">
+              <label className="block text-xs font-semibold text-slate-700">
+                Postiz Organization ID
+                <input value={socialStudioOrganizationId} onChange={(event) => setSocialStudioOrganizationId(event.target.value)} required maxLength={160} className={inputCls + ' mt-1'} placeholder="Copy the Organization ID from Postiz /api/public/v1/me" />
+              </label>
+              <label className="block text-xs font-semibold text-slate-700">
+                Postiz API key
+                <input type="password" autoComplete="new-password" value={socialStudioApiKey} onChange={(event) => setSocialStudioApiKey(event.target.value)} required minLength={16} maxLength={1024} className={inputCls + ' mt-1'} placeholder="Paste this tenant organization's API key" />
+              </label>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="max-w-xl text-[11px] leading-5 text-slate-400">Use an API key generated inside this tenant's Postiz organization. Amaavigo calls Postiz /me and rejects the key if its organization ID does not match the ID above.</p>
+                <button type="submit" disabled={socialStudioBusy || !socialStudioTenantId || !socialStudioOrganizationId.trim() || !socialStudioApiKey.trim()} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-40">
+                  {socialStudioBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                  {socialStudioStatus?.provisioned ? 'Update Postiz connection' : 'Verify and save'}
+                </button>
+              </div>
+            </form>
+            {socialStudioStatus?.provisioned && (
+              <div className="border-t border-slate-200 pt-3">
+                <button type="button" onClick={() => void removeSocialStudioProvisioning()} disabled={socialStudioBusy} className="text-xs font-semibold text-rose-700 hover:underline disabled:opacity-40">Remove stored Postiz credentials</button>
+              </div>
+            )}
+          </section>
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
+            <h2 className="text-sm font-bold text-slate-900">Provisioning checklist</h2>
+            <ol className="mt-3 list-decimal space-y-2 pl-5 text-xs leading-5 text-slate-600">
+              <li>Open the self-hosted Postiz installation and create a separate Organization for this Amaavigo tenant.</li>
+              <li>Generate an API key from that Postiz Organization's developer settings.</li>
+              <li>Copy its Organization ID and API key into the secure form above.</li>
+              <li>After verification, the tenant admin can connect social accounts from Social Studio → Connected Accounts.</li>
+            </ol>
+          </section>
         </main>
       )}
 

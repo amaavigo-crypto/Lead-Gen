@@ -23,6 +23,7 @@ export const FEATURES: FeatureDef[] = [
   { key: 'knowledge_base', label: 'Knowledge base', description: 'Documents the AI answers from', tab: 'knowledge', defaultEnabled: true },
   { key: 'auto_followup', label: 'AI Auto Follow-Up', description: 'Automatic follow-ups for leads that go quiet', tab: 'auto-followup', defaultEnabled: true },
   { key: 'custom_domain', label: 'Custom sending domain', description: 'Send email from your own domain', defaultEnabled: true },
+  { key: 'social_studio', label: 'Social Studio', description: 'Connect social accounts, create content, publish and schedule posts, and view social analytics', tab: 'social-studio', defaultEnabled: false },
 ];
 
 export interface LimitDef {
@@ -38,6 +39,7 @@ export const LIMITS: LimitDef[] = [
   { key: 'dailyOutboundSends', label: 'Emails per day', unit: 'emails', fallback: 3_000 },
   { key: 'hourlyOutboundSends', label: 'Emails per hour', unit: 'emails', fallback: 500 },
   { key: 'monthlyAiTokens', label: 'AI tokens per month', unit: 'tokens', fallback: 2_000_000 },
+  { key: 'socialChannels', label: 'Connected social channels', unit: 'channels', fallback: 3 },
 ];
 
 export type FeatureKey = (typeof FEATURES)[number]['key'];

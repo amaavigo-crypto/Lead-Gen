@@ -131,6 +131,7 @@ import {
 } from './tenantRepo.js';
 import { getAdminAuth, createTenantUser, createPasswordSetupLink } from './firebaseAdmin.js';
 import { authenticateRequest, rememberTenantStatusCache } from './authMiddleware.js';
+import { handleSocialStudioApi } from './socialStudioApi.js';
 import {
   listAiTestFeedback,
   createAiTestFeedback,
@@ -398,6 +399,16 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       res.end(JSON.stringify({ error: 'Payment required. Choose or fix your plan to continue.', code: 'billing_required', billingStatus: ent.billing.status }));
       return true;
     }
+  }
+
+  // Social Studio calls Postiz server-to-server, using only the tenant selected by verified Firebase claims.
+  if (url === '/api/social-studio' || url.startsWith('/api/social-studio/')) {
+    return await handleSocialStudioApi(req, res, activeTenantCtx, body, url, {
+      userRole,
+      userUid,
+      userEmail,
+      isPlatformAdmin,
+    });
   }
 
   // Tenant-scoped AI Lead Scoring. Configuration changes are admin-only; lead evaluation/history

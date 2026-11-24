@@ -741,7 +741,7 @@ export interface AppUser {
   name: string;
   role: UserRole;
   accessLevel: UserAccessLevel;
-  allowedModules: string[]; // Module IDs: 'inbox', 'campaigns', 'crm', 'knowledge', 'playground', 'settings'
+  allowedModules: string[]; // Includes product access and specific capabilities such as 'social-studio' and 'social-studio-publish'
   isActive?: boolean;
   createdAt: string;
   updatedAt: string;
