@@ -349,12 +349,14 @@ export const SocialStudioView: React.FC<Props> = ({ tenantId, tenantName, curren
   };
 
   const handleDisconnect = async (channel: Channel) => {
-    if (!window.confirm('Disconnect ' + (channel.name || providerName(channel.identifier)) + '? Existing posts remain in Postiz, but this channel will no longer be available for new publishing.')) return;
+    if (!window.confirm(
+      'Remove ' + (channel.name || providerName(channel.identifier)) + ' from this Postiz organization? Postiz’s public delete endpoint also deletes posts associated with this channel and may remove the whole cross-channel post group. Published content may remain live on the social network, but its Postiz record/history can be removed. This cannot be undone. Continue?'
+    )) return;
     setBusy(true);
     setError('');
     try {
       await api('/api/social-studio/channels/' + encodeURIComponent(channel.id), { method: 'DELETE' });
-      setNotice('The social account was disconnected.');
+      setNotice('The account was removed from this Postiz organization. Review affected post groups before reconnecting.');
       await loadCore(true);
     } catch (disconnectError: any) {
       setError(disconnectError?.message || 'Could not disconnect this account.');
@@ -780,7 +782,7 @@ export const SocialStudioView: React.FC<Props> = ({ tenantId, tenantName, curren
                         </button>
                       )}
                       {canManageChannels && (
-                        <button type="button" onClick={() => void handleDisconnect(channel)} disabled={busy} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Disconnect account">
+                        <button type="button" onClick={() => void handleDisconnect(channel)} disabled={busy} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Remove account and associated Postiz post groups">
                           <Trash2 className="h-4 w-4" />
                         </button>
                       )}

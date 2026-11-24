@@ -16,6 +16,7 @@ The initial Social Studio implementation has been prepared on `feature/social-st
 - Connect, reconnect, disconnect, channel listing, post listing, draft / publish-now / schedule, deletion and provider analytics integration.
 - Tenant-owned Company Assets are streamed server-to-server into the tenant's Postiz media library.
 - Request de-duplication prevents accidental repost after uncertain network outcomes.
+- Channel removal includes an explicit destructive warning: Postiz's public delete-channel endpoint also deletes associated Postiz posts and may delete whole cross-channel post groups; there is no non-destructive disconnect endpoint in the inspected self-hosted Public API.
 - AI caption drafting uses the existing OpenAI tenant quota and usage ledger.
 - Tenant module permissions separate Social Studio access from publishing/scheduling permission.
 - Self-hosted Docker Compose, Nginx reverse-proxy example, secret template and deployment runbook.
