@@ -2016,8 +2016,8 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                   </div>
                 </div>
 
-                {/* Unified campaign KPI row: all seven key metrics stay together. */}
-                {(() => {
+                {/* Combined campaigns retain their existing shared KPI row. */}
+                {selectedCampaignIsCombined && (() => {
                   const currentRunNum = selectedCampaign.lastRunNumber || 1;
                   const isRestartRun = currentRunNum > 1;
                   const isEmailCampaign = selectedCampaign.type === 'EMAIL' || !selectedCampaign.type;
@@ -2192,44 +2192,91 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                   </section>
                 )}
 
-                {selectedCampaign?.type === 'WHATSAPP' && (
-                  <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">WhatsApp analytics</div>
-                        <h3 className="mt-1 text-sm font-bold text-slate-900">Delivery & recipient engagement</h3>
-                        <p className="mt-1 text-xs text-slate-500">Meta status receipts, refreshed every minute while this campaign is open.</p>
-                      </div>
-                      <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-semibold text-emerald-700">
-                        {whatsappEngagement ? whatsappEngagement.totalRecipients.toLocaleString() + ' WhatsApp recipients' : 'Loading WhatsApp data'}
-                      </div>
-                    </div>
-                    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-7">
-                      {[
-                        { label: 'Sent', value: whatsappEngagement?.sent, color: 'text-blue-700', note: 'Accepted by Meta' },
-                        { label: 'Delivered', value: whatsappEngagement?.delivered, color: 'text-emerald-700', note: (whatsappEngagement?.deliveryRate ?? 0) + '% of sent' },
-                        { label: 'Seen', value: whatsappEngagement?.seen, color: 'text-violet-700', note: (whatsappEngagement?.seenRate ?? 0) + '% of delivered' },
-                        { label: 'Replied', value: whatsappEngagement?.replied, color: 'text-sky-700', note: (whatsappEngagement?.replyRate ?? 0) + '% of sent' },
-                        { label: 'Ignored', value: whatsappEngagement?.ignored, color: 'text-slate-700', note: 'No reply after 5 days' },
-                        { label: 'Waiting', value: whatsappEngagement?.waiting, color: 'text-amber-700', note: 'Inside reply window' },
-                        { label: 'Failed', value: whatsappEngagement?.failed, color: 'text-rose-700', note: 'Dispatch or delivery failure' },
-                      ].map((item) => (
-                        <div key={item.label} className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                          <p className="truncate text-[10px] font-medium text-slate-500">{item.label}</p>
-                          <p className={"mt-1 text-[22px] font-bold leading-6 tabular-nums " + item.color}>
-                            {whatsappEngagement ? (item.value ?? 0).toLocaleString() : '—'}
-                          </p>
-                          <p className="mt-1 truncate text-[9px] leading-3 text-slate-400">{item.note}</p>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500">
-                      <span>Ignored = delivered or seen, but no WhatsApp reply within {whatsappEngagement?.ignoredAfterDays || 5} days.</span>
-                      <span>{whatsappEngagementLoadStatus === 'error' ? 'Analytics could not be refreshed.' : 'Pending dispatch: ' + (whatsappEngagement?.pending ?? '—') + ' · Awaiting status: ' + (whatsappEngagement?.deliveryUnknown ?? '—')}</span>
-                    </div>
-                  </section>
-                )}
+                {!selectedCampaignIsCombined && (
+                  (() => {
+                    const isWhatsAppCampaign = selectedCampaign.type === 'WHATSAPP';
+                    const metrics = isWhatsAppCampaign
+                      ? [
+                          { label: 'Total recipients', value: whatsappEngagement ? whatsappEngagement.totalRecipients : (selectedCampaign.totalLeads || 0), color: 'text-slate-900', note: 'Campaign audience' },
+                          { label: 'Sent', value: whatsappEngagement ? whatsappEngagement.sent : (selectedCampaign.sentCount || 0), color: 'text-blue-700', note: 'Accepted by Meta' },
+                          { label: 'Delivered', value: whatsappEngagement?.delivered, color: 'text-emerald-700', note: whatsappEngagement ? whatsappEngagement.deliveryRate.toFixed(1) + '% of sent' : 'Meta delivery receipts' },
+                          { label: 'Seen', value: whatsappEngagement?.seen, color: 'text-violet-700', note: whatsappEngagement ? whatsappEngagement.seenRate.toFixed(1) + '% of delivered' : 'Read receipts' },
+                          { label: 'Replies', value: whatsappEngagement ? whatsappEngagement.replied : (selectedCampaign.repliedCount || 0), color: 'text-sky-700', note: whatsappEngagement ? whatsappEngagement.replyRate.toFixed(1) + '% of sent' : 'Inbound replies' },
+                          { label: 'Pending', value: whatsappEngagement ? whatsappEngagement.pending : (selectedCampaign.pendingCount || 0), color: 'text-amber-700', note: 'Awaiting dispatch' },
+                          { label: 'Failed', value: whatsappEngagement ? whatsappEngagement.failed : (selectedCampaign.failedCount || 0), color: 'text-rose-700', note: 'Dispatch or delivery failure' },
+                          { label: 'Waiting', value: whatsappEngagement?.waiting, color: 'text-amber-700', note: 'Inside the reply window' },
+                          { label: 'Ignored', value: whatsappEngagement?.ignored, color: 'text-slate-700', note: 'No reply within the follow-up window' },
+                          { label: 'Awaiting status', value: whatsappEngagement?.deliveryUnknown, color: 'text-slate-700', note: 'No final Meta receipt yet' },
+                        ]
+                      : [
+                          { label: 'Total leads', value: selectedCampaign.totalLeads || 0, color: 'text-slate-900', note: 'Campaign audience' },
+                          { label: 'Sent', value: engagement ? engagement.sent : (selectedCampaign.sentCount || 0), color: 'text-blue-700', note: 'Accepted by email provider' },
+                          { label: 'Delivered', value: engagement?.delivered, color: 'text-emerald-700', note: engagement ? (engagement.sent > 0 ? (engagement.delivered / engagement.sent * 100).toFixed(1) + '% of sent' : 'No sends yet') : 'Provider delivery receipts' },
+                          { label: 'Opened (est.)', value: engagement?.uniqueOpened, color: 'text-amber-700', note: engagement ? (engagement.delivered > 0 ? (engagement.uniqueOpened / engagement.delivered * 100).toFixed(1) + '% of delivered' : 'Unique opens · estimated') : 'Open tracking data' },
+                          { label: 'Clicked', value: engagement?.clicked, color: 'text-violet-700', note: engagement ? (engagement.delivered > 0 ? (engagement.clicked / engagement.delivered * 100).toFixed(1) + '% of delivered' : 'Unique tracked clicks') : 'Link tracking data' },
+                          { label: 'Replies', value: engagement ? engagement.replied : (selectedCampaign.repliedCount || 0), color: 'text-sky-700', note: 'Inbound replies received' },
+                          { label: 'Pending', value: selectedCampaign.pendingCount || 0, color: 'text-amber-700', note: 'Awaiting dispatch' },
+                          { label: 'Failed', value: selectedCampaign.failedCount || 0, color: 'text-rose-700', note: 'Send failures' },
+                          { label: 'Bounced', value: engagement?.bounced, color: 'text-rose-700', note: 'Provider-reported bounces' },
+                          { label: 'Waiting', value: engagement?.waiting, color: 'text-amber-700', note: 'Inside the reply window' },
+                          { label: 'Ignored', value: engagement?.ignored, color: 'text-slate-700', note: 'No reply after the follow-up window' },
+                          { label: 'Delayed', value: engagement?.delayed, color: 'text-orange-700', note: 'Delivery is delayed' },
+                          { label: 'Spam complaints', value: engagement?.complained, color: 'text-rose-700', note: 'Marked as spam' },
+                          { label: 'Delivery unknown', value: engagement?.deliveryUnknown, color: 'text-slate-700', note: 'No final delivery event yet' },
+                        ];
 
+                    return (
+                      <section
+                        aria-label={isWhatsAppCampaign ? 'WhatsApp campaign metrics' : 'Email campaign metrics'}
+                        className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className={isWhatsAppCampaign ? 'text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700' : 'text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700'}>
+                              {isWhatsAppCampaign ? 'WhatsApp campaign' : 'Email campaign'}
+                            </div>
+                            <h3 className="mt-1 text-sm font-bold text-slate-900">
+                              {isWhatsAppCampaign ? 'WhatsApp delivery & engagement' : 'Email delivery & engagement'}
+                            </h3>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {isWhatsAppCampaign
+                                ? 'Meta delivery and read receipts, replies and recipient follow-up status.'
+                                : 'Provider delivery, tracked engagement and recipient follow-up status.'}
+                            </p>
+                          </div>
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-semibold text-slate-600">
+                            {isWhatsAppCampaign ? 'Meta status receipts' : 'Email provider tracking'}
+                          </span>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
+                          {metrics.map((metric) => (
+                            <div key={metric.label} className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                              <p className="truncate text-[10px] font-medium text-slate-500">{metric.label}</p>
+                              <p className={'mt-1 text-[22px] font-bold leading-6 tabular-nums ' + metric.color}>
+                                {metric.value === undefined ? '—' : metric.value.toLocaleString('en-IN')}
+                              </p>
+                              <p className="mt-1 truncate text-[9px] leading-3 text-slate-400">{metric.note}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500">
+                          <span>
+                            {isWhatsAppCampaign
+                              ? <>Seen receipts depend on recipient read-receipt settings. Ignored means no reply within {whatsappEngagement?.ignoredAfterDays || 5} days.</>
+                              : 'Open counts are estimates and can be affected by mail-client privacy protections or image blocking.'}
+                          </span>
+                          <span>
+                            {isWhatsAppCampaign
+                              ? whatsappEngagementLoadStatus === 'error' ? 'WhatsApp analytics could not refresh.' : 'Meta status receipts update as events arrive.'
+                              : engagementLoadStatus === 'error' ? 'Email analytics could not refresh.' : 'Email engagement updates as provider events arrive.'}
+                          </span>
+                        </div>
+                      </section>
+                    );
+                  })()
+                )}
                 <section id="campaign-settings" className="scroll-mt-20 rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                     <div>
@@ -2291,8 +2338,8 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                 <div id="campaign-recipients" className="scroll-mt-20 bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
                   {/* Table Controls Header */}
                   <div className="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-white">
-                    <div className="flex items-center gap-2">
-                      <div className="relative">
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+                      <div className="relative shrink-0">
                         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <input
                           id="search-leads-input"
@@ -2304,38 +2351,27 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                         />
                       </div>
 
-                      {/* Filter Pills */}
-                      <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
-                        {(['ALL', 'PENDING', 'SENT', 'REPLIED', 'FAILED'] as const).map(
-                          (filter) => (
-                            <button
-                              key={filter}
-                              id={`filter-leads-${filter.toLowerCase()}`}
-                              onClick={() => setLeadStatusFilter(filter)}
-                              className={`px-2.5 py-1 rounded-md transition ${
-                                leadStatusFilter === filter
-                                  ? 'bg-orange-500 text-white font-semibold shadow-xs'
-                                  : 'text-slate-600 hover:text-slate-900'
-                              }`}
-                            >
-                              {filter.replace('_', ' ')}
-                            </button>
-                          )
-                        )}
-                      </div>
-                      <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs" title="Email engagement (opened is an estimate)">
-                        {(['OPENED', 'CLICKED', 'WAITING', 'IGNORED', 'BOUNCED'] as const).map((filter) => (
+                      {/* One unified lead status and engagement filter group */}
+                      <div
+                        role="group"
+                        aria-label="Filter campaign leads"
+                        title="Email opens are estimates"
+                        className="flex min-w-0 max-w-full flex-nowrap items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-slate-100 p-1 text-xs"
+                      >
+                        {(['ALL', 'PENDING', 'SENT', 'REPLIED', 'FAILED', 'OPENED', 'CLICKED', 'WAITING', 'IGNORED', 'BOUNCED'] as const).map((filter) => (
                           <button
                             key={filter}
-                            id={`filter-leads-${filter.toLowerCase()}`}
+                            type="button"
+                            id={'filter-leads-' + filter.toLowerCase()}
+                            aria-pressed={leadStatusFilter === filter}
                             onClick={() => setLeadStatusFilter(filter)}
-                            className={`px-2.5 py-1 rounded-md transition ${
+                            className={'shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 transition ' + (
                               leadStatusFilter === filter
                                 ? 'bg-orange-500 text-white font-semibold shadow-xs'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
+                                : 'text-slate-600 hover:bg-white/70 hover:text-slate-900'
+                            )}
                           >
-                            {filter === 'OPENED' ? 'OPENED (est.)' : filter}
+                            {filter === 'OPENED' ? 'OPENED (est.)' : filter.replace('_', ' ')}
                           </button>
                         ))}
                       </div>
