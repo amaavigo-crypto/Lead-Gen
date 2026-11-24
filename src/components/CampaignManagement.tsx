@@ -1780,7 +1780,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
       ? ((uniqueEmailReplies + uniqueWhatsAppReplies) / combinedReplyDenominator) * 100
       : null,
   };
-  const selectedCampaignIsCombined = selectedCampaign?.type === 'WHATSAPP_EMAIL';const selectedCampaignIsCombined = selectedCampaign?.type === 'WHATSAPP_EMAIL';
+  const selectedCampaignIsCombined = selectedCampaign?.type === 'WHATSAPP_EMAIL';
   const formatDirectoryActivity = (value?: string) => {
     if (!value) return '—';
     const date = new Date(value);
