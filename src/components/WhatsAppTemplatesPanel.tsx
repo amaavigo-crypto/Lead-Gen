@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { WhatsAppMarketingTemplateForm } from './WhatsAppMarketingTemplateForm';
+import { fetchCompanyAssets } from '../services/assetClientService';
+import type { CompanyAsset } from '../types';
 import {
   AlertCircle,
   CheckCircle2,
   Clock3,
+  Eye,
   FileText,
   Loader2,
   MessageCircle,
@@ -22,7 +25,10 @@ type TemplateItem = {
   status?: string;
   body: string;
   header?: string;
+  headerFormat?: string;
+  headerMediaAssetId?: string;
   footer?: string;
+  parameterFormat?: 'NAMED' | 'POSITIONAL';
   rejectionReason?: string;
   qualityScore?: string;
   paramCount: number;
@@ -59,6 +65,32 @@ function getVariables(text: string): number[] {
   return Array.from(new Set(indexes)).sort((a, b) => a - b);
 }
 
+function getTemplateComponent(template: TemplateItem, type: string): any {
+  return (Array.isArray(template.components) ? template.components : [])
+    .find((component) => String(component?.type || '').toUpperCase() === type);
+}
+
+function templatePreviewBody(template: TemplateItem): string {
+  const component = getTemplateComponent(template, 'BODY');
+  const text = String(component?.text || template.body || '');
+  const rawExamples = component?.example?.body_text;
+  const examples = Array.isArray(rawExamples?.[0]) ? rawExamples[0] : Array.isArray(rawExamples) ? rawExamples : [];
+  const namedExamples = component?.example?.body_text_named_params;
+  return text.replace(/\{\{\s*([A-Za-z][A-Za-z0-9_]*|\d+)\s*\}\}/g, (_match, key) => {
+    if (String(template.parameterFormat || 'POSITIONAL').toUpperCase() === 'NAMED') {
+      const named = Array.isArray(namedExamples) ? namedExamples.find((item: any) => String(item?.param_name || '') === String(key)) : null;
+      return String(named?.example || 'Example ' + key);
+    }
+    return String(examples[Number(key) - 1] ?? 'Example ' + key);
+  });
+}
+
+function buttonPreviewLabel(button: any): string {
+  const type = String(button?.type || '').toUpperCase();
+  if (type === 'COPY_CODE') return 'Copy code';
+  return String(button?.text || (type === 'QUICK_REPLY' ? 'Quick reply' : type === 'PHONE_NUMBER' ? 'Call' : type === 'URL' ? 'Visit website' : type || 'Button'));
+}
+
 export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => {
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,6 +101,16 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [previewTemplate, setPreviewTemplate] = useState<TemplateItem | null>(null);
+  const [companyAssets, setCompanyAssets] = useState<CompanyAsset[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchCompanyAssets().then((assets) => {
+      if (active) setCompanyAssets(assets);
+    });
+    return () => { active = false; };
+  }, []);
 
   const [name, setName] = useState('');
   const [language, setLanguage] = useState('en_US');
@@ -259,9 +301,14 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
                     </div>
                     <p className="mt-1 text-[11px] text-slate-400">Meta template ID: {template.id || 'Not returned'}{template.qualityScore ? ' · Quality: ' + template.qualityScore : ''}</p>
                   </div>
-                  {String(template.status || '').toUpperCase() === 'APPROVED'
-                    ? <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Eligible for sending</span>
-                    : <span className="text-xs font-medium text-slate-500">Not available for sending</span>}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {String(template.status || '').toUpperCase() === 'APPROVED'
+                      ? <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Eligible for sending</span>
+                      : <span className="text-xs font-medium text-slate-500">Not available for sending</span>}
+                    <button type="button" onClick={() => setPreviewTemplate(template)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-emerald-200 hover:text-emerald-700">
+                      <Eye className="h-3.5 w-3.5" /> View preview
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
                   {template.header && <p className="mb-1 text-xs font-semibold text-slate-700">{template.header}</p>}
@@ -275,6 +322,111 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
           })}
         </div>
       )}
+
+      {previewTemplate && (() => {
+        const headerComponent = getTemplateComponent(previewTemplate, 'HEADER');
+        const footerComponent = getTemplateComponent(previewTemplate, 'FOOTER');
+        const buttonsComponent = getTemplateComponent(previewTemplate, 'BUTTONS');
+        const carouselComponent = getTemplateComponent(previewTemplate, 'CAROUSEL');
+        const offerComponent = getTemplateComponent(previewTemplate, 'LIMITED_TIME_OFFER');
+        const headerFormat = String(headerComponent?.format || previewTemplate.headerFormat || (previewTemplate.header ? 'TEXT' : 'NONE')).toUpperCase();
+        const headerText = String(headerComponent?.text || previewTemplate.header || '');
+        const bodyText = templatePreviewBody(previewTemplate);
+        const footerText = String(footerComponent?.text || previewTemplate.footer || '');
+        const buttons = Array.isArray(buttonsComponent?.buttons) ? buttonsComponent.buttons : [];
+        const headerAsset = previewTemplate.headerMediaAssetId
+          ? companyAssets.find((asset) => asset.id === previewTemplate.headerMediaAssetId)
+          : undefined;
+        const cards = Array.isArray(carouselComponent?.cards) ? carouselComponent.cards : [];
+        const offer = offerComponent?.limited_time_offer || {};
+        return (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label={'Preview WhatsApp template ' + previewTemplate.name} onClick={() => setPreviewTemplate(null)}>
+            <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+              <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+                <div className="min-w-0">
+                  <h3 className="break-all text-base font-bold text-slate-900">WhatsApp template preview</h3>
+                  <p className="mt-1 text-xs text-slate-500">{previewTemplate.name} · {previewTemplate.category || 'UNCATEGORIZED'} · {previewTemplate.language}</p>
+                </div>
+                <button type="button" onClick={() => setPreviewTemplate(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Close preview"><X className="h-5 w-5" /></button>
+              </div>
+              <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 md:grid-cols-[minmax(0,1fr)_minmax(240px,300px)]">
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1">{previewTemplate.category || 'Template'}</span>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1">{templateFormatLabel(previewTemplate)}</span>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1">{String(previewTemplate.status || 'UNKNOWN').replace(/_/g, ' ')}</span>
+                  </div>
+                  <div className="rounded-2xl border border-emerald-100 bg-[#e8f5e9] p-4">
+                    <div className="ml-auto max-w-[390px] rounded-2xl rounded-tr-sm bg-white p-3 shadow-sm">
+                      {headerFormat === 'TEXT' && headerText && <p className="mb-2 text-sm font-bold text-slate-900">{headerText}</p>}
+                      {headerFormat === 'IMAGE' && (
+                        headerAsset?.url
+                          ? <img src={headerAsset.url} alt={headerAsset.altText || previewTemplate.name + ' header'} className="mb-2 max-h-56 w-full rounded-lg object-cover" />
+                          : <div className="mb-2 flex min-h-28 items-center justify-center rounded-lg bg-slate-100 px-3 text-center text-xs text-slate-500"><FileText className="mr-2 h-5 w-5" /> Image header uploaded to Meta</div>
+                      )}
+                      {(headerFormat === 'VIDEO' || headerFormat === 'DOCUMENT') && (
+                        <div className="mb-2 flex min-h-20 items-center justify-center gap-2 rounded-lg bg-slate-100 px-3 text-xs font-medium text-slate-600">
+                          <FileText className="h-5 w-5" /> {headerFormat} header uploaded to Meta
+                        </div>
+                      )}
+                      {offer.text && <div className="mb-2 rounded-lg bg-amber-100 px-3 py-2 text-center text-xs font-bold text-amber-900">{offer.text}{offer.has_expiration ? ' · Countdown' : ''}</div>}
+                      <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-800">{bodyText || '(No text body)'}</p>
+                      {footerText && <p className="mt-2 border-t border-slate-100 pt-2 text-[11px] text-slate-500">{footerText}</p>}
+                      {buttons.length > 0 && (
+                        <div className="mt-3 space-y-1.5 border-t border-slate-100 pt-2">
+                          {buttons.map((button: any, index: number) => (
+                            <div key={index} className="rounded-lg border border-emerald-100 px-3 py-2 text-center text-xs font-semibold text-blue-700">
+                              {buttonPreviewLabel(button)}
+                              {button?.example && String(button.type || '').toUpperCase() === 'COPY_CODE' ? <span className="ml-1 font-normal text-slate-500">({String(button.example)})</span> : null}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <p className="mt-2 text-right text-[10px] text-slate-400">WhatsApp preview</p>
+                    </div>
+                  </div>
+                  {cards.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">Carousel cards</h4>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {cards.map((card: any, index: number) => {
+                          const cardComponents = Array.isArray(card?.components) ? card.components : [];
+                          const cardHeader = cardComponents.find((component: any) => String(component?.type || '').toUpperCase() === 'HEADER');
+                          const cardBody = cardComponents.find((component: any) => String(component?.type || '').toUpperCase() === 'BODY');
+                          const cardButtons = cardComponents.find((component: any) => String(component?.type || '').toUpperCase() === 'BUTTONS')?.buttons || [];
+                          return (
+                            <div key={index} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                              <div className="flex min-h-24 items-center justify-center bg-slate-100 text-xs text-slate-500">{String(cardHeader?.format || 'MEDIA').toUpperCase()} card media uploaded to Meta</div>
+                              {cardBody?.text && <p className="p-3 text-sm text-slate-700">{cardBody.text}</p>}
+                              {cardButtons.map((button: any, buttonIndex: number) => <div key={buttonIndex} className="border-t border-slate-100 px-3 py-2 text-center text-xs font-semibold text-blue-700">{buttonPreviewLabel(button)}</div>)}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <aside className="space-y-3">
+                  <div className="rounded-xl border border-slate-200 p-3">
+                    <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">Saved template details</h4>
+                    <dl className="mt-3 space-y-2 text-xs">
+                      <div><dt className="text-slate-400">Template</dt><dd className="mt-0.5 break-all font-semibold text-slate-800">{previewTemplate.name}</dd></div>
+                      <div><dt className="text-slate-400">Language</dt><dd className="mt-0.5 font-semibold text-slate-800">{previewTemplate.language}</dd></div>
+                      <div><dt className="text-slate-400">Header format</dt><dd className="mt-0.5 font-semibold text-slate-800">{headerFormat}</dd></div>
+                      <div><dt className="text-slate-400">Components</dt><dd className="mt-0.5 font-semibold text-slate-800">{(previewTemplate.components || []).map((component: any) => String(component?.type || '')).filter(Boolean).join(', ') || 'No component metadata returned'}</dd></div>
+                      {previewTemplate.id && <div><dt className="text-slate-400">Meta template ID</dt><dd className="mt-0.5 break-all font-semibold text-slate-800">{previewTemplate.id}</dd></div>}
+                    </dl>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-slate-500">This preview uses the saved components returned by Meta. Media available as a saved Company Asset is displayed directly; media represented only by an upload handle is shown with a placeholder.</p>
+                </aside>
+              </div>
+              <div className="flex justify-end border-t border-slate-200 px-5 py-3">
+                <button type="button" onClick={() => setPreviewTemplate(null)} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">Close preview</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {isCreateOpen && category === 'MARKETING' && (
         <WhatsAppMarketingTemplateForm

@@ -419,22 +419,11 @@ export const WhatsAppMarketingTemplateForm: React.FC<Props> = ({ onCancel, onBac
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={labelClass}>Language *</label>
-                <select className={inputClass} value={language} onChange={(event) => setLanguage(event.target.value)}>
-                  <option value="en_US">English (US)</option><option value="en_GB">English (UK)</option><option value="hi">Hindi</option><option value="ar">Arabic</option><option value="ur">Urdu</option><option value="fr">French</option><option value="es">Spanish</option>
-                </select>
-              </div>
-              <div>
-                <label className={labelClass}>Marketing format *</label>
-                <select className={inputClass} value={templateFormat} onChange={(event) => { const next = event.target.value as TemplateFormat; setTemplateFormat(next); if (next === 'LIMITED_TIME_OFFER' && headerFormat !== 'IMAGE' && headerFormat !== 'VIDEO') { setHeaderFormat('IMAGE'); setHeaderFileName(''); setHeaderFileHandle(''); } setError(null); }}>
-                  <option value="STANDARD">Standard promotion</option>
-                  <option value="CAROUSEL">Media carousel</option>
-                  <option value="COUPON">Coupon code</option>
-                  <option value="LIMITED_TIME_OFFER">Limited-time offer</option>
-                </select>
-              </div>
+            <div className="max-w-sm">
+              <label className={labelClass}>Language *</label>
+              <select className={inputClass} value={language} onChange={(event) => setLanguage(event.target.value)}>
+                <option value="en_US">English (US)</option><option value="en_GB">English (UK)</option><option value="hi">Hindi</option><option value="ar">Arabic</option><option value="ur">Urdu</option><option value="fr">French</option><option value="es">Spanish</option>
+              </select>
             </div>
 
             {templateFormat !== 'CAROUSEL' && (

@@ -152,7 +152,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   // Campaign directory controls are separate from recipient filters used inside a campaign.
   const [campaignDirectorySearch, setCampaignDirectorySearch] = useState('');
-  const [campaignDirectoryStatus, setCampaignDirectoryStatus] = useState('ALL');
+  const [campaignDirectoryChannel, setCampaignDirectoryChannel] = useState<'ALL' | 'EMAIL' | 'WHATSAPP' | 'WHATSAPP_EMAIL'>('ALL');
   const [campaignDirectorySort, setCampaignDirectorySort] = useState<'activity' | 'sent' | 'replies' | 'name'>('activity');
   const [campaignDirectoryPage, setCampaignDirectoryPage] = useState(1);
   const campaignDirectoryPageSize = 10;
@@ -656,6 +656,10 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     uniqueOpened: number;
     sentRecipients: number;
     uniqueReplied: number;
+    whatsappDelivered: number;
+    whatsappSeen: number;
+    whatsappSentRecipients: number;
+    whatsappUniqueReplied: number;
   } | null>(null);
   useEffect(() => {
     if (!tenantId) {
@@ -671,6 +675,10 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
         uniqueOpened: Math.max(0, Number(data.uniqueOpened) || 0),
         sentRecipients: Math.max(0, Number(data.sentRecipients) || 0),
         uniqueReplied: Math.max(0, Number(data.uniqueReplied) || 0),
+        whatsappDelivered: Math.max(0, Number(data.whatsappDelivered) || 0),
+        whatsappSeen: Math.max(0, Number(data.whatsappSeen) || 0),
+        whatsappSentRecipients: Math.max(0, Number(data.whatsappSentRecipients) || 0),
+        whatsappUniqueReplied: Math.max(0, Number(data.whatsappUniqueReplied) || 0),
       });
     };
     void refreshOverviewEngagement();
@@ -1733,11 +1741,10 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     return templates.find((t) => t.templateId === selectedCampaign?.templateId) || templates[0];
   }, [templates, selectedCampaign?.templateId]);
 
-  const directoryStatusOptions = ['ALL', 'DRAFT', 'SCHEDULED', 'RUNNING', 'PAUSED', 'COMPLETED', 'FAILED'] as const;
   const filteredDirectoryCampaigns = useMemo(() => {
     const search = campaignDirectorySearch.trim().toLowerCase();
     return [...campaigns]
-      .filter((campaign) => campaignDirectoryStatus === 'ALL' || campaign.status === campaignDirectoryStatus)
+      .filter((campaign) => campaignDirectoryChannel === 'ALL' || String(campaign.type || 'EMAIL').toUpperCase() === campaignDirectoryChannel)
       .filter((campaign) => {
         if (!search) return true;
         return [campaign.name, campaign.sourceDatabaseName, campaign.sourceFileName, campaign.templateName, campaign.type]
@@ -1749,21 +1756,31 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
         if (campaignDirectorySort === 'replies') return (b.repliedCount || 0) - (a.repliedCount || 0);
         return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
       });
-  }, [campaigns, campaignDirectorySearch, campaignDirectoryStatus, campaignDirectorySort]);
+  }, [campaigns, campaignDirectorySearch, campaignDirectoryChannel, campaignDirectorySort]);
   const campaignDirectoryPages = Math.max(1, Math.ceil(filteredDirectoryCampaigns.length / campaignDirectoryPageSize));
   const visibleDirectoryCampaigns = filteredDirectoryCampaigns.slice((campaignDirectoryPage - 1) * campaignDirectoryPageSize, campaignDirectoryPage * campaignDirectoryPageSize);
   const trackedDeliveredEmails = campaignOverviewEngagement?.trackedDelivered || 0;
   const uniqueOpenedRecipients = campaignOverviewEngagement?.uniqueOpened || 0;
-  const sentRecipients = campaignOverviewEngagement?.sentRecipients || 0;
-  const uniqueRepliedRecipients = campaignOverviewEngagement?.uniqueReplied || 0;
+  const sentEmailRecipients = campaignOverviewEngagement?.sentRecipients || 0;
+  const uniqueEmailReplies = campaignOverviewEngagement?.uniqueReplied || 0;
+  const whatsappDeliveredRecipients = campaignOverviewEngagement?.whatsappDelivered || 0;
+  const whatsappSeenRecipients = campaignOverviewEngagement?.whatsappSeen || 0;
+  const sentWhatsAppRecipients = campaignOverviewEngagement?.whatsappSentRecipients || 0;
+  const uniqueWhatsAppReplies = campaignOverviewEngagement?.whatsappUniqueReplied || 0;
+  const combinedOpenDenominator = trackedDeliveredEmails + whatsappDeliveredRecipients;
+  const combinedReplyDenominator = sentEmailRecipients + sentWhatsAppRecipients;
   const campaignDirectoryStats = {
     total: campaigns.length,
     running: campaigns.filter((campaign) => campaign.status === 'RUNNING').length,
     scheduled: campaigns.filter((campaign) => campaign.status === 'SCHEDULED').length,
-    avgOpenRate: trackedDeliveredEmails > 0 ? (uniqueOpenedRecipients / trackedDeliveredEmails) * 100 : null,
-    avgReplyRate: sentRecipients > 0 ? (uniqueRepliedRecipients / sentRecipients) * 100 : null,
+    avgOpenRate: combinedOpenDenominator > 0
+      ? ((uniqueOpenedRecipients + whatsappSeenRecipients) / combinedOpenDenominator) * 100
+      : null,
+    avgReplyRate: combinedReplyDenominator > 0
+      ? ((uniqueEmailReplies + uniqueWhatsAppReplies) / combinedReplyDenominator) * 100
+      : null,
   };
-  const selectedCampaignIsCombined = selectedCampaign?.type === 'WHATSAPP_EMAIL';
+  const selectedCampaignIsCombined = selectedCampaign?.type === 'WHATSAPP_EMAIL';const selectedCampaignIsCombined = selectedCampaign?.type === 'WHATSAPP_EMAIL';
   const formatDirectoryActivity = (value?: string) => {
     if (!value) return '—';
     const date = new Date(value);
@@ -2568,15 +2585,15 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     <div className="mt-3 text-2xl font-bold tabular-nums text-slate-950">{campaignDirectoryStats.scheduled}</div>
                     <div className="mt-1 text-[11px] text-slate-400">Queued to start</div>
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" title="Weighted rate: recipients with at least one real tracked open ÷ tracked delivered emails across all campaigns. Repeat opens and detected bot opens are excluded.">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" title="Volume-weighted across tracked delivered emails and delivered WhatsApp messages: unique email opens plus WhatsApp read receipts, divided by combined delivered volume.">
                     <div className="flex items-center justify-between"><span className="text-xs font-medium text-slate-500">Avg. Open Rate</span><span className="h-8 w-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center"><Eye className="w-4 h-4" /></span></div>
                     <div className="mt-3 text-2xl font-bold tabular-nums text-slate-950">{campaignDirectoryStats.avgOpenRate === null ? '—' : `${campaignDirectoryStats.avgOpenRate.toFixed(1)}%`}</div>
-                    <div className="mt-1 text-[11px] text-slate-400">Unique tracked opens · delivered</div>
+                    <div className="mt-1 text-[11px] text-slate-400">Email opens + WhatsApp seen · delivered</div>
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" title="Unique recipients who replied ÷ unique recipients sent at least one campaign email across all campaigns.">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" title="Volume-weighted across channel sends: email-specific replies plus WhatsApp-specific replies, divided by combined sent volume.">
                     <div className="flex items-center justify-between"><span className="text-xs font-medium text-slate-500">Avg. Reply Rate</span><span className="h-8 w-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center"><MessageSquare className="w-4 h-4" /></span></div>
                     <div className="mt-3 text-2xl font-bold tabular-nums text-slate-950">{campaignDirectoryStats.avgReplyRate === null ? '—' : `${campaignDirectoryStats.avgReplyRate.toFixed(1)}%`}</div>
-                    <div className="mt-1 text-[11px] text-slate-400">Unique replies · sent recipients</div>
+                    <div className="mt-1 text-[11px] text-slate-400">Email + WhatsApp replies · sent</div>
                   </div>
                 </div>
 
@@ -2588,23 +2605,19 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                         <div className="relative w-full sm:w-72"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                           <input type="search" value={campaignDirectorySearch} onChange={(event) => { setCampaignDirectorySearch(event.target.value); setCampaignDirectoryPage(1); }} placeholder="Search campaigns..." aria-label="Search campaigns" className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-orange-100 focus:border-orange-300" />
                         </div>
+                        <select aria-label="Filter campaigns by channel" value={campaignDirectoryChannel} onChange={(event) => { setCampaignDirectoryChannel(event.target.value as 'ALL' | 'EMAIL' | 'WHATSAPP' | 'WHATSAPP_EMAIL'); setCampaignDirectoryPage(1); }} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 outline-none focus:ring-2 focus:ring-orange-100">
+                          <option value="ALL">All channels</option>
+                          <option value="EMAIL">Email</option>
+                          <option value="WHATSAPP">WhatsApp</option>
+                          <option value="WHATSAPP_EMAIL">Email + WhatsApp</option>
+                        </select>
                         <select aria-label="Sort campaigns" value={campaignDirectorySort} onChange={(event) => setCampaignDirectorySort(event.target.value as 'activity' | 'sent' | 'replies' | 'name')} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 outline-none focus:ring-2 focus:ring-orange-100">
                           <option value="activity">Sort: Last activity</option>
-                          <option value="sent">Sort: Emails sent</option>
+                          <option value="sent">Sort: Messages sent</option>
                           <option value="replies">Sort: Replies</option>
                           <option value="name">Sort: Campaign name</option>
                         </select>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-                      {directoryStatusOptions.map((status) => {
-                        const count = status === 'ALL' ? campaigns.length : campaigns.filter((campaign) => campaign.status === status).length;
-                        const active = campaignDirectoryStatus === status;
-                        return <button key={status} type="button" onClick={() => { setCampaignDirectoryStatus(status); setCampaignDirectoryPage(1); }} className={"shrink-0 px-3 py-2 rounded-lg text-xs font-semibold transition " + (active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800')}>
-                          {status === 'ALL' ? 'All campaigns' : status.charAt(0) + status.slice(1).toLowerCase()}
-                          <span className={"ml-1.5 tabular-nums " + (active ? 'text-slate-300' : 'text-slate-400')}>{count}</span>
-                        </button>;
-                      })}
                     </div>
                   </div>
 
@@ -2614,7 +2627,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     <div className="px-6 py-16 text-center">
                       <div className="mx-auto h-12 w-12 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center"><Send className="w-5 h-5" /></div>
                       <h4 className="mt-4 text-sm font-bold text-slate-900">{campaigns.length === 0 ? 'No campaigns yet' : 'No matching campaigns'}</h4>
-                      <p className="mt-1 text-xs text-slate-500">{campaigns.length === 0 ? 'Build your first campaign to start reaching the right audience.' : 'Try another search term or status filter.'}</p>
+                      <p className="mt-1 text-xs text-slate-500">{campaigns.length === 0 ? 'Build your first campaign to start reaching the right audience.' : 'Try another search term or channel.'}</p>
                       {campaigns.length === 0 && <button type="button" onClick={() => openCreateCampaignModal()} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-xs font-semibold text-white hover:bg-orange-600"><Plus className="w-4 h-4" /> Create campaign</button>}
                     </div>
                   ) : (
@@ -2654,7 +2667,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     </>
                   )}
                 </section>
-                <div className="flex items-center justify-between gap-3 text-[11px] text-slate-400"><span>Open rate is weighted by tracked delivered emails. Detected bot opens and repeat opens are excluded.</span><span>Workspace timezone: {timezone}</span></div>
+                <div className="flex items-center justify-between gap-3 text-[11px] text-slate-400"><span>Open rate combines tracked email opens and WhatsApp read receipts, weighted by delivered volume. Email opens remain subject to tracking privacy and image blocking.</span><span>Workspace timezone: {timezone}</span></div>
               </div>
             )}
           </main>
