@@ -31,6 +31,7 @@ import {
   getCampaignLeads,
   getCampaignLeadsPage,
   getCampaignEngagementStats,
+  getCombinedCampaignEmailEngagementStats,
   getWhatsAppCampaignEngagementStats,
   getCampaignOverviewEngagementStats,
   ensureCampaignSearchIndex,
@@ -5448,6 +5449,25 @@ ${signature || defSig}`;
     } catch (err: any) {
       res.statusCode = 500;
       res.end(JSON.stringify({ error: err?.message || 'Failed to load engagement stats' }));
+    }
+    return true;
+  }
+
+  // Email-only metrics for combined WhatsApp + Email campaigns.
+  const combinedEmailEngagementMatch = url.match(/^\/api\/campaigns\/([a-zA-Z0-9_-]+)\/email-engagement$/);
+  if (combinedEmailEngagementMatch && req.method === 'GET') {
+    try {
+      const [stats, trackingEnabled] = await Promise.all([
+        getCombinedCampaignEmailEngagementStats(combinedEmailEngagementMatch[1]),
+        import('./tenantEmailService.js')
+          .then(async (m) => m.isTrackingEnabled(await m.getTenantEmailSettings(resolvedTenantId)))
+          .catch(() => true),
+      ]);
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, trackingEnabled, ...stats }));
+    } catch (err: any) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: err?.message || 'Failed to load combined campaign email stats' }));
     }
     return true;
   }

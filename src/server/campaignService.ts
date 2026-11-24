@@ -1315,6 +1315,81 @@ export async function getWhatsAppCampaignEngagementStats(campaignId: string) {
   };
 }
 
+/**
+ * Email-only analytics for WHATSAPP_EMAIL campaigns.
+ * Uses emailSendStatus/emailReplied so WhatsApp outcomes never inflate email metrics.
+ */
+export async function getCombinedCampaignEmailEngagementStats(campaignId: string) {
+  const ignoredAfterDays = IGNORED_AFTER_DAYS;
+  const empty = {
+    totalRecipients: 0, sent: 0, pending: 0, failed: 0, tracked: 0,
+    deliveryTracked: 0, delivered: 0, deliveryUnknown: 0,
+    uniqueOpened: 0, totalOpens: 0, botOpens: 0, clicked: 0, totalClicks: 0,
+    replied: 0, repliedWithoutTrackedOpen: 0, waiting: 0, ignored: 0,
+    bounced: 0, complained: 0, delayed: 0, ignoredAfterDays,
+    deliveryRate: 0, openRate: 0, clickRate: 0, replyRate: 0,
+  };
+  if (!isFirebaseConfigured || !db) return empty;
+
+  const base = () => query(leadsCol(), where('campaignId', '==', campaignId));
+  const eq = (field: string, value: any) => query(base(), where(field, '==', value));
+  const cutoff = ignoredCutoffIso();
+  const deliveredBeforeCutoff = () => query(
+    base(),
+    where('deliveryStatus', '==', 'DELIVERED'),
+    where('trackingEnabledAtSend', '==', true),
+    where('lastSentAt', '<=', cutoff)
+  );
+  const deliveredAfterCutoff = () => query(
+    base(),
+    where('deliveryStatus', '==', 'DELIVERED'),
+    where('trackingEnabledAtSend', '==', true),
+    where('lastSentAt', '>', cutoff)
+  );
+  const [
+    totalRecipients, sent, pending, failed, tracked, deliveryTracked, delivered,
+    bounced, complained, uniqueOpened, clicked, replied, repliedWithoutTrackedOpen,
+    ignoredCandidates, ignoredReplied, waitingCandidates, waitingReplied, delayed, sums,
+  ] = await Promise.all([
+    countDocs(base()),
+    countDocs(eq('emailSendStatus', 'SENT')),
+    countDocs(query(base(), where('emailSendStatus', 'in', ['PENDING', 'SENDING']))),
+    countDocs(eq('emailSendStatus', 'FAILED')),
+    countDocs(query(base(), where('emailSendStatus', '==', 'SENT'), where('trackingEnabledAtSend', '==', true))),
+    countDocs(query(base(), where('deliveryStatus', 'in', ['DELIVERED', 'BOUNCED', 'COMPLAINED']))),
+    countDocs(eq('delivered', true)),
+    countDocs(eq('bounced', true)),
+    countDocs(eq('complained', true)),
+    countDocs(eq('opened', true)),
+    countDocs(eq('clicked', true)),
+    countDocs(eq('emailReplied', true)),
+    countDocs(eq('emailRepliedWithoutTrackedOpen', true)),
+    countDocs(deliveredBeforeCutoff()),
+    countDocs(query(deliveredBeforeCutoff(), where('emailReplied', '==', true))),
+    countDocs(deliveredAfterCutoff()),
+    countDocs(query(deliveredAfterCutoff(), where('emailReplied', '==', true))),
+    countDocs(eq('deliveryDelayed', true)),
+    sumDocs(base(), ['realOpenCount', 'botOpenCount']).catch(() => ({ realOpenCount: 0, botOpenCount: 0 })),
+  ]);
+  const clickSums = clicked > 0
+    ? await sumDocs(query(base(), where('clicked', '==', true)), ['clickCount']).catch(() => ({ clickCount: 0 }))
+    : { clickCount: 0 };
+  const ignored = Math.max(0, ignoredCandidates - ignoredReplied);
+  const waiting = Math.max(0, waitingCandidates - waitingReplied);
+
+  return {
+    totalRecipients, sent, pending, failed, tracked, deliveryTracked, delivered,
+    deliveryUnknown: Math.max(0, sent - delivered - bounced),
+    uniqueOpened, totalOpens: sums.realOpenCount, botOpens: sums.botOpenCount,
+    clicked, totalClicks: clickSums.clickCount, replied, repliedWithoutTrackedOpen,
+    waiting, ignored, bounced, complained, delayed, ignoredAfterDays,
+    deliveryRate: sent > 0 ? Math.round((delivered / sent) * 1000) / 10 : 0,
+    openRate: delivered > 0 ? Math.round((uniqueOpened / delivered) * 1000) / 10 : 0,
+    clickRate: delivered > 0 ? Math.round((clicked / delivered) * 1000) / 10 : 0,
+    replyRate: sent > 0 ? Math.round((replied / sent) * 1000) / 10 : 0,
+  };
+}
+
 export async function getCampaignOverviewEngagementStats() {
   if (!isFirebaseConfigured || !db) {
     return { trackedDelivered: 0, uniqueOpened: 0, sentRecipients: 0, uniqueReplied: 0 };
@@ -1793,6 +1868,7 @@ export async function createCampaign(params: {
       phone: l.phone,
       emailSendStatus: needsEmail ? 'PENDING' : 'NOT_REQUIRED',
       whatsappSendStatus: needsWhatsApp ? 'PENDING' : 'NOT_REQUIRED',
+      ...(needsEmail ? { emailReplied: false, emailRepliedWithoutTrackedOpen: false } : {}),
       ...(needsWhatsApp ? { whatsappReplied: false } : {}),
       // Last 10 digits of the phone, so an inbound WhatsApp reply can find this lead with one equality query.
       ...(String(l.phone || '').replace(/[^\d]/g, '').length >= 7
@@ -3275,6 +3351,11 @@ export async function handleIncomingCampaignLeadReply(params: {
       matchedLead.whatsappReplied = true;
       matchedLead.whatsappRepliedAt = matchedLead.whatsappRepliedAt || now;
     }
+    if (params.channel === 'EMAIL' && matchedLead.emailSendStatus && matchedLead.emailSendStatus !== 'NOT_REQUIRED') {
+      matchedLead.emailReplied = true;
+      matchedLead.emailRepliedAt = matchedLead.emailRepliedAt || now;
+      matchedLead.emailRepliedWithoutTrackedOpen = matchedLead.trackingEnabledAtSend === true && matchedLead.opened !== true;
+    }
     matchedLead.updatedAt = now;
     if (params.gmailMessageId) matchedLead.gmailMessageId = params.gmailMessageId;
     if (params.gmailThreadId) matchedLead.gmailThreadId = params.gmailThreadId;
@@ -3311,11 +3392,23 @@ export async function handleIncomingCampaignLeadReply(params: {
             ...(params.channel === 'WHATSAPP' && latestLead.whatsappSendStatus && latestLead.whatsappSendStatus !== 'NOT_REQUIRED'
               ? { whatsappReplied: true, whatsappRepliedAt: latestLead.whatsappRepliedAt || now }
               : {}),
+            ...(params.channel === 'EMAIL' && latestLead.emailSendStatus && latestLead.emailSendStatus !== 'NOT_REQUIRED'
+              ? {
+                  emailReplied: true,
+                  emailRepliedAt: latestLead.emailRepliedAt || now,
+                  emailRepliedWithoutTrackedOpen: latestLead.trackingEnabledAtSend === true && latestLead.opened !== true,
+                }
+              : {}),
             ...(params.gmailMessageId ? { gmailMessageId: params.gmailMessageId } : {}),
             ...(params.gmailThreadId ? { gmailThreadId: params.gmailThreadId } : {}),
             updatedAt: now,
           });
           matchedLead.repliedWithoutTrackedOpen = repliedWithoutTrackedOpen;
+          if (params.channel === 'EMAIL' && latestLead.emailSendStatus && latestLead.emailSendStatus !== 'NOT_REQUIRED') {
+            matchedLead.emailReplied = true;
+            matchedLead.emailRepliedAt = latestLead.emailRepliedAt || now;
+            matchedLead.emailRepliedWithoutTrackedOpen = latestLead.trackingEnabledAtSend === true && latestLead.opened !== true;
+          }
           matchedLead.repliedAt = latestLead.repliedAt || now;
           matchedLead.opened = latestLead.opened;
         });

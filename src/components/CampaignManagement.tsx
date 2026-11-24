@@ -178,6 +178,14 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     ignoredAfterDays: number; deliveryRate: number; seenRate: number; replyRate: number;
   } | null>(null);
   const [whatsappEngagementLoadStatus, setWhatsappEngagementLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [combinedEmailEngagement, setCombinedEmailEngagement] = useState<{
+    totalRecipients: number; sent: number; pending: number; failed: number; tracked: number;
+    deliveryTracked: number; delivered: number; deliveryUnknown: number;
+    uniqueOpened: number; clicked: number; replied: number; repliedWithoutTrackedOpen: number;
+    waiting: number; ignored: number; bounced: number; complained: number; delayed: number;
+    ignoredAfterDays: number; deliveryRate: number; openRate: number; clickRate: number; replyRate: number;
+  } | null>(null);
+  const [combinedEmailEngagementLoadStatus, setCombinedEmailEngagementLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
 
   // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -911,6 +919,62 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
         }
       } catch {
         if (!cancelled) setWhatsappEngagementLoadStatus('error');
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedCampaignId, selectedCampaign?.type]);
+
+  // Combined campaigns need email-specific dispatch/reply counts; the generic campaign counters
+  // represent completion across both channels and must not be reused for Email analytics.
+  useEffect(() => {
+    setCombinedEmailEngagement(null);
+    if (!selectedCampaignId || selectedCampaign?.type !== 'WHATSAPP_EMAIL') {
+      setCombinedEmailEngagementLoadStatus('ready');
+      return;
+    }
+    setCombinedEmailEngagementLoadStatus('loading');
+    let cancelled = false;
+    const load = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const data = await fetchJsonWithTimeout('/api/campaigns/' + selectedCampaignId + '/email-engagement');
+        if (cancelled) return;
+        if (data?.success) {
+          setCombinedEmailEngagement({
+            totalRecipients: Number(data.totalRecipients) || 0,
+            sent: Number(data.sent) || 0,
+            pending: Number(data.pending) || 0,
+            failed: Number(data.failed) || 0,
+            tracked: Number(data.tracked) || 0,
+            deliveryTracked: Number(data.deliveryTracked) || 0,
+            delivered: Number(data.delivered) || 0,
+            deliveryUnknown: Number(data.deliveryUnknown) || 0,
+            uniqueOpened: Number(data.uniqueOpened) || 0,
+            clicked: Number(data.clicked) || 0,
+            replied: Number(data.replied) || 0,
+            repliedWithoutTrackedOpen: Number(data.repliedWithoutTrackedOpen) || 0,
+            waiting: Number(data.waiting) || 0,
+            ignored: Number(data.ignored) || 0,
+            bounced: Number(data.bounced) || 0,
+            complained: Number(data.complained) || 0,
+            delayed: Number(data.delayed) || 0,
+            ignoredAfterDays: Number(data.ignoredAfterDays) || 5,
+            deliveryRate: Number(data.deliveryRate) || 0,
+            openRate: Number(data.openRate) || 0,
+            clickRate: Number(data.clickRate) || 0,
+            replyRate: Number(data.replyRate) || 0,
+          });
+          setCombinedEmailEngagementLoadStatus('ready');
+        } else {
+          setCombinedEmailEngagementLoadStatus('error');
+        }
+      } catch {
+        if (!cancelled) setCombinedEmailEngagementLoadStatus('error');
       }
     };
     void load();
@@ -1676,7 +1740,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     avgOpenRate: trackedDeliveredEmails > 0 ? (uniqueOpenedRecipients / trackedDeliveredEmails) * 100 : null,
     avgReplyRate: sentRecipients > 0 ? (uniqueRepliedRecipients / sentRecipients) * 100 : null,
   };
-  const selectedCampaignUsesWhatsApp = selectedCampaign?.type === 'WHATSAPP' || selectedCampaign?.type === 'WHATSAPP_EMAIL';
+  const selectedCampaignIsCombined = selectedCampaign?.type === 'WHATSAPP_EMAIL';
   const formatDirectoryActivity = (value?: string) => {
     if (!value) return '—';
     const date = new Date(value);
@@ -1956,12 +2020,12 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                       <div className={tileClass}>
                         <p className={labelClass}>Total Leads</p>
                         <p className={`${valueClass} text-slate-900`}>{liveTotalLeads}</p>
-                        <p className={detailClass}>{isRestartRun ? `Run #${currentRunNum} target` : 'Uploaded prospect pool'}</p>
+                        <p className={detailClass}>{selectedCampaign.type === 'WHATSAPP_EMAIL' ? 'Email + WhatsApp completed' : isRestartRun ? `Run #${currentRunNum} target` : 'Uploaded prospect pool'}</p>
                       </div>
 
                       <div className={tileClass}>
                         <div className="flex items-center justify-between gap-1">
-                          <p className={labelClass}>{selectedCampaign.type === 'WHATSAPP' ? 'WhatsApp Sent' : 'Emails Sent'}</p>
+                          <p className={labelClass}>{selectedCampaign.type === 'WHATSAPP' ? 'WhatsApp Sent' : selectedCampaign.type === 'WHATSAPP_EMAIL' ? 'Both Channels Complete' : 'Emails Sent'}</p>
                           {isRestartRun && <span className="shrink-0 text-[8px] font-semibold text-sky-700">RUN {currentRunNum}</span>}
                         </div>
                         <div className="mt-1 flex items-baseline gap-1">
@@ -1976,13 +2040,13 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                       <div className={tileClass}>
                         <p className={labelClass}>Pending</p>
                         <p className={`${valueClass} text-amber-600`}>{livePendingCount}</p>
-                        <p className={detailClass}>Awaiting dispatch</p>
+                        <p className={detailClass}>{selectedCampaign.type === 'WHATSAPP_EMAIL' ? 'One or both channel sends pending' : 'Awaiting dispatch'}</p>
                       </div>
 
                       <div className={tileClass}>
                         <p className={labelClass}>Failed / Errors</p>
                         <p className={`${valueClass} text-rose-600`}>{liveFailedCount}</p>
-                        <p className={detailClass}>{selectedCampaign.type === 'WHATSAPP' ? 'WhatsApp dispatch / delivery failures' : 'SMTP errors / bounced'}</p>
+                        <p className={detailClass}>{selectedCampaign.type === 'WHATSAPP' ? 'WhatsApp dispatch / delivery failures' : selectedCampaign.type === 'WHATSAPP_EMAIL' ? 'One or both channel failures' : 'SMTP errors / bounced'}</p>
                       </div>
 
                       {isEmailCampaign && (
@@ -2012,14 +2076,97 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                             {liveSentCount > 0 ? `(${Math.round((liveRepliedCount / liveSentCount) * 100)}%)` : '(0%)'}
                           </span>
                         </div>
-                        <p className={detailClass}>Inbound replies received</p>
+                        <p className={detailClass}>{selectedCampaign.type === 'WHATSAPP_EMAIL' ? 'Replies on either channel' : 'Inbound replies received'}</p>
                       </div>
                     </div>
                   );
                 })()}
 
 
-                {selectedCampaignUsesWhatsApp && (
+                {selectedCampaignIsCombined && (
+                  <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-700">Cross-channel analytics</div>
+                        <h3 className="mt-1 text-sm font-bold text-slate-900">Email + WhatsApp campaign performance</h3>
+                        <p className="mt-1 text-xs text-slate-500">Independent channel metrics for the same campaign audience. Refreshes every minute.</p>
+                      </div>
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-semibold text-slate-600">
+                        {combinedEmailEngagement?.totalRecipients ?? whatsappEngagement?.totalRecipients ?? selectedCampaign.totalLeads ?? 0} recipients
+                      </span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-1 gap-4 2xl:grid-cols-2">
+                      <div className="rounded-xl border border-slate-200 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">Email</div>
+                            <h4 className="mt-1 text-sm font-bold text-slate-900">Email engagement</h4>
+                          </div>
+                          <span className="text-[10px] text-slate-500">Provider tracking</span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          {[
+                            { label: 'Sent', value: combinedEmailEngagement?.sent, color: 'text-blue-700', note: 'Email accepted' },
+                            { label: 'Delivered', value: combinedEmailEngagement?.delivered, color: 'text-emerald-700', note: (combinedEmailEngagement?.deliveryRate ?? 0) + '% of sent' },
+                            { label: 'Opened', value: combinedEmailEngagement?.uniqueOpened, color: 'text-slate-700', note: (combinedEmailEngagement?.openRate ?? 0) + '% · estimated' },
+                            { label: 'Clicked', value: combinedEmailEngagement?.clicked, color: 'text-violet-700', note: (combinedEmailEngagement?.clickRate ?? 0) + '% of delivered' },
+                            { label: 'Replied', value: combinedEmailEngagement?.replied, color: 'text-sky-700', note: (combinedEmailEngagement?.replyRate ?? 0) + '% of sent' },
+                            { label: 'Waiting', value: combinedEmailEngagement?.waiting, color: 'text-amber-700', note: 'Within 5 days' },
+                            { label: 'Ignored', value: combinedEmailEngagement?.ignored, color: 'text-slate-700', note: 'No reply after 5 days' },
+                            { label: 'Failed / bounced', value: (combinedEmailEngagement?.failed ?? 0) + (combinedEmailEngagement?.bounced ?? 0), color: 'text-rose-700', note: 'Send failure or bounce' },
+                          ].map((item) => (
+                            <div key={item.label} className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                              <p className="truncate text-[10px] font-medium text-slate-500">{item.label}</p>
+                              <p className={"mt-1 text-[22px] font-bold leading-6 tabular-nums " + item.color}>
+                                {combinedEmailEngagement ? (item.value ?? 0).toLocaleString() : '—'}
+                              </p>
+                              <p className="mt-1 truncate text-[9px] leading-3 text-slate-400">{item.note}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500">
+                          <span>Open tracking is estimated and can be affected by privacy protections or image blocking.</span>
+                          <span>{combinedEmailEngagementLoadStatus === 'error' ? 'Email analytics could not refresh.' : 'Pending: ' + (combinedEmailEngagement?.pending ?? '—') + ' · Tracking enabled: ' + (combinedEmailEngagement?.tracked ?? '—')}</span>
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">WhatsApp</div>
+                            <h4 className="mt-1 text-sm font-bold text-slate-900">WhatsApp engagement</h4>
+                          </div>
+                          <span className="text-[10px] text-slate-500">Meta status receipts</span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          {[
+                            { label: 'Sent', value: whatsappEngagement?.sent, color: 'text-blue-700', note: 'Accepted by Meta' },
+                            { label: 'Delivered', value: whatsappEngagement?.delivered, color: 'text-emerald-700', note: (whatsappEngagement?.deliveryRate ?? 0) + '% of sent' },
+                            { label: 'Seen', value: whatsappEngagement?.seen, color: 'text-violet-700', note: (whatsappEngagement?.seenRate ?? 0) + '% of delivered' },
+                            { label: 'Replied', value: whatsappEngagement?.replied, color: 'text-sky-700', note: (whatsappEngagement?.replyRate ?? 0) + '% of sent' },
+                            { label: 'Waiting', value: whatsappEngagement?.waiting, color: 'text-amber-700', note: 'Within 5 days' },
+                            { label: 'Ignored', value: whatsappEngagement?.ignored, color: 'text-slate-700', note: 'No reply after 5 days' },
+                            { label: 'Failed', value: whatsappEngagement?.failed, color: 'text-rose-700', note: 'Dispatch or delivery failure' },
+                            { label: 'Pending', value: whatsappEngagement?.pending, color: 'text-amber-700', note: 'Awaiting dispatch' },
+                          ].map((item) => (
+                            <div key={item.label} className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                              <p className="truncate text-[10px] font-medium text-slate-500">{item.label}</p>
+                              <p className={"mt-1 text-[22px] font-bold leading-6 tabular-nums " + item.color}>
+                                {whatsappEngagement ? (item.value ?? 0).toLocaleString() : '—'}
+                              </p>
+                              <p className="mt-1 truncate text-[9px] leading-3 text-slate-400">{item.note}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500">
+                          <span>Seen receipts depend on recipient read-receipt settings.</span>
+                          <span>{whatsappEngagementLoadStatus === 'error' ? 'WhatsApp analytics could not refresh.' : 'Pending: ' + (whatsappEngagement?.pending ?? '—') + ' · Awaiting status: ' + (whatsappEngagement?.deliveryUnknown ?? '—')}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                )}
+
+                {selectedCampaign?.type === 'WHATSAPP' && (
                   <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>

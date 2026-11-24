@@ -135,7 +135,11 @@ export interface CampaignLead {
   email: string;
   phone?: string;
   /** Per-channel dispatch markers prevent a successful channel being resent after a partial failure. */
-  emailSendStatus?: 'PENDING' | 'SENT' | 'FAILED' | 'NOT_REQUIRED';
+  emailSendStatus?: 'PENDING' | 'SENDING' | 'SENT' | 'FAILED' | 'NOT_REQUIRED';
+  /** Email-only reply marker for mixed-channel campaign attribution. */
+  emailReplied?: boolean;
+  emailRepliedAt?: string;
+  emailRepliedWithoutTrackedOpen?: boolean;
   whatsappSendStatus?: 'PENDING' | 'SENDING' | 'SENT' | 'FAILED' | 'UNKNOWN' | 'NOT_REQUIRED';
   whatsappMessageId?: string;
   whatsappSendStartedAt?: string;
