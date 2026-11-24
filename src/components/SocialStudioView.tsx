@@ -233,7 +233,7 @@ export const SocialStudioView: React.FC<Props> = ({ tenantId, tenantName, curren
   const [connectionSearch, setConnectionSearch] = useState('');
   const [fileError, setFileError] = useState('');
 
-  const canManageChannels = currentUser?.role === 'ADMIN' || currentUser?.accessLevel === 'ALL';
+  const canManageChannels = currentUser?.role === 'ADMIN';
   const canPublish = canManageChannels || (currentUser?.allowedModules || []).includes('social-studio-publish');
   useEffect(() => {
     if (!canPublish && postType !== 'draft') setPostType('draft');

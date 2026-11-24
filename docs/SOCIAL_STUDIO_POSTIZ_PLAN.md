@@ -19,6 +19,7 @@ The initial Social Studio implementation has been prepared on `feature/social-st
 - Channel removal includes an explicit destructive warning: Postiz's public delete-channel endpoint also deletes associated Postiz posts and may delete whole cross-channel post groups; there is no non-destructive disconnect endpoint in the inspected self-hosted Public API.
 - AI caption drafting uses the existing OpenAI tenant quota and usage ledger.
 - Tenant module permissions separate Social Studio access from publishing/scheduling permission.
+- A branch-scoped GitHub Actions production bundle build (Node.js 22, `npm ci`, `npm run build`) passed on commit `ff5ebb3538957d414c2165973fe4849494b8689c`. The repository-wide `npm run lint` currently reports legacy type errors outside Social Studio; the branch CI runs the production bundle build and does not suppress or rewrite those unrelated modules.
 - Self-hosted Docker Compose, Nginx reverse-proxy example, secret template and deployment runbook.
 
 **Not yet completed outside this repository:** no VPS has been changed, no Postiz containers have been started, no provider developer credentials have been supplied, no external app reviews have been completed, and no social-account publish test has been run. Build/type-check/runtime QA must be run against the assembled branch before customer rollout. The AGPL-3.0 commercial deployment model requires legal review.
