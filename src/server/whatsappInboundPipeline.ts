@@ -989,6 +989,7 @@ export async function processLiveInboundWhatsApp(
       fromPhone: senderPhone,
       fromEmail: payload.from,
       body: payload.body,
+      channel: 'WHATSAPP',
     });
   } catch (campaignErr) {
     console.warn('[WhatsApp Pipeline] Campaign lead tracking hook notice:', campaignErr);

@@ -172,6 +172,12 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     bounced: number; complained: number; delayed: number; ignoredAfterDays: number;
   } | null>(null);
   const [engagementLoadStatus, setEngagementLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [whatsappEngagement, setWhatsappEngagement] = useState<{
+    totalRecipients: number; sent: number; delivered: number; seen: number; replied: number;
+    ignored: number; waiting: number; pending: number; failed: number; deliveryUnknown: number;
+    ignoredAfterDays: number; deliveryRate: number; seenRate: number; replyRate: number;
+  } | null>(null);
+  const [whatsappEngagementLoadStatus, setWhatsappEngagementLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
 
   // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -865,6 +871,55 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
       clearInterval(timer);
     };
   }, [selectedCampaignId]);
+
+
+  // WhatsApp delivery/read/reply metrics refresh independently from email engagement.
+  useEffect(() => {
+    const usesWhatsApp = selectedCampaign?.type === 'WHATSAPP' || selectedCampaign?.type === 'WHATSAPP_EMAIL';
+    setWhatsappEngagement(null);
+    if (!selectedCampaignId || !usesWhatsApp) {
+      setWhatsappEngagementLoadStatus('ready');
+      return;
+    }
+    setWhatsappEngagementLoadStatus('loading');
+    let cancelled = false;
+    const load = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const data = await fetchJsonWithTimeout('/api/campaigns/' + selectedCampaignId + '/whatsapp-engagement');
+        if (cancelled) return;
+        if (data?.success) {
+          setWhatsappEngagement({
+            totalRecipients: Number(data.totalRecipients) || 0,
+            sent: Number(data.sent) || 0,
+            delivered: Number(data.delivered) || 0,
+            seen: Number(data.seen) || 0,
+            replied: Number(data.replied) || 0,
+            ignored: Number(data.ignored) || 0,
+            waiting: Number(data.waiting) || 0,
+            pending: Number(data.pending) || 0,
+            failed: Number(data.failed) || 0,
+            deliveryUnknown: Number(data.deliveryUnknown) || 0,
+            ignoredAfterDays: Number(data.ignoredAfterDays) || 5,
+            deliveryRate: Number(data.deliveryRate) || 0,
+            seenRate: Number(data.seenRate) || 0,
+            replyRate: Number(data.replyRate) || 0,
+          });
+          setWhatsappEngagementLoadStatus('ready');
+        } else {
+          setWhatsappEngagementLoadStatus('error');
+        }
+      } catch {
+        if (!cancelled) setWhatsappEngagementLoadStatus('error');
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedCampaignId, selectedCampaign?.type]);
 
   // Refresh the lead split and verify the saved email template whenever restart opens.
   useEffect(() => {
@@ -1621,6 +1676,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     avgOpenRate: trackedDeliveredEmails > 0 ? (uniqueOpenedRecipients / trackedDeliveredEmails) * 100 : null,
     avgReplyRate: sentRecipients > 0 ? (uniqueRepliedRecipients / sentRecipients) * 100 : null,
   };
+  const selectedCampaignUsesWhatsApp = selectedCampaign?.type === 'WHATSAPP' || selectedCampaign?.type === 'WHATSAPP_EMAIL';
   const formatDirectoryActivity = (value?: string) => {
     if (!value) return '—';
     const date = new Date(value);
@@ -1905,7 +1961,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
 
                       <div className={tileClass}>
                         <div className="flex items-center justify-between gap-1">
-                          <p className={labelClass}>Emails Sent</p>
+                          <p className={labelClass}>{selectedCampaign.type === 'WHATSAPP' ? 'WhatsApp Sent' : 'Emails Sent'}</p>
                           {isRestartRun && <span className="shrink-0 text-[8px] font-semibold text-sky-700">RUN {currentRunNum}</span>}
                         </div>
                         <div className="mt-1 flex items-baseline gap-1">
@@ -1926,7 +1982,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                       <div className={tileClass}>
                         <p className={labelClass}>Failed / Errors</p>
                         <p className={`${valueClass} text-rose-600`}>{liveFailedCount}</p>
-                        <p className={detailClass}>SMTP errors / bounced</p>
+                        <p className={detailClass}>{selectedCampaign.type === 'WHATSAPP' ? 'WhatsApp dispatch / delivery failures' : 'SMTP errors / bounced'}</p>
                       </div>
 
                       {isEmailCampaign && (
@@ -1961,6 +2017,45 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     </div>
                   );
                 })()}
+
+
+                {selectedCampaignUsesWhatsApp && (
+                  <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">WhatsApp analytics</div>
+                        <h3 className="mt-1 text-sm font-bold text-slate-900">Delivery & recipient engagement</h3>
+                        <p className="mt-1 text-xs text-slate-500">Meta status receipts, refreshed every minute while this campaign is open.</p>
+                      </div>
+                      <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-semibold text-emerald-700">
+                        {whatsappEngagement ? whatsappEngagement.totalRecipients.toLocaleString() + ' WhatsApp recipients' : 'Loading WhatsApp data'}
+                      </div>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-7">
+                      {[
+                        { label: 'Sent', value: whatsappEngagement?.sent, color: 'text-blue-700', note: 'Accepted by Meta' },
+                        { label: 'Delivered', value: whatsappEngagement?.delivered, color: 'text-emerald-700', note: (whatsappEngagement?.deliveryRate ?? 0) + '% of sent' },
+                        { label: 'Seen', value: whatsappEngagement?.seen, color: 'text-violet-700', note: (whatsappEngagement?.seenRate ?? 0) + '% of delivered' },
+                        { label: 'Replied', value: whatsappEngagement?.replied, color: 'text-sky-700', note: (whatsappEngagement?.replyRate ?? 0) + '% of sent' },
+                        { label: 'Ignored', value: whatsappEngagement?.ignored, color: 'text-slate-700', note: 'No reply after 5 days' },
+                        { label: 'Waiting', value: whatsappEngagement?.waiting, color: 'text-amber-700', note: 'Inside reply window' },
+                        { label: 'Failed', value: whatsappEngagement?.failed, color: 'text-rose-700', note: 'Dispatch or delivery failure' },
+                      ].map((item) => (
+                        <div key={item.label} className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                          <p className="truncate text-[10px] font-medium text-slate-500">{item.label}</p>
+                          <p className={"mt-1 text-[22px] font-bold leading-6 tabular-nums " + item.color}>
+                            {whatsappEngagement ? (item.value ?? 0).toLocaleString() : '—'}
+                          </p>
+                          <p className="mt-1 truncate text-[9px] leading-3 text-slate-400">{item.note}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500">
+                      <span>Ignored = delivered or seen, but no WhatsApp reply within {whatsappEngagement?.ignoredAfterDays || 5} days.</span>
+                      <span>{whatsappEngagementLoadStatus === 'error' ? 'Analytics could not be refreshed.' : 'Pending dispatch: ' + (whatsappEngagement?.pending ?? '—') + ' · Awaiting status: ' + (whatsappEngagement?.deliveryUnknown ?? '—')}</span>
+                    </div>
+                  </section>
+                )}
 
                 <section id="campaign-settings" className="scroll-mt-20 rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">

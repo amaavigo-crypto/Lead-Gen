@@ -1241,6 +1241,66 @@ export async function getCampaignEngagementStats(campaignId: string) {
  * One opened flag per campaign recipient means repeat opens never inflate the numerator.
  * Bot-like opens do not set opened=true; only recipients with tracked delivery are eligible.
  */
+
+/**
+ * WhatsApp campaign engagement from tenant-scoped aggregate queries.
+ * Ignored means delivered (including read) with no WhatsApp reply after five days.
+ */
+export async function getWhatsAppCampaignEngagementStats(campaignId: string) {
+  const ignoredAfterDays = 5;
+  const empty = {
+    totalRecipients: 0, sent: 0, delivered: 0, seen: 0, replied: 0,
+    ignored: 0, waiting: 0, pending: 0, failed: 0, deliveryUnknown: 0,
+    ignoredAfterDays, deliveryRate: 0, seenRate: 0, replyRate: 0,
+  };
+  if (!isFirebaseConfigured || !db) return empty;
+
+  const base = () => query(leadsCol(), where('campaignId', '==', campaignId));
+  const eq = (field: string, value: any) => query(base(), where(field, '==', value));
+  const waStatus = ['PENDING', 'SENDING', 'SENT', 'FAILED', 'UNKNOWN'];
+  const cutoff = new Date(Date.now() - ignoredAfterDays * 86_400_000).toISOString();
+  const deliveredStatuses = ['DELIVERED', 'READ'];
+
+  const [
+    totalRecipients, sent, delivered, seen, replied,
+    failedDispatch, failedDelivery, pending, ignored, waiting,
+  ] = await Promise.all([
+    countDocs(query(base(), where('whatsappSendStatus', 'in', waStatus))),
+    countDocs(eq('whatsappSendStatus', 'SENT')),
+    countDocs(query(base(), where('whatsappDeliveryStatus', 'in', deliveredStatuses))),
+    countDocs(eq('whatsappDeliveryStatus', 'READ')),
+    countDocs(eq('whatsappReplied', true)),
+    countDocs(eq('whatsappSendStatus', 'FAILED')),
+    countDocs(eq('whatsappDeliveryStatus', 'FAILED')),
+    countDocs(query(base(), where('whatsappSendStatus', 'in', ['PENDING', 'SENDING', 'UNKNOWN']))),
+    countDocs(query(base(),
+      where('whatsappDeliveryStatus', 'in', deliveredStatuses),
+      where('whatsappReplied', '==', false),
+      where('whatsappDeliveredAt', '<=', cutoff))),
+    countDocs(query(base(),
+      where('whatsappDeliveryStatus', 'in', deliveredStatuses),
+      where('whatsappReplied', '==', false),
+      where('whatsappDeliveredAt', '>', cutoff))),
+  ]);
+
+  return {
+    totalRecipients,
+    sent,
+    delivered,
+    seen,
+    replied,
+    ignored,
+    waiting,
+    pending,
+    failed: failedDispatch + failedDelivery,
+    deliveryUnknown: Math.max(0, sent - delivered - failedDelivery),
+    ignoredAfterDays,
+    deliveryRate: sent > 0 ? Math.round((delivered / sent) * 1000) / 10 : 0,
+    seenRate: delivered > 0 ? Math.round((seen / delivered) * 1000) / 10 : 0,
+    replyRate: sent > 0 ? Math.round((replied / sent) * 1000) / 10 : 0,
+  };
+}
+
 export async function getCampaignOverviewEngagementStats() {
   if (!isFirebaseConfigured || !db) {
     return { trackedDelivered: 0, uniqueOpened: 0, sentRecipients: 0, uniqueReplied: 0 };
@@ -1719,6 +1779,7 @@ export async function createCampaign(params: {
       phone: l.phone,
       emailSendStatus: needsEmail ? 'PENDING' : 'NOT_REQUIRED',
       whatsappSendStatus: needsWhatsApp ? 'PENDING' : 'NOT_REQUIRED',
+      ...(needsWhatsApp ? { whatsappReplied: false } : {}),
       // Last 10 digits of the phone, so an inbound WhatsApp reply can find this lead with one equality query.
       ...(String(l.phone || '').replace(/[^\d]/g, '').length >= 7
         ? { phoneLast10: String(l.phone).replace(/[^\d]/g, '').slice(-10) }
@@ -3102,6 +3163,7 @@ export async function handleIncomingCampaignLeadReply(params: {
   body?: string;
   gmailMessageId?: string;
   gmailThreadId?: string;
+  channel?: 'EMAIL' | 'WHATSAPP';
 }): Promise<{ isCampaignLead: boolean; campaignLead?: CampaignLead; campaignId?: string; campaignName?: string; demoDetected?: boolean }> {
   await initCampaignStore();
 
@@ -3182,6 +3244,10 @@ export async function handleIncomingCampaignLeadReply(params: {
     matchedLead.replyStatus = 'REPLIED';
     matchedLead.engaged = true;
     matchedLead.repliedAt = matchedLead.repliedAt || now;
+    if (params.channel === 'WHATSAPP' && matchedLead.whatsappSendStatus && matchedLead.whatsappSendStatus !== 'NOT_REQUIRED') {
+      matchedLead.whatsappReplied = true;
+      matchedLead.whatsappRepliedAt = matchedLead.whatsappRepliedAt || now;
+    }
     matchedLead.updatedAt = now;
     if (params.gmailMessageId) matchedLead.gmailMessageId = params.gmailMessageId;
     if (params.gmailThreadId) matchedLead.gmailThreadId = params.gmailThreadId;
@@ -3215,6 +3281,9 @@ export async function handleIncomingCampaignLeadReply(params: {
             replyStatus: 'REPLIED', engaged: true,
             repliedAt: latestLead.repliedAt || now,
             repliedWithoutTrackedOpen,
+            ...(params.channel === 'WHATSAPP' && latestLead.whatsappSendStatus && latestLead.whatsappSendStatus !== 'NOT_REQUIRED'
+              ? { whatsappReplied: true, whatsappRepliedAt: latestLead.whatsappRepliedAt || now }
+              : {}),
             ...(params.gmailMessageId ? { gmailMessageId: params.gmailMessageId } : {}),
             ...(params.gmailThreadId ? { gmailThreadId: params.gmailThreadId } : {}),
             updatedAt: now,

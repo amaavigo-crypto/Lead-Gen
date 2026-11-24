@@ -31,6 +31,7 @@ import {
   getCampaignLeads,
   getCampaignLeadsPage,
   getCampaignEngagementStats,
+  getWhatsAppCampaignEngagementStats,
   getCampaignOverviewEngagementStats,
   ensureCampaignSearchIndex,
   scheduleCampaign,
@@ -5447,6 +5448,20 @@ ${signature || defSig}`;
     } catch (err: any) {
       res.statusCode = 500;
       res.end(JSON.stringify({ error: err?.message || 'Failed to load engagement stats' }));
+    }
+    return true;
+  }
+
+  // WhatsApp delivery/read/reply counts are separate from email tracking and use Meta status callbacks.
+  const whatsappCampaignEngagementMatch = url.match(/^\/api\/campaigns\/([a-zA-Z0-9_-]+)\/whatsapp-engagement$/);
+  if (whatsappCampaignEngagementMatch && req.method === 'GET') {
+    try {
+      const stats = await getWhatsAppCampaignEngagementStats(whatsappCampaignEngagementMatch[1]);
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, ...stats }));
+    } catch (err: any) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: err?.message || 'Failed to load WhatsApp engagement stats' }));
     }
     return true;
   }

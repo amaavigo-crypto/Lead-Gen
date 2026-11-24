@@ -1604,6 +1604,7 @@ export async function processLiveInboundEmail(payload: {
         body: payload.body,
         gmailMessageId: incomingMsgId,
         gmailThreadId: threadId,
+        channel: 'EMAIL',
       }));
     } catch (campaignErr) {
       console.warn('[Unified Inbox] Campaign lead tracking hook notice:', campaignErr);

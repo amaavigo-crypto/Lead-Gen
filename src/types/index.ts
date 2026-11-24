@@ -140,6 +140,16 @@ export interface CampaignLead {
   whatsappMessageId?: string;
   whatsappSendStartedAt?: string;
   whatsappSentAt?: string;
+  /** Meta Cloud API delivery lifecycle; independent of email deliveryStatus. */
+  whatsappDeliveryStatus?: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+  whatsappDeliveredAt?: string;
+  whatsappReadAt?: string;
+  whatsappStatusUpdatedAt?: string;
+  whatsappDeliveryErrorCode?: string | number;
+  whatsappDeliveryError?: string;
+  /** Channel-specific marker so combined campaigns do not conflate email and WhatsApp replies. */
+  whatsappReplied?: boolean;
+  whatsappRepliedAt?: string;
   whatsappLastError?: string;
   sourceDatabaseId?: string;
   sourceDatabaseEntryId?: string;
