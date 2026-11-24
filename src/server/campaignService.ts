@@ -1261,9 +1261,22 @@ export async function getWhatsAppCampaignEngagementStats(campaignId: string) {
   const cutoff = new Date(Date.now() - ignoredAfterDays * 86_400_000).toISOString();
   const deliveredStatuses = ['DELIVERED', 'READ'];
 
+  const deliveredBeforeCutoff = () => query(
+    base(),
+    where('whatsappDeliveryStatus', 'in', deliveredStatuses),
+    where('whatsappDeliveredAt', '<=', cutoff)
+  );
+  const deliveredAfterCutoff = () => query(
+    base(),
+    where('whatsappDeliveryStatus', 'in', deliveredStatuses),
+    where('whatsappDeliveredAt', '>', cutoff)
+  );
+
   const [
     totalRecipients, sent, delivered, seen, replied,
-    failedDispatch, failedDelivery, pending, ignored, waiting,
+    failedDispatch, failedDelivery, pending,
+    ignoredCandidates, ignoredReplied,
+    waitingCandidates, waitingReplied,
   ] = await Promise.all([
     countDocs(query(base(), where('whatsappSendStatus', 'in', waStatus))),
     countDocs(eq('whatsappSendStatus', 'SENT')),
@@ -1273,15 +1286,16 @@ export async function getWhatsAppCampaignEngagementStats(campaignId: string) {
     countDocs(eq('whatsappSendStatus', 'FAILED')),
     countDocs(eq('whatsappDeliveryStatus', 'FAILED')),
     countDocs(query(base(), where('whatsappSendStatus', 'in', ['PENDING', 'SENDING', 'UNKNOWN']))),
-    countDocs(query(base(),
-      where('whatsappDeliveryStatus', 'in', deliveredStatuses),
-      where('whatsappReplied', '==', false),
-      where('whatsappDeliveredAt', '<=', cutoff))),
-    countDocs(query(base(),
-      where('whatsappDeliveryStatus', 'in', deliveredStatuses),
-      where('whatsappReplied', '==', false),
-      where('whatsappDeliveredAt', '>', cutoff))),
+    countDocs(deliveredBeforeCutoff()),
+    countDocs(query(deliveredBeforeCutoff(), where('whatsappReplied', '==', true))),
+    countDocs(deliveredAfterCutoff()),
+    countDocs(query(deliveredAfterCutoff(), where('whatsappReplied', '==', true))),
   ]);
+
+  // Subtraction deliberately includes legacy records where whatsappReplied is missing.
+  // Missing is equivalent to "not replied" for this dashboard; requiring == false hid those rows.
+  const ignored = Math.max(0, ignoredCandidates - ignoredReplied);
+  const waiting = Math.max(0, waitingCandidates - waitingReplied);
 
   return {
     totalRecipients,
@@ -2738,6 +2752,19 @@ export async function processNextCampaignSendBatch(
                 whatsappSentAt: lead.whatsappSentAt, whatsappSendStartedAt: null, whatsappLastError: null,
                 conversationId: lead.conversationId, updatedAt: lead.whatsappSentAt,
               } as any, { merge: true });
+            }
+            // A Meta status callback can race the send response and arrive before the WAMID is saved.
+            if (waResult.messageId) {
+              const reconciled = await meta.reconcileWhatsAppCampaignStatuses(
+                getCampaignActiveCtx().tenantId,
+                waResult.messageId
+              ).catch((reconcileError: any) => {
+                console.warn('[Campaign Engine] WhatsApp status reconciliation notice:', reconcileError?.message || reconcileError);
+                return 0;
+              });
+              if (reconciled > 0) {
+                console.info('[Campaign Engine] Reconciled early WhatsApp status callback(s):', reconciled);
+              }
             }
             try {
               await appendOutboundMessageToThread(lead.conversationId, {

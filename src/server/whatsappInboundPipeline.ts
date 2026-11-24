@@ -39,7 +39,7 @@ import {
   processSchedulingConversationTurn,
   runWithSchedulingCtx,
 } from './demoSchedulingService.js';
-import { handleIncomingCampaignLeadReply } from './campaignService.js';
+import { handleIncomingCampaignLeadReply, runWithCampaignCtx } from './campaignService.js';
 import { sanitizeAiEmailText } from './emailSanitizer.js';
 import { getTenantBrand } from './brandService.js';
 import { brandIntro, brandHost } from '../shared/brand.js';
@@ -985,12 +985,12 @@ export async function processLiveInboundWhatsApp(
 
   // Hook into Outbound Campaign System: track lead reply via WhatsApp phone or email
   try {
-    await handleIncomingCampaignLeadReply({
+    await runWithCampaignCtx(getWACtx(), () => handleIncomingCampaignLeadReply({
       fromPhone: senderPhone,
       fromEmail: payload.from,
       body: payload.body,
       channel: 'WHATSAPP',
-    });
+    }));
   } catch (campaignErr) {
     console.warn('[WhatsApp Pipeline] Campaign lead tracking hook notice:', campaignErr);
   }

@@ -1206,6 +1206,24 @@ async function processInbound(tenantId: string, event: InboundEvent, eventId: st
     senderType: 'CUSTOMER', senderName: displayName, text: event.text, direction: 'INBOUND',
     timestamp: event.timestamp, receivedAt: now, createdAt: now, aiReplied: false, aiProcessed: true,
   });
+
+  // Official Meta webhooks enter here (not the legacy /api/inbound/whatsapp pipeline).
+  // Track WhatsApp campaign replies in the same tenant scope as this webhook event.
+  if (isWA) {
+    try {
+      const campaignService = await import('./campaignService.js');
+      await campaignService.runWithCampaignCtx(ctx, () =>
+        campaignService.handleIncomingCampaignLeadReply({
+          fromPhone: event.senderId,
+          body: event.text,
+          channel: 'WHATSAPP',
+        })
+      );
+    } catch (campaignError: any) {
+      console.warn('[Meta Channels] WhatsApp campaign reply tracking notice:', campaignError?.message || campaignError);
+    }
+  }
+
   try {
     const { handleLeadReplyEvent } = await import('./autoFollowUpService.js');
     await handleLeadReplyEvent(ctx, { conversationId });
@@ -1606,6 +1624,100 @@ async function dispatch(tenantId: string, event: InboundEvent, externalKey: stri
  * Callbacks are at-least-once and can arrive out of order; events are claimed transactionally
  * and the message lifecycle never moves backwards (READ > DELIVERED > SENT).
  */
+async function applyWhatsAppCampaignStatusToLead(
+  ctx: TenantContext,
+  phoneNumberId: string,
+  messageId: string,
+  statusEvent: any,
+  eventRef: any,
+  eventRecord: Record<string, any>
+): Promise<boolean> {
+  const repo = tenantRepo(ctx);
+  const matches = await getDocs(query(repo.campaignLeads(), where('whatsappMessageId', '==', messageId), limit(10)));
+
+  if (!matches.size) {
+    await setDoc(eventRef, { ...eventRecord, status: 'UNMATCHED', updatedAt: new Date().toISOString() }, { merge: true });
+    console.warn('[Meta webhook] WhatsApp campaign status did not match a saved campaign lead yet:', JSON.stringify({
+      tenantId: ctx.tenantId, phoneNumberId, messageId, eventType: eventRecord.eventType,
+    }));
+    return false;
+  }
+
+  let updated = false;
+  for (const match of matches.docs) {
+    const leadRef = repo.campaignLeadDoc(match.id);
+    const applied = await runTransaction(async (tx: any) => {
+      const eventSnap = await tx.get(eventRef);
+      const leadSnap = await tx.get(leadRef);
+      if (!leadSnap.exists) return false;
+      if (eventSnap.exists && String((eventSnap.data() as any)?.status || '') === 'PROCESSED') return false;
+
+      const lead = leadSnap.data() as any;
+      if (String(lead.whatsappMessageId || '') !== messageId) return false;
+
+      const previous = String(lead.whatsappDeliveryStatus || '').toUpperCase();
+      const eventStatus = String(statusEvent?.status || '').toLowerCase();
+      const next = eventStatus === 'failed'
+        ? (previous === 'DELIVERED' || previous === 'READ' ? previous : 'FAILED')
+        : eventStatus === 'read'
+          ? 'READ'
+          : eventStatus === 'delivered'
+            ? (previous === 'READ' ? 'READ' : 'DELIVERED')
+            : (previous === 'DELIVERED' || previous === 'READ' ? previous : 'SENT');
+
+      const eventAt = String(eventRecord.eventAt || new Date().toISOString());
+      const receivedAt = new Date().toISOString();
+      const previousStatusTime = Date.parse(String(lead.whatsappStatusUpdatedAt || ''));
+      const eventStatusTime = Date.parse(eventAt);
+      const patch: Record<string, any> = {
+        whatsappDeliveryStatus: next,
+        whatsappSendStatus: 'SENT',
+        whatsappSentAt: lead.whatsappSentAt || eventAt,
+        whatsappReplied: Boolean(lead.whatsappReplied),
+        whatsappStatusUpdatedAt: !Number.isFinite(previousStatusTime) || eventStatusTime > previousStatusTime
+          ? eventAt
+          : lead.whatsappStatusUpdatedAt,
+        updatedAt: receivedAt,
+      };
+      if (eventStatus === 'delivered' || eventStatus === 'read') {
+        patch.whatsappDeliveredAt = lead.whatsappDeliveredAt || eventAt;
+      }
+      if (eventStatus === 'read') patch.whatsappReadAt = lead.whatsappReadAt || eventAt;
+
+      const error = Array.isArray(statusEvent?.errors) ? statusEvent.errors[0] || {} : {};
+      if (next === 'FAILED') {
+        patch.whatsappDeliveryErrorCode = error.code !== undefined ? String(error.code) : null;
+        patch.whatsappDeliveryError = String(
+          error.error_data?.details || error.message || error.title || 'Meta reported that the WhatsApp message could not be delivered.'
+        ).slice(0, 1000);
+      } else {
+        patch.whatsappDeliveryErrorCode = null;
+        patch.whatsappDeliveryError = null;
+      }
+
+      tx.set(eventRef, {
+        ...eventRecord,
+        tenantId: ctx.tenantId,
+        channel: 'WHATSAPP',
+        source: 'META_STATUS_WEBHOOK',
+        campaignId: String(lead.campaignId || ''),
+        campaignLeadId: String(lead.campaignLeadId || match.id),
+        status: 'PROCESSED',
+        processedAt: receivedAt,
+        updatedAt: receivedAt,
+      }, { merge: true });
+      tx.update(leadRef, patch);
+      return true;
+    });
+    updated = updated || applied;
+  }
+  return updated;
+}
+
+/**
+ * Persist every Meta WhatsApp status notification, even when its campaign lead is not yet
+ * searchable. Unmatched callbacks are replayed after the campaign dispatcher stores the WAMID.
+ */
 async function processWhatsAppCampaignStatus(tenantId: string, phoneNumberId: string, statusEvent: any): Promise<boolean> {
   const messageId = String(statusEvent?.id || '').trim();
   const eventStatus = String(statusEvent?.status || '').trim().toLowerCase();
@@ -1615,85 +1727,72 @@ async function processWhatsAppCampaignStatus(tenantId: string, phoneNumberId: st
   const eventAt = Number.isFinite(timestamp) && timestamp > 0
     ? new Date(timestamp * 1000).toISOString()
     : new Date().toISOString();
-  const receivedAt = new Date().toISOString();
   const errors = Array.isArray(statusEvent?.errors) ? statusEvent.errors : [];
-  const firstError = errors[0] || {};
-  const errorCode = firstError.code !== undefined ? String(firstError.code) : '';
-  const errorText = String(firstError.error_data?.details || firstError.message || firstError.title || '').slice(0, 1000);
   const eventKey = crypto.createHash('sha256')
     .update([phoneNumberId, messageId, eventStatus, String(statusEvent?.timestamp || '')].join(':'))
     .digest('hex');
   const ctx: TenantContext = { tenantId, uid: 'meta-webhook', email: 'meta-webhook@system.local', role: 'admin' };
   const repo = tenantRepo(ctx);
+  const eventRef = repo.campaignEngagementEventDoc('wa_' + eventKey);
+  const eventRecord = {
+    tenantId,
+    channel: 'WHATSAPP',
+    source: 'META_STATUS_WEBHOOK',
+    eventType: eventStatus.toUpperCase(),
+    eventKey,
+    messageId,
+    phoneNumberId,
+    recipientId: String(statusEvent?.recipient_id || ''),
+    eventAt,
+    receivedAt: new Date().toISOString(),
+    errors,
+    statusEvent: {
+      id: messageId,
+      status: eventStatus,
+      timestamp: statusEvent?.timestamp,
+      recipient_id: statusEvent?.recipient_id,
+      errors,
+    },
+    status: 'RECEIVED',
+  };
 
-  // This indexed lookup avoids scanning every campaign lead in the workspace.
-  const matches = await getDocs(query(repo.campaignLeads(), where('whatsappMessageId', '==', messageId), limit(10)));
-  if (!matches.size) return false;
-
-  let updated = false;
-  for (const match of matches.docs) {
-    const leadRef = repo.campaignLeadDoc(match.id);
-    const eventRef = repo.campaignEngagementEventDoc('wa_' + eventKey);
-    const applied = await runTransaction(async (tx: any) => {
-      const eventSnap = await tx.get(eventRef);
-      const leadSnap = await tx.get(leadRef);
-      if (eventSnap.exists || !leadSnap.exists) return false;
-
-      const lead = leadSnap.data() as any;
-      if (String(lead.whatsappMessageId || '') !== messageId) return false;
-      const previous = String(lead.whatsappDeliveryStatus || '').toUpperCase();
-      const next = eventStatus === 'failed'
-        ? (previous === 'DELIVERED' || previous === 'READ' ? previous : 'FAILED')
-        : eventStatus === 'read'
-          ? 'READ'
-          : eventStatus === 'delivered'
-            ? (previous === 'READ' ? 'READ' : 'DELIVERED')
-            : (previous === 'DELIVERED' || previous === 'READ' ? previous : 'SENT');
-
-      const patch: Record<string, any> = {
-        whatsappDeliveryStatus: next,
-        // A callback tied to a wamid confirms Meta accepted the API send.
-        whatsappSendStatus: 'SENT',
-        whatsappSentAt: lead.whatsappSentAt || eventAt,
-        whatsappReplied: Boolean(lead.whatsappReplied),
-        whatsappStatusUpdatedAt: !lead.whatsappStatusUpdatedAt || Date.parse(eventAt) > Date.parse(String(lead.whatsappStatusUpdatedAt))
-          ? eventAt
-          : lead.whatsappStatusUpdatedAt,
-        updatedAt: receivedAt,
-      };
-      if (eventStatus === 'delivered' || eventStatus === 'read') {
-        patch.whatsappDeliveredAt = lead.whatsappDeliveredAt || eventAt;
-      }
-      if (eventStatus === 'read') patch.whatsappReadAt = lead.whatsappReadAt || eventAt;
-      if (next === 'FAILED') {
-        patch.whatsappDeliveryErrorCode = errorCode || null;
-        patch.whatsappDeliveryError = errorText || 'Meta reported that the WhatsApp message could not be delivered.';
-      } else {
-        patch.whatsappDeliveryErrorCode = null;
-        patch.whatsappDeliveryError = null;
-      }
-
-      tx.set(eventRef, {
-        tenantId,
-        channel: 'WHATSAPP',
-        source: 'META_STATUS_WEBHOOK',
-        eventType: eventStatus.toUpperCase(),
-        messageId,
-        phoneNumberId,
-        campaignId: String(lead.campaignId || ''),
-        campaignLeadId: String(lead.campaignLeadId || match.id),
-        recipientId: String(statusEvent?.recipient_id || ''),
-        eventAt,
-        receivedAt,
-        status: 'PROCESSED',
-      });
-      tx.update(leadRef, patch);
-      return true;
-    });
-    updated = updated || applied;
-  }
-  return updated;
+  return applyWhatsAppCampaignStatusToLead(ctx, phoneNumberId, messageId, statusEvent, eventRef, eventRecord);
 }
+
+/** Replay status callbacks that arrived before a campaign lead's WhatsApp message ID was persisted. */
+export async function reconcileWhatsAppCampaignStatuses(tenantId: string, messageId: string): Promise<number> {
+  if (!db || !tenantId || !messageId) return 0;
+  const ctx: TenantContext = { tenantId, uid: 'campaign-worker', email: 'campaign-worker@system.local', role: 'admin' };
+  const repo = tenantRepo(ctx);
+  const pending = await getDocs(query(
+    repo.campaignEngagementEvents(),
+    where('messageId', '==', messageId),
+    where('status', '==', 'UNMATCHED'),
+    limit(50)
+  ));
+  let reconciled = 0;
+  for (const pendingEvent of pending.docs) {
+    const record = pendingEvent.data() as any;
+    const statusEvent = record.statusEvent || {
+      id: messageId,
+      status: String(record.eventType || '').toLowerCase(),
+      timestamp: record.eventAt ? Math.floor(Date.parse(String(record.eventAt)) / 1000) : undefined,
+      recipient_id: record.recipientId,
+      errors: record.errors || [],
+    };
+    const applied = await applyWhatsAppCampaignStatusToLead(
+      ctx,
+      String(record.phoneNumberId || ''),
+      messageId,
+      statusEvent,
+      repo.campaignEngagementEventDoc(pendingEvent.id),
+      record
+    );
+    if (applied) reconciled++;
+  }
+  return reconciled;
+}
+
 
 
 export async function handleMetaWebhook(req: any, res: any): Promise<boolean> {
@@ -1730,6 +1829,8 @@ export async function handleMetaWebhook(req: any, res: any): Promise<boolean> {
 
   const body = req.body || {};
   let accepted = 0;
+  let statusCallbacksReceived = 0;
+  let statusCallbacksApplied = 0;
 
   if (body.object === 'whatsapp_business_account') {
     for (const entry of Array.isArray(body.entry) ? body.entry : []) {
@@ -1744,8 +1845,12 @@ export async function handleMetaWebhook(req: any, res: any): Promise<boolean> {
         if (!tenantId) continue;
 
         if (field === 'messages' && Array.isArray(value.statuses)) {
+          statusCallbacksReceived += value.statuses.length;
           for (const statusEvent of value.statuses) {
-            if (await processWhatsAppCampaignStatus(tenantId, phoneNumberId, statusEvent)) accepted++;
+            if (await processWhatsAppCampaignStatus(tenantId, phoneNumberId, statusEvent)) {
+              accepted++;
+              statusCallbacksApplied++;
+            }
           }
         }
         if (field === 'smb_app_state_sync') {
@@ -1826,6 +1931,12 @@ export async function handleMetaWebhook(req: any, res: any): Promise<boolean> {
     return true;
   }
 
-  json(res, 200, { success: true, accepted });
+  if (statusCallbacksReceived > 0) {
+    console.info('[Meta webhook] WhatsApp status callback summary:', JSON.stringify({
+      statusCallbacksReceived,
+      statusCallbacksApplied,
+    }));
+  }
+  json(res, 200, { success: true, accepted, statusCallbacksReceived, statusCallbacksApplied });
   return true;
 }
