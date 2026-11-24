@@ -2593,6 +2593,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
           name: String(body?.templateName || ''),
           language: String(body?.language || ''),
           params: Array.isArray(body?.params) ? body.params : [],
+          headerParams: Array.isArray(body?.headerParams) ? body.headerParams : [],
         });
         result = { success: true, ...sent };
       }

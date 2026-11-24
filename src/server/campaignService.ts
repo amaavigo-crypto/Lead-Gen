@@ -2802,6 +2802,7 @@ export async function processNextCampaignSendBatch(
           }
           try {
             const meta = await import('./metaChannelsService.js');
+            const parameterFormat = String(approvedWhatsAppTemplate?.parameterFormat || 'POSITIONAL').toUpperCase();
             const paramCount = Number(approvedWhatsAppTemplate?.paramCount ?? campaign.whatsappTemplateParamCount ?? 0);
             const positionalValues = [
               lead.firstName || lead.name || 'there',
@@ -2810,11 +2811,39 @@ export async function processNextCampaignSendBatch(
               lead.email || '',
               lead.phone || '',
             ];
-            const params = Array.from({ length: Math.max(0, Math.min(paramCount, 20)) }, (_, index) => String(positionalValues[index] || lead.name || 'there'));
+            const customFields = lead.customFields && typeof lead.customFields === 'object' ? lead.customFields : {};
+            const normalizedCustomFields = new Map(
+              Object.entries(customFields).map(([key, value]) => [
+                String(key).toLowerCase().replace(/[^a-z0-9]/g, ''),
+                String(value ?? ''),
+              ])
+            );
+            const resolveNamedParameter = (name: string, index: number) => {
+              const normalized = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              const customValue = normalizedCustomFields.get(normalized);
+              if (customValue !== undefined && customValue !== '') return customValue;
+              if (/^(firstname|givenname|fname|customerfirstname)$/.test(normalized)) return String(lead.firstName || lead.name || 'there');
+              if (/^(lastname|surname|familyname|lname)$/.test(normalized)) return String(lead.lastName || '');
+              if (/^(fullname|customername|contactname|recipientname|name)$/.test(normalized)) return String(lead.name || 'there');
+              if (/^(company|companyname|business|businessname|organization|organisation)$/.test(normalized)) return String(lead.companyName || 'your company');
+              if (/^(designation|jobtitle|position|role)$/.test(normalized)) return String(lead.designation || 'team');
+              if (/^(email|emailaddress)$/.test(normalized)) return String(lead.email || '');
+              if (/^(phone|phonenumber|mobile|mobilenumber)$/.test(normalized)) return String(lead.phone || '');
+              return String(positionalValues[index] || lead.name || 'there');
+            };
+            const bodyNames: string[] = Array.isArray(approvedWhatsAppTemplate?.parameterNames) ? approvedWhatsAppTemplate.parameterNames : [];
+            const headerNames: string[] = Array.isArray(approvedWhatsAppTemplate?.headerParameterNames) ? approvedWhatsAppTemplate.headerParameterNames : [];
+            const params = parameterFormat === 'NAMED'
+              ? bodyNames.map((name, index) => resolveNamedParameter(name, index))
+              : Array.from({ length: Math.max(0, Math.min(paramCount, 20)) }, (_, index) => String(positionalValues[index] || lead.name || 'there'));
+            const headerParams = parameterFormat === 'NAMED'
+              ? headerNames.map((name, index) => resolveNamedParameter(name, index))
+              : headerNames.map((_name, index) => String(positionalValues[index] || lead.name || 'there'));
             const waResult = await meta.sendWhatsAppTemplate(getCampaignActiveCtx(), String(lead.phone || ''), {
               name: String(campaign.whatsappTemplateName || ''),
               language: String(campaign.whatsappTemplateLanguage || ''),
               params,
+              headerParams,
             }, approvedWhatsAppTemplate);
             lead.whatsappSendStatus = 'SENT';
             lead.whatsappMessageId = waResult.messageId;
@@ -2875,7 +2904,18 @@ export async function processNextCampaignSendBatch(
             lead.whatsappSendStatus = ambiguous ? 'UNKNOWN' : 'FAILED';
             lead.whatsappSendStartedAt = undefined;
             lead.whatsappLastError = message.slice(0, 500);
-            console.warn(`[Campaign Engine] WhatsApp send failed for ${lead.phone || lead.name}:`, message);
+            console.warn('[Campaign Engine] WhatsApp send failed:', JSON.stringify({
+              campaignId,
+              campaignName: campaign.name,
+              templateName: campaign.whatsappTemplateName,
+              templateLanguage: campaign.whatsappTemplateLanguage,
+              parameterFormat: approvedWhatsAppTemplate?.parameterFormat || 'POSITIONAL',
+              bodyParameterCount: approvedWhatsAppTemplate?.paramCount ?? 0,
+              headerParameterCount: approvedWhatsAppTemplate?.headerParameterNames?.length ?? 0,
+              metaCode: waError?.metaCode || null,
+              metaTraceId: waError?.metaTraceId || null,
+              error: message,
+            }));
           }
         }
       }

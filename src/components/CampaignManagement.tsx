@@ -68,6 +68,8 @@ type CampaignWhatsAppTemplate = {
   status?: string;
   category?: string;
   body: string;
+  parameterFormat?: 'NAMED' | 'POSITIONAL';
+  headerFormat?: string;
   paramCount: number;
 };
 

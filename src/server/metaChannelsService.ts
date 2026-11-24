@@ -117,6 +117,7 @@ function metaGraphError(status: number, body: any, fallback: string): MetaChanne
   const code = Number(metaError.code || 0);
   const subcode = Number(metaError.error_subcode || 0);
   const rawMessage = String(metaError.message || fallback);
+  const details = String(metaError.error_data?.details || '').trim();
   const invalidSession = code === 190 || code === 102 ||
     /session is invalid because the user logged out|invalid access token|session has expired/i.test(rawMessage);
 
@@ -129,6 +130,7 @@ function metaGraphError(status: number, body: any, fallback: string): MetaChanne
         rawMessage,
         String(metaError.error_user_title || '').trim(),
         String(metaError.error_user_msg || '').trim(),
+        details,
         code ? 'Meta code ' + code + (subcode ? '/' + subcode : '') : '',
         metaError.fbtrace_id ? 'trace ' + String(metaError.fbtrace_id) : '',
       ].filter(Boolean).join(' | '));
@@ -447,12 +449,33 @@ export type WhatsAppTemplate = {
   status?: string;
   body: string;
   header?: string;
+  headerFormat?: string;
   footer?: string;
   rejectionReason?: string;
   qualityScore?: string;
   components?: any[];
+  /** Meta's template-level placeholder convention. */
+  parameterFormat: 'NAMED' | 'POSITIONAL';
+  /** Placeholder names/indices in body order. */
+  parameterNames: string[];
+  /** Placeholder names/indices in a text header, in header order. */
+  headerParameterNames: string[];
   paramCount: number;
 };
+
+function templatePlaceholderNames(text: string, parameterFormat: 'NAMED' | 'POSITIONAL'): string[] {
+  const pattern = parameterFormat === 'NAMED'
+    ? /\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g
+    : /\{\{\s*(\d+)\s*\}\}/g;
+  const found: string[] = [];
+  const seen = new Set<string>();
+  for (const match of text.matchAll(pattern)) {
+    const name = String(match[1] || '');
+    if (name && !seen.has(name)) { seen.add(name); found.push(name); }
+  }
+  if (parameterFormat === 'POSITIONAL') found.sort((a, b) => Number(a) - Number(b));
+  return found;
+}
 
 function mapMetaWhatsAppTemplate(template: any): WhatsAppTemplate {
   const components = Array.isArray(template?.components) ? template.components : [];
@@ -460,7 +483,10 @@ function mapMetaWhatsAppTemplate(template: any): WhatsAppTemplate {
   const headerComponent = components.find((component: any) => String(component?.type || '').toUpperCase() === 'HEADER');
   const footerComponent = components.find((component: any) => String(component?.type || '').toUpperCase() === 'FOOTER');
   const bodyText = String(bodyComponent?.text || '');
-  const params = bodyText.match(/\{\{\d+\}\}/g) || [];
+  const parameterFormat = String(template?.parameter_format || 'POSITIONAL').toUpperCase() === 'NAMED' ? 'NAMED' : 'POSITIONAL';
+  const parameterNames = templatePlaceholderNames(bodyText, parameterFormat);
+  const headerText = String(headerComponent?.text || '');
+  const headerParameterNames = templatePlaceholderNames(headerText, parameterFormat);
   return {
     id: template?.id ? String(template.id) : undefined,
     name: String(template?.name || ''),
@@ -468,12 +494,16 @@ function mapMetaWhatsAppTemplate(template: any): WhatsAppTemplate {
     category: template?.category ? String(template.category) : undefined,
     status: String(template?.status || 'UNKNOWN').toUpperCase(),
     body: bodyText,
-    header: String(headerComponent?.text || ''),
+    header: headerText,
+    headerFormat: String(headerComponent?.format || (headerText ? 'TEXT' : 'NONE')).toUpperCase(),
     footer: String(footerComponent?.text || ''),
     rejectionReason: String(template?.rejected_reason || template?.reason || ''),
     qualityScore: template?.quality_score?.score ? String(template.quality_score.score) : undefined,
     components,
-    paramCount: new Set(params).size,
+    parameterFormat,
+    parameterNames,
+    headerParameterNames,
+    paramCount: parameterNames.length,
   };
 }
 
@@ -848,7 +878,7 @@ function friendlyWhatsAppError(err: any): MetaChannelError {
 export async function sendWhatsAppTemplate(
   ctx: TenantContext,
   to: string,
-  template: { name: string; language: string; params?: string[] },
+  template: { name: string; language: string; params?: string[]; headerParams?: string[] },
   approvedTemplateSnapshot?: WhatsAppTemplate
 ): Promise<{ messageId: string; renderedText: string }> {
   const connection = await getWhatsAppConnection(ctx);
@@ -861,15 +891,37 @@ export async function sendWhatsAppTemplate(
   if (!approvedTemplate) {
     throw new MetaChannelError(422, 'This WhatsApp template is not currently approved and available to send. Refresh template status and choose an approved template.');
   }
-  const token = await getSecret(ctx, 'whatsapp_access_token');
+  const parameterFormat = approvedTemplate.parameterFormat || 'POSITIONAL';
   const params = (template.params || []).map((p) => String(p));
+  const headerParams = (template.headerParams || []).map((p) => String(p));
   if (params.length !== approvedTemplate.paramCount) {
-    throw new MetaChannelError(400, 'The selected template requires ' + approvedTemplate.paramCount + ' body parameter(s), but ' + params.length + ' were provided.');
+    throw new MetaChannelError(400, 'The selected WhatsApp template (' + parameterFormat + ') requires ' + approvedTemplate.paramCount + ' body parameter(s), but ' + params.length + ' were provided. Refresh the approved template list and retry.');
   }
-  const components = params.length
-    ? [{ type: 'body', parameters: params.map((text) => ({ type: 'text', text })) }]
-    : undefined;
+  if (headerParams.length !== (approvedTemplate.headerParameterNames || []).length) {
+    throw new MetaChannelError(400, 'The selected WhatsApp template requires ' + (approvedTemplate.headerParameterNames || []).length + ' text-header parameter(s), but ' + headerParams.length + ' were provided.');
+  }
+  const headerFormat = String(approvedTemplate.headerFormat || 'NONE').toUpperCase();
+  if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerFormat)) {
+    throw new MetaChannelError(422, 'This approved WhatsApp template uses a ' + headerFormat.toLowerCase() + ' header. Campaign sending currently supports text headers only; add a per-recipient media header before using this template.');
+  }
+  const templateComponents = Array.isArray(approvedTemplate.components) ? approvedTemplate.components : [];
+  const dynamicUrlButton = templateComponents
+    .filter((component: any) => String(component?.type || '').toUpperCase() === 'BUTTONS')
+    .flatMap((component: any) => Array.isArray(component?.buttons) ? component.buttons : [])
+    .some((button: any) => String(button?.type || '').toUpperCase() === 'URL' && /\{\{[^}]+\}\}/.test(String(button?.url || '')));
+  if (dynamicUrlButton) {
+    throw new MetaChannelError(422, 'This approved WhatsApp template contains a dynamic URL button. Campaign sending needs a recipient-specific URL suffix for that button; add button URL mapping before using this template.');
+  }
+  const makeParameters = (values: string[], names: string[]) => values.map((text, index) => ({
+    type: 'text',
+    ...(parameterFormat === 'NAMED' ? { parameter_name: names[index] } : {}),
+    text,
+  }));
+  const components: any[] = [];
+  if (headerParams.length) components.push({ type: 'header', parameters: makeParameters(headerParams, approvedTemplate.headerParameterNames || []) });
+  if (params.length) components.push({ type: 'body', parameters: makeParameters(params, approvedTemplate.parameterNames || []) });
   try {
+    const token = await getSecret(ctx, 'whatsapp_access_token');
     const result = await graphJson(`${GRAPH}/${encodeURIComponent(connection.phoneNumberId)}/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -877,12 +929,16 @@ export async function sendWhatsAppTemplate(
         messaging_product: 'whatsapp',
         to: recipient,
         type: 'template',
-        template: { name: template.name, language: { code: template.language }, ...(components ? { components } : {}) },
+        template: { name: template.name, language: { code: template.language }, ...(components.length ? { components } : {}) },
       }),
     });
-    // Rebuild readable text for the inbox from the template body.
     let renderedText = '[Template: ' + template.name + ']';
-    renderedText = approvedTemplate.body.replace(/\{\{(\d+)\}\}/g, (_m, n) => params[Number(n) - 1] ?? '');
+    if (parameterFormat === 'NAMED') {
+      const valuesByName = Object.fromEntries((approvedTemplate.parameterNames || []).map((name, index) => [name, params[index] ?? '']));
+      renderedText = approvedTemplate.body.replace(/\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g, (_m, name) => valuesByName[String(name)] ?? '');
+    } else {
+      renderedText = approvedTemplate.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => params[Number(n) - 1] ?? '');
+    }
     return { messageId: String(result?.messages?.[0]?.id || ''), renderedText };
   } catch (err) {
     throw friendlyWhatsAppError(err);
