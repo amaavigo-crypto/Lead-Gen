@@ -100,6 +100,13 @@ export interface CompanyAsset {
   videoUrl?: string; // Optional target video link (YouTube, Vimeo, MP4) for video cards
   videoDuration?: string; // Optional (e.g. "2:15")
   altText?: string;
+  /** WhatsApp template that uses this file as its approved image header. */
+  whatsappTemplateAssociation?: {
+    templateName: string;
+    templateLanguage: string;
+    role: 'HEADER_IMAGE';
+    linkedAt?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }

@@ -8,7 +8,7 @@ import { evaluateHumanHandoff, persistHumanHandoff, describeHandoff } from './hu
 import { getTenantChannelMode } from './channelModeService.js';
 import { getApplicableAiFeedback, buildAiFeedbackPromptSection, buildAiFeedbackSystemGuard } from './aiFeedbackService.js';
 import { recordAiCompletionUsage } from './usageService.js';
-import { resolveAssetRaw } from './assetService.js';
+import { listTenantAssets, resolveAssetRaw } from './assetService.js';
 import { AI_RESPONSE_FORMATTING_INSTRUCTIONS, formatAiResponseForChannel } from '../shared/aiResponseFormatting.js';
 
 /**
@@ -510,6 +510,47 @@ function mapMetaWhatsAppTemplate(template: any): WhatsAppTemplate {
   };
 }
 
+function normalizeTemplateAssetTokens(value: string): Set<string> {
+  const expanded = String(value || '')
+    .replace(/([a-z])([0-9])/gi, '$1 $2')
+    .replace(/([0-9])([a-z])/gi, '$1 $2')
+    .toLowerCase();
+  const ignored = new Set(['whatsapp', 'template', 'marketing', 'utility', 'campaign', 'message', 'sample', 'test', 'header']);
+  return new Set((expanded.match(/[a-z0-9]+/g) || [])
+    .map((token) => token.length > 4 && token.endsWith('s') ? token.slice(0, -1) : token)
+    .filter((token) => token.length >= 3 && !ignored.has(token)));
+}
+
+function companyAssetFingerprint(asset: any): string {
+  const dataUrl = String(asset?.dataUrl || '');
+  const comma = dataUrl.indexOf(',');
+  if (comma >= 0) {
+    const encoded = dataUrl.slice(comma + 1);
+    if (encoded) return crypto.createHash('sha256').update(Buffer.from(encoded, 'base64')).digest('hex');
+  }
+  return 'asset:' + String(asset?.id || '');
+}
+
+/** Only recover legacy associations when all meaningful template-name tokens identify one unique image file. */
+function findUnambiguousLegacyTemplateImage(template: WhatsAppTemplate, assets: any[]): any | null {
+  const expectedTokens = normalizeTemplateAssetTokens(template.name);
+  if (expectedTokens.size < 2) return null;
+  const candidates = assets.filter((asset) => {
+    const mimeType = String(asset?.mimeType || '').toLowerCase();
+    if (!['image/jpeg', 'image/png'].includes(mimeType) || !asset?.dataUrl) return false;
+    const assetTokens = normalizeTemplateAssetTokens(String(asset?.name || ''));
+    return Array.from(expectedTokens).every((token) => assetTokens.has(token));
+  });
+  if (!candidates.length) return null;
+  const uniqueFiles = new Map<string, any>();
+  for (const asset of candidates) {
+    const fingerprint = companyAssetFingerprint(asset);
+    const existing = uniqueFiles.get(fingerprint);
+    if (!existing || String(asset.createdAt || '') > String(existing.createdAt || '')) uniqueFiles.set(fingerprint, asset);
+  }
+  return uniqueFiles.size === 1 ? Array.from(uniqueFiles.values())[0] : null;
+}
+
 /** Fetch every template and its current Meta status. Meta remains the source of truth for approval. */
 export async function listWhatsAppTemplatesForManagement(ctx: TenantContext): Promise<WhatsAppTemplate[]> {
   const connection = await getWhatsAppConnection(ctx);
@@ -534,6 +575,8 @@ export async function listWhatsAppTemplatesForManagement(ctx: TenantContext): Pr
     pageUrl = parsedNext.toString();
     pageCount++;
   }
+
+  const templates = all.map(mapMetaWhatsAppTemplate);
   const assetByTemplateKey = new Map<string, string>();
   const associations = await getDocs(tenantRepo(ctx).collection('whatsapp_template_assets')).catch(() => null);
   if (associations) associations.forEach((entry) => {
@@ -542,7 +585,41 @@ export async function listWhatsAppTemplatesForManagement(ctx: TenantContext): Pr
       assetByTemplateKey.set(String(data.name) + '::' + String(data.language), String(data.headerMediaAssetId));
     }
   });
-  return all.map(mapMetaWhatsAppTemplate).map((template) => ({
+
+  const imageTemplatesMissingAssets = templates.filter((template) =>
+    String(template.headerFormat || '').toUpperCase() === 'IMAGE' &&
+    !assetByTemplateKey.has(template.name + '::' + template.language)
+  );
+  if (imageTemplatesMissingAssets.length) {
+    const assets = await listTenantAssets(ctx).catch(() => []);
+    // Company Assets retain the template identity even if the separate association row is unavailable.
+    for (const asset of assets) {
+      const association = (asset as any).whatsappTemplateAssociation;
+      const name = String(association?.templateName || '').trim();
+      const language = String(association?.templateLanguage || '').trim();
+      if (name && language && asset?.id) assetByTemplateKey.set(name + '::' + language, asset.id);
+    }
+
+    // Recover pre-fix templates only when their name identifies one unique underlying image.
+    for (const template of imageTemplatesMissingAssets) {
+      const key = template.name + '::' + template.language;
+      if (assetByTemplateKey.has(key)) continue;
+      const match = findUnambiguousLegacyTemplateImage(template, assets);
+      if (!match?.id) continue;
+      try {
+        await saveWhatsAppTemplateAssetAssociation(ctx, template.name, template.language, String(match.id), template.id);
+        assetByTemplateKey.set(key, String(match.id));
+      } catch (error: any) {
+        console.warn('[WhatsApp Templates] Could not backfill Company Asset association:', {
+          templateName: template.name,
+          language: template.language,
+          error: error?.message || error,
+        });
+      }
+    }
+  }
+
+  return templates.map((template) => ({
     ...template,
     headerMediaAssetId: assetByTemplateKey.get(template.name + '::' + template.language),
   })).sort((a, b) => {
@@ -593,6 +670,15 @@ export async function saveWhatsAppTemplateAssetAssociation(
     headerMediaAssetId: cleanAssetId,
     updatedAt: now,
     createdAt: now,
+  }, { merge: true });
+  await setDoc(tenantRepo(ctx).assetDoc(cleanAssetId), {
+    whatsappTemplateAssociation: {
+      templateName: cleanName,
+      templateLanguage: cleanLanguage,
+      role: 'HEADER_IMAGE',
+      linkedAt: now,
+    },
+    updatedAt: now,
   }, { merge: true });
 }
 
@@ -907,16 +993,15 @@ export async function createWhatsAppTemplate(
   if (submittedHeaderFormat === 'IMAGE' && String(input.headerMediaHandle || '').trim() && !headerMediaAssetId) {
     throw new MetaChannelError(400, 'Save the image header in Company Assets before submitting this template. Select the image again to retry.');
   }
-  if (submittedHeaderFormat === 'IMAGE' && headerMediaAssetId) {
-    await saveWhatsAppTemplateAssetAssociation(ctx, name, language, headerMediaAssetId);
-  }
-
   const token = await getSecret(ctx, 'whatsapp_access_token');
   const result = await graphJson(GRAPH + '/' + encodeURIComponent(connection.messagingAccountId || connection.wabaId) + '/message_templates', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, language, category, parameter_format: 'POSITIONAL', components }),
   });
+  if (submittedHeaderFormat === 'IMAGE' && headerMediaAssetId) {
+    await saveWhatsAppTemplateAssetAssociation(ctx, name, language, headerMediaAssetId, String(result?.id || '') || undefined);
+  }
   return {
     id: result?.id ? String(result.id) : undefined,
     name, language, category,

@@ -50,7 +50,6 @@ import {
   CampaignRun,
   EmailTemplate,
   TemplateAttachment,
-  CompanyAsset,
   Conversation,
   Lead,
   Contact,
@@ -219,8 +218,6 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   const needsCampaignWhatsApp = newCampaignType === 'WHATSAPP' || newCampaignType === 'WHATSAPP_EMAIL';
   const [whatsappCampaignTemplates, setWhatsappCampaignTemplates] = useState<CampaignWhatsAppTemplate[]>([]);
   const [selectedWhatsAppTemplateKey, setSelectedWhatsAppTemplateKey] = useState('');
-  const [whatsappCompanyImageAssets, setWhatsAppCompanyImageAssets] = useState<CompanyAsset[]>([]);
-  const [selectedWhatsAppHeaderAssetId, setSelectedWhatsAppHeaderAssetId] = useState('');
   const [isLoadingWhatsAppTemplates, setIsLoadingWhatsAppTemplates] = useState(false);
   const [whatsappTemplateError, setWhatsAppTemplateError] = useState<string | null>(null);
   const campaignPasteExample = needsCampaignWhatsApp
@@ -333,12 +330,6 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
       setWhatsappCampaignTemplates(approved);
       setSelectedWhatsAppTemplateKey((current) => current && approved.some((template: CampaignWhatsAppTemplate) => `${template.name}::${template.language}` === current)
         ? current : approved[0] ? `${approved[0].name}::${approved[0].language}` : '');
-      const assetsResponse = await fetch('/api/assets', { cache: 'no-store' }).catch(() => null);
-      if (assetsResponse?.ok) {
-        const assetsData = await assetsResponse.json().catch(() => ({}));
-        setWhatsAppCompanyImageAssets((Array.isArray(assetsData.assets) ? assetsData.assets : [])
-          .filter((asset: CompanyAsset) => ['image/jpeg', 'image/png'].includes(String(asset.mimeType || '').toLowerCase())));
-      }
     } catch (error: any) {
       setWhatsappCampaignTemplates([]);
       setSelectedWhatsAppTemplateKey('');
@@ -412,10 +403,6 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   const [isLoadingLeadDatabases, setIsLoadingLeadDatabases] = useState(false);
   const selectedLeadDatabase = savedLeadDatabases.find((item) => item.databaseId === selectedLeadDatabaseId);
   const selectedWhatsAppTemplateForCampaign = whatsappCampaignTemplates.find((template) => `${template.name}::${template.language}` === selectedWhatsAppTemplateKey);
-
-  useEffect(() => {
-    setSelectedWhatsAppHeaderAssetId(selectedWhatsAppTemplateForCampaign?.headerMediaAssetId || '');
-  }, [selectedWhatsAppTemplateKey, whatsappCampaignTemplates]);
 
   useEffect(() => {
     if (!isCreateModalOpen) return;
@@ -1608,9 +1595,9 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
       setCreateCampaignError(whatsappTemplateError || 'Choose a currently approved WhatsApp template before creating this campaign.');
       return;
     }
-    const whatsappHeaderAssetId = String(selectedWhatsAppHeaderAssetId || selectedWhatsAppCampaignTemplate?.headerMediaAssetId || '').trim();
+    const whatsappHeaderAssetId = String(selectedWhatsAppCampaignTemplate?.headerMediaAssetId || '').trim();
     if (needsCampaignWhatsApp && String(selectedWhatsAppCampaignTemplate?.headerFormat || '').toUpperCase() === 'IMAGE' && !whatsappHeaderAssetId) {
-      setCreateCampaignError('This approved template uses an image header. Upload a JPG/PNG to Company Assets, refresh the template list, and select it here.');
+      setCreateCampaignError('Amaavigo could not find the image saved with this approved template. Open Template Studio and upload its original header image again; Amaavigo will link it automatically.');
       return;
     }
 
@@ -1645,7 +1632,6 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
           templateBody: matchedTemplate?.body,
           whatsappTemplateName: selectedWhatsAppCampaignTemplate?.name,
           whatsappTemplateLanguage: selectedWhatsAppCampaignTemplate?.language,
-          whatsappTemplateHeaderMediaAssetId: whatsappHeaderAssetId || undefined,
           sourceFileName: isDatabaseSource
             ? `Database: ${selectedLeadDatabase?.name || selectedLeadDatabaseId}`
             : uploadedFileName || 'Leads List',
@@ -3125,17 +3111,11 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     {whatsappCampaignTemplates.map((template) => <option key={`${template.name}::${template.language}`} value={`${template.name}::${template.language}`}>{template.name} · {template.language}</option>)}
                   </select>
                   {selectedWhatsAppTemplateForCampaign?.headerFormat?.toUpperCase() === 'IMAGE' && (
-                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
-                      <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">Image header from Company Assets *</label>
-                      <select value={selectedWhatsAppHeaderAssetId || selectedWhatsAppTemplateForCampaign?.headerMediaAssetId || ''} onChange={(event) => setSelectedWhatsAppHeaderAssetId(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-[#155eef]">
-                        <option value="">Choose a saved JPG/PNG image</option>
-                        {whatsappCompanyImageAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} · {asset.sizeFormatted}</option>)}
-                      </select>
-                      {selectedWhatsAppTemplateForCampaign?.headerMediaAssetId
-                        ? <p className="text-[11px] text-emerald-700">This template already has a saved Company Asset association. You can change it for this campaign.</p>
-                        : <p className="text-[11px] text-amber-700">This is an existing template without a saved image association. Choose the matching image from Company Assets. The association will be saved for future campaigns.</p>}
-                      {whatsappCompanyImageAssets.length === 0 && <p className="text-[11px] text-amber-700">No JPG/PNG assets found. Upload the image under Marketing → Company Assets, then refresh approved templates.</p>}
-                    </div>
+                    <p className={`mt-2 text-[11px] ${selectedWhatsAppTemplateForCampaign.headerMediaAssetId ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {selectedWhatsAppTemplateForCampaign.headerMediaAssetId
+                        ? 'The image saved with this template will be attached automatically.'
+                        : 'This template has no saved image association yet. Template Studio will need the original image to link it.'}
+                    </p>
                   )}
                   {whatsappTemplateError && <p className="text-[11px] text-rose-600">{whatsappTemplateError}</p>}
                   {!whatsappTemplateError && whatsappCampaignTemplates.length === 0 && !isLoadingWhatsAppTemplates && <p className="text-[11px] text-amber-700">Connect WhatsApp and submit a template in Template Studio. Only templates Meta currently marks Approved can be selected.</p>}

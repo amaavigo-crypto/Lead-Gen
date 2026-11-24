@@ -138,6 +138,7 @@ export async function saveTenantAsset(
     videoUrl: input.videoUrl,
     videoDuration: input.videoDuration,
     altText: input.altText || input.name || 'Company Asset',
+    whatsappTemplateAssociation: input.whatsappTemplateAssociation,
     createdAt: input.createdAt || nowIso,
     updatedAt: nowIso,
   };

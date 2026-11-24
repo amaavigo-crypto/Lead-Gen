@@ -1742,8 +1742,8 @@ export async function createCampaign(params: {
     );
     if (!approvedWhatsAppTemplate) throw new Error('The selected WhatsApp template is no longer approved. Refresh templates and choose one that Meta currently marks Approved.');
     if (String(approvedWhatsAppTemplate.headerFormat || '').toUpperCase() === 'IMAGE') {
-      const headerAssetId = String(params.whatsappTemplateHeaderMediaAssetId || approvedWhatsAppTemplate.headerMediaAssetId || '').trim();
-      if (!headerAssetId) throw new Error('This WhatsApp template has an image header. Choose an image from Company Assets before creating the campaign.');
+      const headerAssetId = String(approvedWhatsAppTemplate.headerMediaAssetId || '').trim();
+      if (!headerAssetId) throw new Error('This WhatsApp template has no linked Company Asset image. Open Template Studio and upload its original image header to link it automatically.');
       await meta.saveWhatsAppTemplateAssetAssociation(getCampaignActiveCtx(), templateName, templateLanguage, headerAssetId, approvedWhatsAppTemplate.id);
       approvedWhatsAppTemplate.headerMediaAssetId = headerAssetId;
     }
