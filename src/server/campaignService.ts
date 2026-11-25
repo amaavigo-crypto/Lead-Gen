@@ -1182,7 +1182,8 @@ async function deleteCampaignSearchIndex(campaignId: string): Promise<void> {
 
 export type CampaignLeadFilter =
   | 'ALL' | 'PENDING' | 'SENT' | 'FAILED' | 'REPLIED' | 'DEMO_BOOKED'
-  | 'OPENED' | 'CLICKED' | 'BOUNCED' | 'WAITING' | 'IGNORED';
+  | 'OPENED' | 'CLICKED' | 'BOUNCED' | 'WAITING' | 'IGNORED'
+  | 'DELIVERED' | 'SEEN' | 'AWAITING_STATUS';
 
 /** A delivered email with no open, click or reply for this long counts as "ignored" (before that: "waiting"). */
 export const IGNORED_AFTER_DAYS = 5;
@@ -1475,7 +1476,99 @@ export async function getCampaignLeadsPage(
 
   const cursor = opts.cursor || '';
 
-  // Waiting / Ignored: sent, no engagement yet, split by how long ago it was sent. Ordered by send time.
+  // The WhatsApp recipient view is based on Meta's delivery lifecycle. Email-only flags
+  // (opened/clicked/bounced/engaged) must never be used for WhatsApp campaign filtering.
+  const selectedCampaign = await ensureCampaignInStore(campaignId);
+  if (selectedCampaign?.type === 'WHATSAPP') {
+    if (filter === 'FAILED') {
+      // A dispatch failure and a later Meta delivery failure live in different fields.
+      // Merge both ordered queries so the filter includes both kinds without duplicate leads.
+      const afterId = cursor.startsWith('d:') ? cursor.slice(2) : '';
+      const failedQuery = (field: string) => query(
+        leadsCol(),
+        where('campaignId', '==', campaignId),
+        where(field, '==', 'FAILED'),
+        orderByDocumentId(),
+        ...(afterId ? [startAfterId(afterId)] : []),
+        limit(pageSize + 1)
+      );
+      const [dispatchFailures, deliveryFailures] = await Promise.all([
+        getDocs(failedQuery('whatsappSendStatus')),
+        getDocs(failedQuery('whatsappDeliveryStatus')),
+      ]);
+      const unique = new Map<string, any>();
+      [...dispatchFailures.docs, ...deliveryFailures.docs].forEach((leadDoc) => unique.set(leadDoc.id, leadDoc));
+      const merged = Array.from(unique.values()).sort((a, b) => a.id.localeCompare(b.id));
+      return toPage(merged, (d) => `d:${d.id}`);
+    }
+
+    const whatsappFilters = [where('campaignId', '==', campaignId)];
+    switch (filter) {
+      case 'PENDING':
+        whatsappFilters.push(where('whatsappSendStatus', 'in', ['PENDING', 'SENDING', 'UNKNOWN']));
+        break;
+      case 'SENT':
+        whatsappFilters.push(where('whatsappSendStatus', '==', 'SENT'));
+        break;
+      case 'DELIVERED':
+        whatsappFilters.push(where('whatsappDeliveryStatus', 'in', ['DELIVERED', 'READ']));
+        break;
+      case 'SEEN':
+        whatsappFilters.push(where('whatsappDeliveryStatus', '==', 'READ'));
+        break;
+      case 'REPLIED':
+        whatsappFilters.push(where('whatsappReplied', '==', true));
+        break;
+      case 'WAITING':
+      case 'IGNORED':
+        whatsappFilters.push(where('whatsappDeliveryStatus', 'in', ['DELIVERED', 'READ']));
+        whatsappFilters.push(where('whatsappDeliveredAt', filter === 'IGNORED' ? '<=' : '>', ignoredCutoffIso()));
+        break;
+      case 'AWAITING_STATUS':
+        // The client removes delivered/read/failed receipts, including legacy rows without a receipt field.
+        whatsappFilters.push(where('whatsappSendStatus', '==', 'SENT'));
+        break;
+      case 'ALL':
+      default:
+        break;
+    }
+
+    // Retain row-number order and the same opaque cursor contract for regular WhatsApp filters.
+    if (!cursor.startsWith('d:')) {
+      try {
+        const parts = cursor.startsWith('r:') ? cursor.split(':') : null;
+        const snap = await getDocs(
+          query(
+            leadsCol(),
+            ...whatsappFilters,
+            orderBy('rowNumber'),
+            orderByDocumentId(),
+            ...(parts ? [startAfterValues(Number(parts[1]), parts.slice(2).join(':'))] : []),
+            limit(pageSize + 1)
+          )
+        );
+        return toPage(snap.docs, (d) => `r:${(d.data() as CampaignLead).rowNumber || 0}:${d.id}`);
+      } catch (err: any) {
+        const missingIndex = err?.code === 9 || /FAILED_PRECONDITION|requires an index/i.test(String(err?.message || ''));
+        if (!missingIndex) throw err;
+        console.warn('[Campaign Leads] WhatsApp rowNumber index not deployed yet; using document-ID order.');
+        if (cursor.startsWith('r:')) return { leads: [], nextCursor: null };
+      }
+    }
+    const afterId = cursor.startsWith('d:') ? cursor.slice(2) : '';
+    const snap = await getDocs(
+      query(
+        leadsCol(),
+        ...whatsappFilters,
+        orderByDocumentId(),
+        ...(afterId ? [startAfterId(afterId)] : []),
+        limit(pageSize + 1)
+      )
+    );
+    return toPage(snap.docs, (d) => `d:${d.id}`);
+  }
+
+  // Waiting / Ignored: email-only delivery tracking, split by how long ago the email was delivered.
   if (filter === 'WAITING' || filter === 'IGNORED') {
     const cutoff = ignoredCutoffIso();
     const parts = cursor.startsWith('s:') ? cursor.split(':') : null;

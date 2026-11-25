@@ -5496,7 +5496,7 @@ ${signature || defSig}`;
     // re-fetched by the campaign screen every few seconds.
     const qp = new URL(rawUrl || '/', 'http://localhost').searchParams;
     const filterParam = (qp.get('filter') || 'ALL').toUpperCase();
-    const allowed = ['ALL', 'PENDING', 'SENT', 'FAILED', 'REPLIED', 'DEMO_BOOKED', 'OPENED', 'CLICKED', 'BOUNCED', 'WAITING', 'IGNORED'];
+    const allowed = ['ALL', 'PENDING', 'SENT', 'FAILED', 'REPLIED', 'DEMO_BOOKED', 'OPENED', 'CLICKED', 'BOUNCED', 'WAITING', 'IGNORED', 'DELIVERED', 'SEEN', 'AWAITING_STATUS'];
     try {
       const page = await getCampaignLeadsPage(campaignId, {
         pageSize: parseInt(qp.get('limit') || '50', 10) || 50,

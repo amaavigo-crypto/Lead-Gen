@@ -165,6 +165,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [leadStatusFilter, setLeadStatusFilter] = useState<
     'ALL' | 'PENDING' | 'SENT' | 'REPLIED' | 'FAILED' | 'OPENED' | 'CLICKED' | 'WAITING' | 'IGNORED' | 'BOUNCED'
+    | 'DELIVERED' | 'SEEN' | 'AWAITING_STATUS'
   >('ALL');
   // Email engagement numbers (opened is an ESTIMATE; replied and clicked are confirmed). From aggregation queries.
   const [engagement, setEngagement] = useState<{
@@ -824,6 +825,17 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   useEffect(() => {
     leadStatusFilterRef.current = leadStatusFilter;
   }, [leadStatusFilter]);
+
+  useEffect(() => {
+    if (!selectedCampaign) return;
+    const whatsappOnly = ['DELIVERED', 'SEEN', 'AWAITING_STATUS'];
+    const emailOnly = ['OPENED', 'CLICKED', 'BOUNCED'];
+    if (selectedCampaign.type === 'WHATSAPP' && emailOnly.includes(leadStatusFilter)) {
+      setLeadStatusFilter('ALL');
+    } else if (selectedCampaign.type !== 'WHATSAPP' && whatsappOnly.includes(leadStatusFilter)) {
+      setLeadStatusFilter('ALL');
+    }
+  }, [selectedCampaign?.campaignId, selectedCampaign?.type]);
 
   // (Re)load the table when the selected campaign or the status filter changes.
   useEffect(() => {
@@ -1693,21 +1705,62 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     setLoading(false);
   };
 
+  const selectedCampaignIsWhatsApp = selectedCampaign?.type === 'WHATSAPP';
+
   const filteredLeads = useMemo(() => {
     // With Firebase, search runs over the whole campaign via the search index (searchResults);
     // without it, fall back to filtering the loaded rows.
     const indexSearch = isFirebaseConfigured && Boolean(db) && searchMatchIds !== null;
     const source = indexSearch ? searchResults : campaignLeads;
+    const whatsappCutoff = Date.now() - (whatsappEngagement?.ignoredAfterDays ?? 5) * 86_400_000;
     return source.filter((lead) => {
-      // Filter by status
-      if (leadStatusFilter === 'PENDING' && lead.sendStatus !== 'PENDING') return false;
-      if (leadStatusFilter === 'SENT' && lead.sendStatus !== 'SENT') return false;
-      if (leadStatusFilter === 'FAILED' && lead.sendStatus !== 'FAILED') return false;
-      if (leadStatusFilter === 'REPLIED' && lead.replyStatus !== 'REPLIED') return false;
-      if (leadStatusFilter === 'OPENED' && !lead.opened) return false;
-      if (leadStatusFilter === 'CLICKED' && !lead.clicked) return false;
-      if (leadStatusFilter === 'BOUNCED' && !lead.bounced) return false;
-      // WAITING / IGNORED depend on the send time and are decided by the server.
+      if (selectedCampaignIsWhatsApp) {
+        // WhatsApp lifecycle states come from Meta receipts, not email open/click tracking.
+        const sendStatus = String(lead.whatsappSendStatus || '').toUpperCase();
+        const deliveryStatus = String(lead.whatsappDeliveryStatus || '').toUpperCase();
+        const hasDelivered = deliveryStatus === 'DELIVERED' || deliveryStatus === 'READ';
+        const hasReplied = lead.whatsappReplied === true;
+        const deliveredAt = Date.parse(String(lead.whatsappDeliveredAt || ''));
+        switch (leadStatusFilter) {
+          case 'PENDING':
+            if (!['PENDING', 'SENDING', 'UNKNOWN'].includes(sendStatus)) return false;
+            break;
+          case 'SENT':
+            if (sendStatus !== 'SENT') return false;
+            break;
+          case 'DELIVERED':
+            if (!hasDelivered) return false;
+            break;
+          case 'SEEN':
+            if (deliveryStatus !== 'READ') return false;
+            break;
+          case 'REPLIED':
+            if (!hasReplied) return false;
+            break;
+          case 'FAILED':
+            if (sendStatus !== 'FAILED' && deliveryStatus !== 'FAILED') return false;
+            break;
+          case 'WAITING':
+            if (!hasDelivered || hasReplied || !Number.isFinite(deliveredAt) || deliveredAt <= whatsappCutoff) return false;
+            break;
+          case 'IGNORED':
+            if (!hasDelivered || hasReplied || !Number.isFinite(deliveredAt) || deliveredAt > whatsappCutoff) return false;
+            break;
+          case 'AWAITING_STATUS':
+            if (sendStatus !== 'SENT' || hasDelivered || deliveryStatus === 'FAILED') return false;
+            break;
+        }
+      } else {
+        // Email delivery / engagement filters retain their existing semantics.
+        if (leadStatusFilter === 'PENDING' && lead.sendStatus !== 'PENDING') return false;
+        if (leadStatusFilter === 'SENT' && lead.sendStatus !== 'SENT') return false;
+        if (leadStatusFilter === 'FAILED' && lead.sendStatus !== 'FAILED') return false;
+        if (leadStatusFilter === 'REPLIED' && lead.replyStatus !== 'REPLIED') return false;
+        if (leadStatusFilter === 'OPENED' && !lead.opened) return false;
+        if (leadStatusFilter === 'CLICKED' && !lead.clicked) return false;
+        if (leadStatusFilter === 'BOUNCED' && !lead.bounced) return false;
+      }
+      // WAITING / IGNORED are applied above for WhatsApp and by the server for email.
 
       // Filter by search query (already done by the index when indexSearch)
       if (!indexSearch && searchQuery.trim()) {
@@ -1720,7 +1773,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
 
       return true;
     });
-  }, [campaignLeads, leadStatusFilter, searchQuery, searchMatchIds, searchResults]);
+  }, [campaignLeads, leadStatusFilter, searchQuery, searchMatchIds, searchResults, selectedCampaignIsWhatsApp, whatsappEngagement?.ignoredAfterDays]);
 
   // Selected Campaign Template
   const activeTemplate = useMemo(() => {
@@ -1767,6 +1820,31 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
       : null,
   };
   const selectedCampaignIsCombined = selectedCampaign?.type === 'WHATSAPP_EMAIL';
+  const campaignLeadFilterOptions = selectedCampaignIsWhatsApp
+    ? [
+        { value: 'ALL' as const, label: 'ALL' },
+        { value: 'SENT' as const, label: 'SENT' },
+        { value: 'DELIVERED' as const, label: 'DELIVERED' },
+        { value: 'SEEN' as const, label: 'SEEN' },
+        { value: 'REPLIED' as const, label: 'REPLIES' },
+        { value: 'PENDING' as const, label: 'PENDING' },
+        { value: 'FAILED' as const, label: 'FAILED' },
+        { value: 'WAITING' as const, label: 'WAITING' },
+        { value: 'IGNORED' as const, label: 'IGNORED' },
+        { value: 'AWAITING_STATUS' as const, label: 'AWAITING STATUS' },
+      ]
+    : [
+        { value: 'ALL' as const, label: 'ALL' },
+        { value: 'PENDING' as const, label: 'PENDING' },
+        { value: 'SENT' as const, label: 'SENT' },
+        { value: 'REPLIED' as const, label: 'REPLIED' },
+        { value: 'FAILED' as const, label: 'FAILED' },
+        { value: 'OPENED' as const, label: 'OPENED (est.)' },
+        { value: 'CLICKED' as const, label: 'CLICKED' },
+        { value: 'WAITING' as const, label: 'WAITING' },
+        { value: 'IGNORED' as const, label: 'IGNORED' },
+        { value: 'BOUNCED' as const, label: 'BOUNCED' },
+      ];
   const formatDirectoryActivity = (value?: string) => {
     if (!value) return '—';
     const date = new Date(value);
@@ -2351,14 +2429,14 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                         />
                       </div>
 
-                      {/* One unified lead status and engagement filter group */}
+                      {/* Channel-specific recipient statuses: Meta receipts for WhatsApp, provider tracking for email. */}
                       <div
                         role="group"
-                        aria-label="Filter campaign leads"
-                        title="Email opens are estimates"
+                        aria-label={selectedCampaignIsWhatsApp ? 'Filter WhatsApp campaign recipients' : 'Filter email campaign recipients'}
+                        title={selectedCampaignIsWhatsApp ? 'WhatsApp statuses are based on Meta delivery and read receipts.' : 'Email opens are estimates.'}
                         className="flex min-w-0 max-w-full flex-nowrap items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-slate-100 p-1 text-xs"
                       >
-                        {(['ALL', 'PENDING', 'SENT', 'REPLIED', 'FAILED', 'OPENED', 'CLICKED', 'WAITING', 'IGNORED', 'BOUNCED'] as const).map((filter) => (
+                        {campaignLeadFilterOptions.map(({ value: filter, label }) => (
                           <button
                             key={filter}
                             type="button"
@@ -2371,7 +2449,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                                 : 'text-slate-600 hover:bg-white/70 hover:text-slate-900'
                             )}
                           >
-                            {filter === 'OPENED' ? 'OPENED (est.)' : filter.replace('_', ' ')}
+                            {label}
                           </button>
                         ))}
                       </div>
