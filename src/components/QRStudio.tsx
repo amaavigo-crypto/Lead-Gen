@@ -161,6 +161,7 @@ const DESTINATION_OPTIONS: Array<{ id: QrDestinationType; label: string; descrip
 function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (code: QrStudioCode) => void }) {
   const [name, setName] = useState('');
   const [destinationType, setDestinationType] = useState<QrDestinationType>('enquiry');
+  const [pageTemplate, setPageTemplate] = useState<QrTemplateType>('blank');
   const [url, setUrl] = useState('');
   const [phone, setPhone] = useState('');
   const [pdfAsset, setPdfAsset] = useState<{ url: string; id: string; name: string } | null>(null);
@@ -226,7 +227,8 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
         destinationUrl = `https://wa.me/${digits}`;
       }
       const template: QrTemplateType = destinationType === 'menu' ? 'menu'
-        : destinationType === 'enquiry' ? 'lead-capture' : 'blank';
+        : destinationType === 'enquiry' ? 'lead-capture'
+          : destinationType === 'custom' ? pageTemplate : 'blank';
       const destination = { kind: isDirect ? 'url' : 'page', type: destinationType, ...(destinationUrl ? { url: destinationUrl } : {}), ...(fileName ? { fileName } : {}), ...(assetId ? { assetId } : {}) };
       const labels: Record<QrDestinationType, { headline: string; subheadline: string }> = {
         website: { headline: 'Visit our website', subheadline: 'Scan to explore our website and services' },
@@ -268,6 +270,7 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
         </div>}
         {destinationType === 'whatsapp' && <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-700">WhatsApp number (include country code)</span><input required value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="e.g. +91 98765 43210" className="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-blue-500" /></label>}
         {(destinationType === 'menu' || destinationType === 'enquiry' || destinationType === 'custom') && <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3"><div className="flex items-center gap-2 text-xs font-bold text-blue-900">{selected.icon}{destinationType === 'menu' ? 'An editable digital menu will be created.' : destinationType === 'enquiry' ? 'A lead form connected to your CRM will be created.' : 'A blank mobile landing page will be created.'}</div><p className="mt-1 text-[10px] leading-4 text-blue-800">After creating the QR code, you can open “Edit scan experience” to customise its content.</p></div>}
+        {destinationType === 'custom' && <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-700">Choose a starting page template</span><select value={pageTemplate} onChange={(event) => setPageTemplate(event.target.value as QrTemplateType)} className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-xs outline-none focus:border-blue-500"><option value="blank">Start from blank</option><option value="business-profile">Business profile</option><option value="offer">Offer or promotion</option></select><p className="mt-1.5 text-[10px] text-slate-500">You can edit every section after the QR code is created.</p></label>}
         {error && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>}
       </div>
       <div className="flex shrink-0 flex-col-reverse items-stretch gap-3 border-t border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7"><p className="text-[10px] text-slate-500">Next: design the actual QR poster, table display or print artwork.</p><button disabled={busy || uploading} type="submit" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#155eef] px-5 py-3 text-xs font-bold text-white shadow-lg shadow-blue-600/20 disabled:opacity-50 sm:w-auto">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}Create QR code</button></div>
