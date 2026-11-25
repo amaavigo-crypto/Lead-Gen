@@ -261,7 +261,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
 
   // If body is still not parsed into an object, try reading from request stream
   if (!body || typeof body !== 'object' || Object.keys(body).length === 0) {
-    if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'PUT') {
+    if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'PUT' || req.method === 'DELETE') {
       try {
         const chunks: Buffer[] = [];
         for await (const chunk of req) {

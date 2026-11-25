@@ -389,7 +389,6 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
           <option value="IN_APPEAL">In appeal</option>
           <option value="PENDING_DELETION">Pending deletion</option>
           <option value="DELETED">Deleted</option>
-          <option value="DISABLED">Disabled</option>
           <option value="LIMIT_EXCEEDED">Limit exceeded</option>
           <option value="ARCHIVED">Archived</option>
           <option value="UNKNOWN">Unknown</option>
