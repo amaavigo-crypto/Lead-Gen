@@ -184,6 +184,12 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     ignoredAfterDays: number; deliveryRate: number; seenRate: number; replyRate: number;
   } | null>(null);
   const [whatsappEngagementLoadStatus, setWhatsappEngagementLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [whatsappLeadClickStats, setWhatsappLeadClickStats] = useState<Record<string, {
+    totalClicks: number;
+    lastClickedAt?: string;
+    links: Array<{ url: string; clickCount: number; lastClickedAt?: string }>;
+  }>>({});
+  const [whatsappActivityLead, setWhatsappActivityLead] = useState<CampaignLead | null>(null);
   const [combinedEmailEngagement, setCombinedEmailEngagement] = useState<{
     totalRecipients: number; sent: number; pending: number; failed: number; tracked: number;
     deliveryTracked: number; delivered: number; deliveryUnknown: number;
@@ -600,6 +606,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
     setSelectedCampaignId(camp.campaignId);
     selectedCampaignIdRef.current = camp.campaignId;
     setSelectedCampaign(camp);
+    setWhatsappActivityLead(null);
     setSearchQuery('');
     setLeadStatusFilter('ALL');
     setCampaignLeads([]);
@@ -1160,6 +1167,36 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   refreshSearchResultsRef.current = () => {
     void refreshSearchResults().catch(() => {});
   };
+
+  // Per-recipient URL clicks: fetch only the current page/search result IDs, not every campaign link.
+  const whatsappClickLeadSource = searchMatchIds !== null ? searchResults : campaignLeads;
+  const whatsappClickLeadIdsKey = Array.from(new Set(whatsappClickLeadSource
+    .map((lead) => String(lead.campaignLeadId || '').trim()).filter(Boolean))).slice(0, 200).join(',');
+  useEffect(() => {
+    setWhatsappLeadClickStats({});
+    if (!selectedCampaignId || selectedCampaign?.type !== 'WHATSAPP' || !whatsappClickLeadIdsKey) return;
+    let cancelled = false;
+    const loadLeadClicks = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const query = new URLSearchParams({ leadIds: whatsappClickLeadIdsKey }).toString();
+        const data = await fetchJsonWithTimeout(
+          `/api/campaigns/${selectedCampaignId}/whatsapp-lead-clicks?${query}`
+        );
+        if (!cancelled && data?.success) {
+          setWhatsappLeadClickStats(data.leadClickStats && typeof data.leadClickStats === 'object' ? data.leadClickStats : {});
+        }
+      } catch {
+        // Keep the last known per-lead click counts when one refresh fails.
+      }
+    };
+    void loadLeadClicks();
+    const timer = window.setInterval(() => void loadLeadClicks(), 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedCampaignId, selectedCampaign?.type, whatsappClickLeadIdsKey]);
 
   // Campaign scheduler actions
   const openScheduleEditor = () => {
@@ -1830,7 +1867,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   const selectedCampaignIsCombined = selectedCampaign?.type === 'WHATSAPP_EMAIL';
   const selectedCampaignNeedsEmail = selectedCampaign?.type === 'EMAIL' || selectedCampaignIsCombined;
   const selectedCampaignNeedsWhatsApp = selectedCampaignIsWhatsApp || selectedCampaignIsCombined;
-  const leadsTableColumnCount = 10 + Number(selectedCampaignNeedsEmail) + Number(selectedCampaignNeedsWhatsApp);
+  const leadsTableColumnCount = selectedCampaignIsWhatsApp ? 12 : 10 + Number(selectedCampaignNeedsEmail) + Number(selectedCampaignNeedsWhatsApp);
   const campaignLeadFilterOptions = selectedCampaignIsWhatsApp
     ? [
         { value: 'ALL' as const, label: 'ALL' },
@@ -2492,18 +2529,37 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-semibold text-[10px] tracking-wider">
                         <tr>
-                          <th className="py-3 px-4">#</th>
-                          <th className="py-3 px-4">Lead Name / Title</th>
-                          {selectedCampaignNeedsEmail && <th className="py-3 px-4">Email</th>}
-                          {selectedCampaignNeedsWhatsApp && <th className="py-3 px-4">WhatsApp Number</th>}
-                          <th className="py-3 px-4">Company</th>
-                          <th className="py-3 px-4">Send Status</th>
-                          <th className="py-3 px-4">Reply Status</th>
-                          <th className="py-3 px-4">Engagement</th>
-                          <th className="py-3 px-4 whitespace-nowrap">Opened</th>
-                          <th className="py-3 px-4 whitespace-nowrap">Clicked</th>
-                          <th className="py-3 px-4">Last Sent</th>
-                          <th className="py-3 px-4 text-right">Actions</th>
+                          {selectedCampaignIsWhatsApp ? (
+                            <>
+                              <th className="py-3 px-4">#</th>
+                              <th className="py-3 px-4 whitespace-nowrap">Lead Name / Title</th>
+                              <th className="py-3 px-4 whitespace-nowrap">WhatsApp Number</th>
+                              <th className="py-3 px-4">Company</th>
+                              <th className="py-3 px-4">Template</th>
+                              <th className="py-3 px-4">Send Status</th>
+                              <th className="py-3 px-4">Delivery Status</th>
+                              <th className="py-3 px-4">Read Status</th>
+                              <th className="py-3 px-4">Reply Status</th>
+                              <th className="py-3 px-4 whitespace-nowrap">Link Clicks</th>
+                              <th className="py-3 px-4 whitespace-nowrap">Last Sent</th>
+                              <th className="py-3 px-4 text-right">Actions</th>
+                            </>
+                          ) : (
+                            <>
+                              <th className="py-3 px-4">#</th>
+                              <th className="py-3 px-4">Lead Name / Title</th>
+                              {selectedCampaignNeedsEmail && <th className="py-3 px-4">Email</th>}
+                              {selectedCampaignNeedsWhatsApp && <th className="py-3 px-4">WhatsApp Number</th>}
+                              <th className="py-3 px-4">Company</th>
+                              <th className="py-3 px-4">Send Status</th>
+                              <th className="py-3 px-4">Reply Status</th>
+                              <th className="py-3 px-4">Engagement</th>
+                              <th className="py-3 px-4 whitespace-nowrap">Opened</th>
+                              <th className="py-3 px-4 whitespace-nowrap">Clicked</th>
+                              <th className="py-3 px-4">Last Sent</th>
+                              <th className="py-3 px-4 text-right">Actions</th>
+                            </>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -2516,6 +2572,22 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                         ) : (
                           filteredLeads.map((lead, idx) => {
                             const hasRepliedOnAnyChannel = campaignLeadHasReply(lead);
+                            const whatsappSendStatus = String(lead.whatsappSendStatus || lead.sendStatus || '').toUpperCase();
+                            const whatsappDeliveryStatus = String(lead.whatsappDeliveryStatus || '').toUpperCase();
+                            const whatsappLeadClicks = whatsappLeadClickStats[lead.campaignLeadId];
+                            const whatsappHasTrackedLinks = Boolean(whatsappLeadClicks?.links?.length);
+                            const whatsappHasReplied = lead.whatsappReplied === true || lead.replyStatus === 'REPLIED';
+                            const whatsappLastSentAt = lead.whatsappSentAt || lead.lastSentAt;
+                            const whatsappDeliveryLabel = ['DELIVERED', 'READ'].includes(whatsappDeliveryStatus)
+                              ? 'Delivered'
+                              : whatsappDeliveryStatus === 'FAILED' || whatsappSendStatus === 'FAILED'
+                                ? 'Failed'
+                                : whatsappSendStatus === 'SENT' ? 'Pending' : '—';
+                            const whatsappReadLabel = whatsappDeliveryStatus === 'READ'
+                              ? 'Read'
+                              : whatsappDeliveryStatus === 'DELIVERED' ? 'Not confirmed'
+                                : whatsappDeliveryStatus === 'FAILED' ? '—'
+                                  : whatsappSendStatus === 'SENT' ? 'Awaiting' : '—';
                             return (
                               <tr
                                 key={lead.campaignLeadId}
@@ -2540,6 +2612,66 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                                     <span>{lead.companyName}</span>
                                   </div>
                                 </td>
+                                {selectedCampaignIsWhatsApp ? (
+                                  <>
+                                    <td className="py-3 px-4 text-slate-700 text-[11px] min-w-[130px]">
+                                      <div className="font-semibold text-slate-800">{String(selectedCampaign?.whatsappTemplateName || '').replace(/_/g, ' ') || '—'}</div>
+                                      {selectedCampaign?.whatsappTemplateLanguage && <div className="mt-0.5 text-[10px] text-slate-400">{selectedCampaign.whatsappTemplateLanguage}</div>}
+                                    </td>
+                                    <td className="py-3 px-4 whitespace-nowrap">
+                                      <span className={`px-2 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide border ${whatsappSendStatus === 'SENT' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : whatsappSendStatus === 'FAILED' ? 'bg-rose-50 text-rose-700 border-rose-200' : whatsappSendStatus === 'SENDING' ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                                        {whatsappSendStatus ? whatsappSendStatus.replace(/_/g, ' ') : '—'}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4 whitespace-nowrap">
+                                      <span className={`px-2 py-1 rounded-full text-[10px] font-semibold border ${whatsappDeliveryLabel === 'Delivered' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : whatsappDeliveryLabel === 'Failed' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                                        {whatsappDeliveryLabel}
+                                      </span>
+                                      {lead.whatsappDeliveryError && whatsappDeliveryLabel === 'Failed' && <div className="mt-1 max-w-[160px] truncate text-[10px] text-rose-600" title={lead.whatsappDeliveryError}>{lead.whatsappDeliveryError}</div>}
+                                    </td>
+                                    <td className="py-3 px-4 whitespace-nowrap">
+                                      <span className={`px-2 py-1 rounded-full text-[10px] font-semibold border ${whatsappReadLabel === 'Read' ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`} title={whatsappDeliveryStatus === 'DELIVERED' ? 'No read receipt has been received. WhatsApp privacy settings may prevent read confirmation.' : undefined}>
+                                        {whatsappReadLabel}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4 whitespace-nowrap">
+                                      <span className={`px-2 py-1 rounded-full text-[10px] font-semibold border ${whatsappHasReplied ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`} title={whatsappHasReplied && lead.whatsappRepliedAt ? `Replied ${new Date(lead.whatsappRepliedAt).toLocaleString()}` : 'No WhatsApp reply received'}>
+                                        {whatsappHasReplied ? 'Replied' : 'No Reply'}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4 whitespace-nowrap">
+                                      <span className={`inline-flex min-w-10 justify-center rounded-md px-2 py-1 text-[11px] font-semibold tabular-nums ${whatsappHasTrackedLinks && (whatsappLeadClicks?.totalClicks || 0) > 0 ? 'bg-emerald-50 text-emerald-700' : 'text-slate-400'}`} title={whatsappHasTrackedLinks ? `${whatsappLeadClicks?.totalClicks || 0} tracked click(s)${whatsappLeadClicks?.lastClickedAt ? ` · Last clicked ${new Date(whatsappLeadClicks.lastClickedAt).toLocaleString()}` : ''}` : 'No recipient-specific tracked URL is recorded for this send'}>
+                                        {whatsappHasTrackedLinks ? (whatsappLeadClicks?.totalClicks || 0).toLocaleString() : '—'}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4 whitespace-nowrap text-slate-500 text-[11px]">
+                                      {whatsappLastSentAt ? new Date(whatsappLastSentAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: timezone }) : '—'}
+                                    </td>
+                                    <td className="py-3 px-4 text-right whitespace-nowrap">
+                                      <div className="flex items-center justify-end gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => setWhatsappActivityLead(lead)}
+                                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                                          title="View WhatsApp message, status and link activity"
+                                        >
+                                          <Eye className="h-3.5 w-3.5" /> View
+                                        </button>
+                                        {lead.conversationId && onOpenConversation && (
+                                          <button
+                                            type="button"
+                                            onClick={() => onOpenConversation(lead.conversationId!)}
+                                            className="rounded p-1 text-slate-400 transition hover:bg-orange-50 hover:text-orange-600"
+                                            title="Open thread in Unified Inbox"
+                                          >
+                                            <ExternalLink className="h-4 w-4" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </>
+                                ) : (
+                                  <>
                                 <td className="py-3 px-4">
                                   <span
                                     className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider inline-flex items-center gap-1 ${
@@ -2655,6 +2787,8 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                                     <span className="text-slate-400 text-[11px]">—</span>
                                   )}
                                 </td>
+                                  </>
+                                )}
                               </tr>
                             );
                           })
@@ -3880,6 +4014,59 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
             </div>
           </div>
         </div>
+      )}
+      {whatsappActivityLead && selectedCampaignIsWhatsApp && createPortal(
+        (() => {
+          const activity = whatsappLeadClickStats[whatsappActivityLead.campaignLeadId];
+          const sentAt = whatsappActivityLead.whatsappSentAt || whatsappActivityLead.lastSentAt;
+          const delivery = String(whatsappActivityLead.whatsappDeliveryStatus || '').toUpperCase();
+          const replied = whatsappActivityLead.whatsappReplied === true || whatsappActivityLead.replyStatus === 'REPLIED';
+          return (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4" onClick={() => setWhatsappActivityLead(null)}>
+              <div className="max-h-[85vh] w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="whatsapp-lead-activity-title" onClick={(event) => event.stopPropagation()}>
+                <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">WhatsApp campaign activity</div>
+                    <h2 id="whatsapp-lead-activity-title" className="mt-1 truncate text-base font-bold text-slate-900">{whatsappActivityLead.name}</h2>
+                    <p className="mt-0.5 text-xs text-slate-500">{whatsappActivityLead.phone || 'No phone number'} · {whatsappActivityLead.companyName || 'Company not provided'}</p>
+                  </div>
+                  <button type="button" onClick={() => setWhatsappActivityLead(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Close activity details"><X className="h-4 w-4" /></button>
+                </div>
+                <div className="max-h-[calc(85vh-150px)] space-y-5 overflow-y-auto px-5 py-4">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-[10px] text-slate-500">Send status</div><div className="mt-1 text-sm font-bold text-slate-900">{String(whatsappActivityLead.whatsappSendStatus || whatsappActivityLead.sendStatus || '—').replace(/_/g, ' ')}</div></div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-[10px] text-slate-500">Delivery status</div><div className="mt-1 text-sm font-bold text-slate-900">{delivery === 'READ' || delivery === 'DELIVERED' ? 'Delivered' : delivery === 'FAILED' ? 'Failed' : 'Pending'}</div></div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-[10px] text-slate-500">Read status</div><div className="mt-1 text-sm font-bold text-slate-900">{delivery === 'READ' ? 'Read' : delivery === 'DELIVERED' ? 'Not confirmed' : 'Awaiting'}</div></div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-[10px] text-slate-500">Reply status</div><div className="mt-1 text-sm font-bold text-slate-900">{replied ? 'Replied' : 'No Reply'}</div>{replied && whatsappActivityLead.whatsappRepliedAt && <div className="mt-1 text-[10px] text-slate-500">{new Date(whatsappActivityLead.whatsappRepliedAt).toLocaleString()}</div>}</div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-[10px] text-slate-500">Total link clicks</div><div className="mt-1 text-sm font-bold text-slate-900">{activity?.links?.length ? (activity.totalClicks || 0).toLocaleString() : '—'}</div></div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-[10px] text-slate-500">Last sent</div><div className="mt-1 text-sm font-bold text-slate-900">{sentAt ? new Date(sentAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: timezone }) : '—'}</div></div>
+                  </div>
+                  <section>
+                    <div className="mb-2 flex items-center justify-between gap-3"><h3 className="text-sm font-bold text-slate-900">Clicked URLs</h3><span className="text-[10px] text-slate-500">{activity?.links?.length || 0} tracked link{activity?.links?.length === 1 ? '' : 's'}</span></div>
+                    {activity?.links?.length ? (
+                      <div className="space-y-2">
+                        {activity.links.map((link, index) => (
+                          <div key={link.url + '-' + index} className="rounded-xl border border-slate-200 p-3">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <a href={link.url} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 break-all text-xs font-semibold text-blue-700 underline decoration-blue-200 underline-offset-2 hover:text-blue-900">{link.url}</a>
+                              <span className="rounded-lg bg-emerald-50 px-2 py-1 text-[11px] font-bold tabular-nums text-emerald-700">{link.clickCount.toLocaleString()} clicks</span>
+                            </div>
+                            <div className="mt-2 text-[10px] text-slate-500">Last clicked: {link.lastClickedAt ? new Date(link.lastClickedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: timezone }) : 'No clicks yet'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center text-xs text-slate-500">No recipient-specific tracked URL has been recorded for this lead yet. Per-lead attribution applies to new sends using Amaavigo-tracked body links and URL buttons; older sends cannot be attributed retroactively.</div>
+                    )}
+                  </section>
+                  {whatsappActivityLead.whatsappMessageId && <div className="border-t border-slate-100 pt-3"><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">WhatsApp message ID</div><div className="mt-1 break-all font-mono text-[10px] text-slate-500">{whatsappActivityLead.whatsappMessageId}</div></div>}
+                </div>
+                <div className="flex justify-end border-t border-slate-100 bg-slate-50 px-5 py-3"><button type="button" onClick={() => setWhatsappActivityLead(null)} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">Close</button></div>
+              </div>
+            </div>
+          );
+        })(),
+        document.body
       )}
     </div>
   );

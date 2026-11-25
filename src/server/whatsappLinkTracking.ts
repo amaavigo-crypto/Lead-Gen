@@ -120,7 +120,8 @@ export async function createWhatsAppTrackedLink(
   ctx: TenantContext,
   destination: string,
   templateKey: string,
-  campaignId?: string
+  campaignId?: string,
+  campaignLeadId?: string
 ): Promise<string | null> {
   const destinationUrl = normalizeDestination(destination);
   if (!destinationUrl || !String(templateKey || '').trim()) return null;
@@ -133,6 +134,7 @@ export async function createWhatsAppTrackedLink(
     templateScope: templateScope(ctx, templateKey),
     templateKey: String(templateKey).trim(),
     ...(String(campaignId || '').trim() ? { campaignId: String(campaignId).trim(), campaignScope: campaignScope(ctx, String(campaignId).trim()) } : {}),
+    ...(String(campaignLeadId || '').trim() ? { campaignLeadId: String(campaignLeadId).trim() } : {}),
     destinationUrl,
     clickCount: 0,
     createdAt: now,
@@ -153,7 +155,8 @@ export async function rewriteWhatsAppTextLinks(
   ctx: TenantContext,
   text: string,
   templateKey: string,
-  campaignId?: string
+  campaignId?: string,
+  campaignLeadId?: string
 ): Promise<string> {
   const source = String(text || '');
   const matches = Array.from(source.matchAll(URL_PATTERN));
@@ -173,7 +176,7 @@ export async function rewriteWhatsAppTextLinks(
       continue;
     }
 
-    const tracked = await createWhatsAppTrackedLink(ctx, url, templateKey, campaignId);
+    const tracked = await createWhatsAppTrackedLink(ctx, url, templateKey, campaignId, campaignLeadId);
     output += tracked ? tracked + suffix : raw;
   }
   output += source.slice(cursor);
@@ -292,6 +295,82 @@ export async function getWhatsAppCampaignTrackedClickCount(
     ['clickCount']
   );
   return Math.max(0, Math.floor(Number(totals?.clickCount || 0)));
+}
+
+export type WhatsAppCampaignLeadClickLink = {
+  url: string;
+  clickCount: number;
+  lastClickedAt?: string;
+};
+
+export type WhatsAppCampaignLeadClickStats = {
+  totalClicks: number;
+  lastClickedAt?: string;
+  links: WhatsAppCampaignLeadClickLink[];
+};
+
+/** Read click counts only for the requested leads in this tenant and campaign. */
+export async function getWhatsAppCampaignLeadClickStats(
+  ctx: TenantContext,
+  campaignId: string,
+  leadIds: string[]
+): Promise<Record<string, WhatsAppCampaignLeadClickStats>> {
+  const id = String(campaignId || '').trim();
+  const requestedIds = Array.from(new Set((Array.isArray(leadIds) ? leadIds : [])
+    .map((value) => String(value || '').trim())
+    .filter((value) => /^[a-zA-Z0-9_-]{1,220}$/.test(value)))).slice(0, 200);
+  const output: Record<string, WhatsAppCampaignLeadClickStats> = {};
+  requestedIds.forEach((leadId) => { output[leadId] = { totalClicks: 0, links: [] }; });
+  if (!db || !id || requestedIds.length === 0) return output;
+
+  const campaign = campaignScope(ctx, id);
+  const grouped = new Map<string, Map<string, WhatsAppCampaignLeadClickLink>>();
+  for (let offset = 0; offset < requestedIds.length; offset += 30) {
+    const chunk = requestedIds.slice(offset, offset + 30);
+    const snapshot = await getDocs(query(
+      collection(db, LINK_ROUTE_COLLECTION),
+      where('campaignScope', '==', campaign),
+      where('campaignLeadId', 'in', chunk)
+    ));
+    for (const routeDoc of snapshot.docs) {
+      const route = routeDoc.data() as any;
+      const leadId = String(route?.campaignLeadId || '').trim();
+      if (!output[leadId] || String(route?.tenantId || '') !== ctx.tenantId || String(route?.campaignScope || '') !== campaign) continue;
+      const destinationUrl = normalizeDestination(String(route?.destinationUrl || ''));
+      if (!destinationUrl) continue;
+      let links = grouped.get(leadId);
+      if (!links) {
+        links = new Map<string, WhatsAppCampaignLeadClickLink>();
+        grouped.set(leadId, links);
+      }
+      let link = links.get(destinationUrl);
+      if (!link) {
+        link = { url: destinationUrl, clickCount: 0 };
+        links.set(destinationUrl, link);
+      }
+      link.clickCount += Math.max(0, Math.floor(Number(route?.clickCount || 0)));
+      const clickedAt = String(route?.lastClickedAt || '').trim();
+      if (clickedAt && (!link.lastClickedAt || Date.parse(clickedAt) > Date.parse(link.lastClickedAt))) {
+        link.lastClickedAt = clickedAt;
+      }
+    }
+  }
+
+  for (const leadId of requestedIds) {
+    const links = Array.from((grouped.get(leadId) || new Map()).values())
+      .sort((a, b) => b.clickCount - a.clickCount || a.url.localeCompare(b.url));
+    const totalClicks = links.reduce((total, link) => total + link.clickCount, 0);
+    const latestClick = links.reduce((latest, link) => {
+      if (!link.lastClickedAt) return latest;
+      return !latest || Date.parse(link.lastClickedAt) > Date.parse(latest) ? link.lastClickedAt : latest;
+    }, '' as string);
+    output[leadId] = {
+      totalClicks,
+      ...(latestClick ? { lastClickedAt: latestClick } : {}),
+      links,
+    };
+  }
+  return output;
 }
 
 /** Legacy template total, retained for non-campaign sends and previously-created routes. */

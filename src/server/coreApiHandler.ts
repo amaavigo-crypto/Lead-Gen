@@ -5756,6 +5756,32 @@ ${signature || defSig}`;
     return true;
   }
 
+  // Recipient-level WhatsApp URL click attribution for the currently visible campaign leads.
+  const whatsappLeadClicksMatch = url.match(/^\\/api\\/campaigns\\/([a-zA-Z0-9_-]+)\\/whatsapp-lead-clicks$/);
+  if (whatsappLeadClicksMatch && req.method === 'GET') {
+    try {
+      const campaignId = whatsappLeadClicksMatch[1];
+      const campaign = await getCampaignByIdAsync(campaignId);
+      if (!campaign || !['WHATSAPP', 'WHATSAPP_EMAIL'].includes(String(campaign.type || '').toUpperCase())) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ error: 'WhatsApp campaign not found.' }));
+        return true;
+      }
+      const qp = new URL(rawUrl || '/', 'http://localhost').searchParams;
+      const leadIds = Array.from(new Set((qp.get('leadIds') || '').split(',')
+        .map((value) => value.trim()).filter(Boolean))).slice(0, 200);
+      const tracking = await import('./whatsappLinkTracking.js');
+      const leadClickStats = await tracking.getWhatsAppCampaignLeadClickStats(activeTenantCtx, campaignId, leadIds);
+      res.statusCode = 200;
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(JSON.stringify({ success: true, leadClickStats }));
+    } catch (err: any) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: err?.message || 'Failed to load per-lead WhatsApp click activity' }));
+    }
+    return true;
+  }
+
   // The one-time Meta Insights opt-in is exposed only behind explicit workspace-admin confirmation.
   if (url === '/api/whatsapp/template-insights' && (req.method === 'GET' || req.method === 'POST')) {
     if (req.method === 'POST' && activeTenantCtx.role === 'member') {

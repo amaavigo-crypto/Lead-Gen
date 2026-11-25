@@ -1297,7 +1297,7 @@ export async function sendWhatsAppTemplate(
   to: string,
   template: { name: string; language: string; params?: string[]; headerParams?: string[]; headerMediaAssetId?: string },
   approvedTemplateSnapshot?: WhatsAppTemplate,
-  tracking?: { campaignId?: string }
+  tracking?: { campaignId?: string; campaignLeadId?: string }
 ): Promise<{ messageId: string; renderedText: string }> {
   const connection = await getWhatsAppConnection(ctx);
   if (!connection || connection.status !== 'connected') throw new MetaChannelError(409, 'WhatsApp is not connected.');
@@ -1313,20 +1313,21 @@ export async function sendWhatsAppTemplate(
   const params = (template.params || []).map((p) => String(p));
   const headerParams = (template.headerParams || []).map((p) => String(p));
   const campaignId = String(tracking?.campaignId || '').trim() || undefined;
+  const campaignLeadId = String(tracking?.campaignLeadId || '').trim() || undefined;
   const templateKey = `${template.name}::${template.language}`;
   const linkConfig = await getWhatsAppTemplateLinkConfig(ctx, template.name, template.language);
   if (params.length !== approvedTemplate.paramCount) {
     throw new MetaChannelError(400, 'The selected WhatsApp template (' + parameterFormat + ') requires ' + approvedTemplate.paramCount + ' body parameter(s), but ' + params.length + ' were provided. Refresh the approved template list and retry.');
   }
   const trackedParams = await Promise.all(params.map((value) =>
-    rewriteWhatsAppTextLinks(ctx, value, templateKey, campaignId)
+    rewriteWhatsAppTextLinks(ctx, value, templateKey, campaignId, campaignLeadId)
   ));
   for (const bodyLink of linkConfig.bodyLinks) {
     const parameterIndex = Number(bodyLink?.parameterIndex);
     if (!Number.isInteger(parameterIndex) || parameterIndex < 1 || parameterIndex > trackedParams.length) {
       throw new MetaChannelError(422, 'This WhatsApp template has an invalid campaign-tracking body parameter. Recreate the template in Amaavigo and approve it again.');
     }
-    const trackedLink = await createWhatsAppTrackedLink(ctx, String(bodyLink.destinationUrl || ''), templateKey, campaignId);
+    const trackedLink = await createWhatsAppTrackedLink(ctx, String(bodyLink.destinationUrl || ''), templateKey, campaignId, campaignLeadId);
     if (!trackedLink) throw new MetaChannelError(503, 'Amaavigo could not prepare a tracked website link. The WhatsApp message was not sent.');
     trackedParams[parameterIndex - 1] = trackedLink;
   }
@@ -1367,7 +1368,7 @@ export async function sendWhatsAppTemplate(
     if (trackedParams.length) components.push({ type: 'body', parameters: makeParameters(trackedParams, approvedTemplate.parameterNames || []) });
     for (const buttonLink of linkConfig.urlButtons) {
       const buttonIndex = Number(buttonLink?.buttonIndex);
-      const trackedButtonUrl = await createWhatsAppTrackedLink(ctx, String(buttonLink.destinationUrl || ''), templateKey, campaignId);
+      const trackedButtonUrl = await createWhatsAppTrackedLink(ctx, String(buttonLink.destinationUrl || ''), templateKey, campaignId, campaignLeadId);
       const tokenMatch = trackedButtonUrl?.match(/\/api\/whatsapp\/click\/([a-f0-9]{40})$/);
       if (!Number.isInteger(buttonIndex) || buttonIndex < 0 || !tokenMatch) {
         throw new MetaChannelError(503, 'Amaavigo could not prepare this campaign-specific URL button. The WhatsApp message was not sent.');
