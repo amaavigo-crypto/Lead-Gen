@@ -5,6 +5,7 @@ import {
   Bot,
   Users,
   Send,
+  QrCode,
   Database,
   BookOpen,
   Building2,
@@ -33,6 +34,7 @@ export type ActiveTab =
   | 'audit-logs'
   | 'database'
   | 'campaign-reports'
+  | 'qr-studio'
   | 'company-profile'
   | 'agent';
 
@@ -97,7 +99,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'conversation', label: 'Conversation', icon: <MessageSquare className="h-4 w-4 shrink-0" />, route: 'inbox', tabs: ['inbox'] },
     { id: 'ai', label: 'AI', icon: <Bot className="h-4 w-4 shrink-0" />, route: 'auto-followup', tabs: ['auto-followup', 'scheduling', 'playground'] },
     { id: 'sales', label: 'Sales', icon: <Users className="h-4 w-4 shrink-0" />, route: 'crm', tabs: ['crm', 'lead-scoring'] },
-    { id: 'marketing', label: 'Marketing', icon: <Send className="h-4 w-4 shrink-0" />, route: 'campaigns', tabs: ['campaigns', 'email-design-studio', 'campaign-reports'] },
+    { id: 'marketing', label: 'Marketing', icon: <Send className="h-4 w-4 shrink-0" />, route: 'campaigns', tabs: ['campaigns', 'email-design-studio', 'campaign-reports', 'qr-studio'] },
     { id: 'database', label: 'Database', icon: <Database className="h-4 w-4 shrink-0" />, route: 'database', tabs: ['database'] },
     { id: 'knowledge', label: 'Knowledge Base', icon: <BookOpen className="h-4 w-4 shrink-0" />, route: 'knowledge', tabs: ['knowledge'] },
     { id: 'workspace', label: 'Workspace', icon: <Building2 className="h-4 w-4 shrink-0" />, route: 'workspace', tabs: ['workspace'] },

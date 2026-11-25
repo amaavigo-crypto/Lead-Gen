@@ -185,6 +185,7 @@ import {
 import { getKnowledgeWebsiteScanState, startKnowledgeWebsiteScan, processKnowledgeWebsiteScanStep } from './websiteKnowledgeService.js';
 import { getLeadScoringConfig, saveLeadScoringConfig, suggestLeadScoringParameters, startLeadScoringRecalculation, enqueueLeadScoringEvaluation, evaluateLeadForScoring, getLeadScoringHistory, runLeadScoringWorkerCycle } from './leadScoringService.js';
 import { getWhatsAppTrackedClickCount, resolveAndRecordWhatsAppTrackedClick } from './whatsappLinkTracking.js';
+import { listQrCodes, getQrSummary, getQrAnalytics, createQrCode, updateQrCode, publishQrCode, setQrStatus, duplicateQrCode, deleteQrCode, listQrVersions, restoreQrVersion, listQrThemes, saveQrTheme, getPublicQr, trackPublicQrEvent, submitPublicQrLead } from './qrStudioService.js';
 
 /**
  * Universal API request handler that works in both:
@@ -196,6 +197,16 @@ const PLAN_LIMITS: Record<string, { monthlyAiTokens: number; dailyOutboundSends:
   growth: { monthlyAiTokens: 2_000_000, dailyOutboundSends: 3_000, hourlyOutboundSends: 500, seats: 10 },
   enterprise: { monthlyAiTokens: 5_000_000, dailyOutboundSends: 10_000, hourlyOutboundSends: 1_000, seats: 25 },
 };
+
+function isQrPublicApiPath(method: string, url: string): boolean {
+  const prefix = '/api/qr/public/';
+  if (!url.startsWith(prefix)) return false;
+  const segments = url.slice(prefix.length).split('/');
+  const code = segments[0] || '';
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(code)) return false;
+  if (method === 'GET') return segments.length === 1;
+  return method === 'POST' && segments.length === 2 && (segments[1] === 'events' || segments[1] === 'leads');
+}
 
 export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   // Normalize URL by parsing pathname and stripping query parameters & trailing slashes
@@ -303,6 +314,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   // =========================================================================
   const isPublicPath =
     url === '/api/health' ||
+    isQrPublicApiPath(req.method, url) ||
     (req.method === 'GET' && url === '/api/site-seo') ||
     (req.method === 'GET' && url === '/api/public/plans') ||
     (req.method === 'GET' && /^\/api\/site-resources(?:\/[a-z0-9-]+|\/media\/[a-f0-9-]{36})?$/.test(url.split('?')[0])) ||
@@ -356,6 +368,60 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     role: userRole,
     isPlatformAdmin,
   };
+
+  // Public QR destinations and visitor actions. Public routes resolve their tenant only
+  // through the server-owned qr_public_routes index; visitors never supply a tenant ID.
+  const publicQrSegments = url.startsWith('/api/qr/public/') ? url.slice('/api/qr/public/'.length).split('/') : [];
+  const publicQrPath = /^[A-Za-z0-9_-]{8,64}$/.test(publicQrSegments[0] || '') &&
+    (publicQrSegments.length === 1 || publicQrSegments.length === 2) &&
+    (publicQrSegments.length === 1 || publicQrSegments[1] === 'events' || publicQrSegments[1] === 'leads')
+      ? [null, publicQrSegments[0], publicQrSegments[1]]
+      : null;
+  if (publicQrPath) {
+    const code = publicQrPath[1];
+    try {
+      if (req.method === 'GET' && !publicQrPath[2]) {
+        const destination = await getPublicQr(code);
+        if (!destination) {
+          res.statusCode = 410;
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(JSON.stringify({ success: false, error: 'This QR experience is unavailable or has expired.' }));
+          return true;
+        }
+        try {
+          await trackPublicQrEvent(code, { type: 'scan_request', userAgent: req.headers['user-agent'], referrer: req.headers.referer || req.headers.referrer });
+        } catch (analyticsError: any) {
+          // Analytics must never block the scan destination from opening.
+          console.warn('[QR Studio] Scan analytics notice:', analyticsError?.message || analyticsError);
+        }
+        res.statusCode = 200;
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ success: true, ...destination }));
+        return true;
+      }
+      if (req.method === 'POST' && publicQrPath[2] === 'events') {
+        const eventType = body?.type === 'page_view' || body?.type === 'cta_click' ? body.type : '';
+        const tracked = await trackPublicQrEvent(code, { ...(body || {}), type: eventType, userAgent: req.headers['user-agent'], referrer: req.headers.referer || req.headers.referrer });
+        res.statusCode = tracked ? 200 : 410;
+        res.end(JSON.stringify({ success: tracked }));
+        return true;
+      }
+      if (req.method === 'POST' && publicQrPath[2] === 'leads') {
+        const result = await submitPublicQrLead(code, { ...(body || {}), clientIp: req.headers['x-vercel-forwarded-for'] || req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || '' });
+        res.statusCode = 200;
+        res.end(JSON.stringify(result));
+        return true;
+      }
+      res.statusCode = 405;
+      res.end(JSON.stringify({ success: false, error: 'Method not allowed.' }));
+      return true;
+    } catch (error: any) {
+      res.statusCode = Number(error?.statusCode) || 400;
+      res.end(JSON.stringify({ success: false, error: error?.message || 'Could not process this QR request.' }));
+      return true;
+    }
+  }
+
 
   // TEMPORARY: global active-context setters (removed in the "explicit ctx"
   // phase). Only set for authenticated requests, never for public paths.
@@ -428,6 +494,151 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       res.end(JSON.stringify({ error: 'Payment required. Choose or fix your plan to continue.', code: 'billing_required', billingStatus: ent.billing.status }));
       return true;
     }
+  }
+
+
+  // QR Studio: all management routes use the authenticated tenant context above.
+  if (url === '/api/qr-studio/analytics' && req.method === 'GET') {
+    try {
+      const queryUrl = new URL(req.url || '/api/qr-studio/analytics', 'http://localhost');
+      const days = Number(queryUrl.searchParams.get('days') || 30);
+      const analytics = await getQrAnalytics(activeTenantCtx, days);
+      res.statusCode = 200;
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(JSON.stringify({ success: true, analytics }));
+    } catch (error: any) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ success: false, error: error?.message || 'Could not load QR analytics.' }));
+    }
+    return true;
+  }
+
+  if (url === '/api/qr-studio') {
+    if (req.method === 'GET') {
+      try {
+        const data = await getQrSummary(activeTenantCtx);
+        res.statusCode = 200;
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ success: true, ...data }));
+      } catch (error: any) {
+        res.statusCode = 500;
+        res.end(JSON.stringify({ success: false, error: error?.message || 'Could not load QR Studio.' }));
+      }
+      return true;
+    }
+    if (url === '/api/qr-studio' && req.method === 'POST') {
+      try {
+        const code = await createQrCode(activeTenantCtx, body || {});
+        res.statusCode = 201;
+        res.end(JSON.stringify({ success: true, code }));
+      } catch (error: any) {
+        const message = error?.message || 'Could not create QR code.';
+        res.statusCode = message.includes('plan allows') ? 402 : 400;
+        res.end(JSON.stringify({ success: false, error: message }));
+      }
+      return true;
+    }
+  }
+
+  if (url === '/api/qr-studio/themes') {
+    try {
+      if (req.method === 'GET') {
+        const themes = await listQrThemes(activeTenantCtx);
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, themes }));
+      } else if (req.method === 'POST') {
+        const theme = await saveQrTheme(activeTenantCtx, body || {});
+        res.statusCode = 201;
+        res.end(JSON.stringify({ success: true, theme }));
+      } else {
+        res.statusCode = 405;
+        res.end(JSON.stringify({ success: false, error: 'Method not allowed.' }));
+      }
+    } catch (error: any) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ success: false, error: error?.message || 'Could not save QR theme.' }));
+    }
+    return true;
+  }
+
+  const qrVersionSegments = url.startsWith('/api/qr-studio/') ? url.slice('/api/qr-studio/'.length).split('/') : [];
+  const qrVersionRestoreMatch = qrVersionSegments.length === 4 && qrVersionSegments[1] === 'versions' && qrVersionSegments[3] === 'restore'
+    ? [null, qrVersionSegments[0], qrVersionSegments[2]]
+    : null;
+  if (qrVersionRestoreMatch && req.method === 'POST') {
+    try {
+      const code = await restoreQrVersion(activeTenantCtx, decodeURIComponent(qrVersionRestoreMatch[1]), decodeURIComponent(qrVersionRestoreMatch[2]));
+      res.statusCode = code ? 200 : 404;
+      res.end(JSON.stringify({ success: Boolean(code), code, error: code ? undefined : 'QR code or version not found.' }));
+    } catch (error: any) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ success: false, error: error?.message || 'Could not restore this version.' }));
+    }
+    return true;
+  }
+
+  const qrActionSegments = url.startsWith('/api/qr-studio/') ? url.slice('/api/qr-studio/'.length).split('/') : [];
+  const qrActionMatch = qrActionSegments.length === 2 && ['publish', 'duplicate', 'status', 'versions'].includes(qrActionSegments[1])
+    ? [null, qrActionSegments[0], qrActionSegments[1]]
+    : null;
+  if (qrActionMatch) {
+    const qrId = decodeURIComponent(qrActionMatch[1]);
+    const action = qrActionMatch[2];
+    try {
+      if (action === 'publish' && req.method === 'POST') {
+        const code = await publishQrCode(activeTenantCtx, qrId);
+        res.statusCode = code ? 200 : 404;
+        res.end(JSON.stringify({ success: Boolean(code), code, error: code ? undefined : 'QR code not found.' }));
+      } else if (action === 'duplicate' && req.method === 'POST') {
+        const code = await duplicateQrCode(activeTenantCtx, qrId);
+        res.statusCode = code ? 201 : 404;
+        res.end(JSON.stringify({ success: Boolean(code), code, error: code ? undefined : 'QR code not found.' }));
+      } else if (action === 'status' && req.method === 'POST') {
+        const code = await setQrStatus(activeTenantCtx, qrId, String(body?.status || '') as any);
+        res.statusCode = code ? 200 : 404;
+        res.end(JSON.stringify({ success: Boolean(code), code, error: code ? undefined : 'QR code not found.' }));
+      } else if (action === 'versions' && req.method === 'GET') {
+        const versions = await listQrVersions(activeTenantCtx, qrId);
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, versions }));
+      } else {
+        res.statusCode = 405;
+        res.end(JSON.stringify({ success: false, error: 'Method not allowed.' }));
+      }
+    } catch (error: any) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ success: false, error: error?.message || 'Could not complete this QR action.' }));
+    }
+    return true;
+  }
+
+  const qrItemSegments = url.startsWith('/api/qr-studio/') ? url.slice('/api/qr-studio/'.length).split('/') : [];
+  const qrItemMatch = qrItemSegments.length === 1 && qrItemSegments[0] ? [null, qrItemSegments[0]] : null;
+  if (qrItemMatch) {
+    const qrId = decodeURIComponent(qrItemMatch[1]);
+    try {
+      if (req.method === 'GET') {
+        const codes = await listQrCodes(activeTenantCtx);
+        const code = codes.find((entry: any) => entry.id === qrId);
+        res.statusCode = code ? 200 : 404;
+        res.end(JSON.stringify({ success: Boolean(code), code }));
+      } else if (req.method === 'PATCH' || req.method === 'PUT') {
+        const code = await updateQrCode(activeTenantCtx, qrId, body || {});
+        res.statusCode = code ? 200 : 404;
+        res.end(JSON.stringify({ success: Boolean(code), code, error: code ? undefined : 'QR code not found.' }));
+      } else if (req.method === 'DELETE') {
+        const deleted = await deleteQrCode(activeTenantCtx, qrId);
+        res.statusCode = deleted ? 200 : 404;
+        res.end(JSON.stringify({ success: deleted, error: deleted ? undefined : 'QR code not found.' }));
+      } else {
+        res.statusCode = 405;
+        res.end(JSON.stringify({ success: false, error: 'Method not allowed.' }));
+      }
+    } catch (error: any) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ success: false, error: error?.message || 'Could not update QR code.' }));
+    }
+    return true;
   }
 
   // Tenant-scoped AI Lead Scoring. Configuration changes are admin-only; lead evaluation/history

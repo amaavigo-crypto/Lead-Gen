@@ -18,6 +18,7 @@ export interface FeatureDef {
 export const FEATURES: FeatureDef[] = [
   { key: 'ai_agent', label: 'AI Agent Workspace', description: 'Context-aware AI workspace and registered agent tools', tab: 'agent', defaultEnabled: true },
   { key: 'campaigns', label: 'Outbound campaigns', description: 'Cold outreach campaigns and batch sending', tab: 'campaigns', defaultEnabled: true },
+  { key: 'qr_studio', label: 'QR Studio', description: 'Dynamic QR codes, branded landing experiences and QR analytics', tab: 'qr-studio', defaultEnabled: true },
   { key: 'campaign_reports', label: 'AI Campaign Reporting', description: 'Campaign performance reports, comparisons, AI recommendations and branded PDF exports', tab: 'campaign-reports', defaultEnabled: true },
   { key: 'scheduling', label: 'Demo scheduling', description: 'Calendar availability and demo booking', tab: 'scheduling', defaultEnabled: true },
   { key: 'knowledge_base', label: 'Knowledge base', description: 'Documents the AI answers from', tab: 'knowledge', defaultEnabled: true },
@@ -35,6 +36,7 @@ export interface LimitDef {
 
 export const LIMITS: LimitDef[] = [
   { key: 'seats', label: 'Team seats', unit: 'users', fallback: 10 },
+  { key: 'qrCodes', label: 'Managed QR codes', unit: 'QR codes', fallback: 100 },
   { key: 'dailyOutboundSends', label: 'Emails per day', unit: 'emails', fallback: 3_000 },
   { key: 'hourlyOutboundSends', label: 'Emails per hour', unit: 'emails', fallback: 500 },
   { key: 'monthlyAiTokens', label: 'AI tokens per month', unit: 'tokens', fallback: 2_000_000 },

@@ -266,6 +266,7 @@ export async function getEffectiveLimits(tenantId: string): Promise<Record<strin
 
 /** URL -> feature, so every gated API route is protected in one place. */
 export function featureForUrl(url: string): string | null {
+  if (url === '/api/qr-studio' || url.startsWith('/api/qr-studio/')) return 'qr_studio';
   if (['/api/dashboard/cards/generate', '/api/dashboard/cards/save', '/api/dashboard/cards/delete'].includes(url)) return 'ai_agent';
   if (url === '/api/agent' || url.startsWith('/api/agent/')) return 'ai_agent';
   if (/^\/api\/auto-followup\/(toggle|dashboard|config|trigger-now)$/.test(url)) return 'auto_followup';
