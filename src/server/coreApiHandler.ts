@@ -5757,7 +5757,7 @@ ${signature || defSig}`;
   }
 
   // Recipient-level WhatsApp URL click attribution for the currently visible campaign leads.
-  const whatsappLeadClicksMatch = url.match(/^\\/api\\/campaigns\\/([a-zA-Z0-9_-]+)\\/whatsapp-lead-clicks$/);
+  const whatsappLeadClicksMatch = url.match(/^\/api\/campaigns\/([a-zA-Z0-9_-]+)\/whatsapp-lead-clicks$/);
   if (whatsappLeadClicksMatch && req.method === 'GET') {
     try {
       const campaignId = whatsappLeadClicksMatch[1];

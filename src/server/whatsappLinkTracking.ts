@@ -357,7 +357,7 @@ export async function getWhatsAppCampaignLeadClickStats(
   }
 
   for (const leadId of requestedIds) {
-    const links = Array.from((grouped.get(leadId) || new Map()).values())
+    const links = Array.from((grouped.get(leadId) || new Map<string, WhatsAppCampaignLeadClickLink>()).values())
       .sort((a, b) => b.clickCount - a.clickCount || a.url.localeCompare(b.url));
     const totalClicks = links.reduce((total, link) => total + link.clickCount, 0);
     const latestClick = links.reduce((latest, link) => {
