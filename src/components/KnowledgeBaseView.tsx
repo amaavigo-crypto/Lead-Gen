@@ -626,9 +626,9 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
 
       {/* Modal for Add / Edit Article */}
       {isModalOpen && createPortal(
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[1300] flex items-center justify-center p-4" role="presentation">
-          <div className="knowledge-article-modal bg-white border border-slate-200 rounded-2xl max-h-[calc(100dvh-32px)] max-w-2xl w-full overflow-y-auto p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95" role="dialog" aria-modal="true" aria-label={editingDoc.id ? "Edit knowledge article" : "Create knowledge article"}>
-            <div className="sticky top-0 z-10 flex items-center justify-between -mx-6 -mt-6 mb-1 px-6 py-4 border-b border-white/10 bg-[#05051f] rounded-t-2xl">
+        <div className="knowledge-article-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsModalOpen(false); }}>
+          <div className="knowledge-article-modal bg-white border border-slate-200 rounded-2xl max-h-[calc(100dvh-32px)] max-w-2xl w-full shadow-2xl animate-in fade-in zoom-in-95" role="dialog" aria-modal="true" aria-label={editingDoc.id ? "Edit knowledge article" : "Create knowledge article"}>
+            <div className="knowledge-article-modal__header flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#05051f] rounded-t-2xl">
               <h3 className="font-extrabold !text-white text-base flex items-center space-x-2">
                 <BookOpen className="w-5 h-5 text-white" />
                 <span>{editingDoc.id ? 'Edit Knowledge Document Master' : 'New Document Master'}</span>
@@ -638,7 +638,8 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
               </button>
             </div>
 
-            <div className="space-y-5 text-xs">
+            <div className="knowledge-article-modal__body px-6 py-5">
+              <div className="space-y-5 text-xs">
               <div>
                 <label className="amaavigo-form-label">Document Title *</label>
                 <input
@@ -686,9 +687,10 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
                   className="amaavigo-form-textarea"
                 />
               </div>
+              </div>
             </div>
 
-            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+            <div className="knowledge-article-modal__footer flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100">
               <span className="text-[11px] text-slate-400">Synchronized with database & 0ms in-memory RAG</span>
               <div className="flex items-center space-x-2">
                 <button

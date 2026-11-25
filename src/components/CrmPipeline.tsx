@@ -2284,11 +2284,10 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
 
       {/* 11. TeleCRM Lead 360° Slide-over Drawer (Right Sheet) */}
       {drawerLead && drawerContact && createPortal(
-        <div className="crm-workspace crm-drawer-portal-scope" style={{ display: 'contents' }}>
-        <div className="crm-drawer-overlay fixed inset-0 z-[1300] bg-slate-950/40 backdrop-blur-2xs flex justify-end" role="dialog" aria-modal="true" aria-label="Lead 360 profile">
+        <div className="crm-workspace crm-drawer-overlay crm-drawer-overlay--viewport" role="dialog" aria-modal="true" aria-label="Lead 360 profile">
           <div className="crm-drawer bg-white w-full max-w-xl h-full shadow-2xl border-l border-slate-200 flex flex-col animate-in slide-in-from-right duration-200">
             {/* Drawer Header */}
-            <div className="p-5 border-b border-slate-200 bg-slate-50/80 flex items-start justify-between">
+            <div className="crm-drawer-header p-5 border-b border-slate-200 bg-slate-50/80 flex items-start justify-between">
               <div className="flex items-center space-x-3">
                 <div className="w-12 h-12 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-base shadow-sm">
                   {(drawerContact.firstName?.[0] || 'U') + (drawerContact.lastName?.[0] || '')}
@@ -2316,7 +2315,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
             </div>
 
             {/* Quick Action Bar inside Drawer */}
-            <div className="p-3 bg-white border-b border-slate-200 flex items-center justify-between">
+            <div className="crm-drawer-actions p-3 bg-white border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => drawerContact.phone && handleStartCall(drawerLead)}
@@ -2363,7 +2362,7 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
             </div>
 
             {/* Drawer Body */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-6">
+            <div className="crm-drawer-body flex-1 min-h-0 overflow-y-auto p-5 space-y-6">
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
                 <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center space-x-1.5">
                   <PhoneForwarded className="w-3.5 h-3.5 text-orange-600" />
@@ -2548,7 +2547,6 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
               </div>
             </div>
           </div>
-        </div>
         </div>,
         document.body
       )}

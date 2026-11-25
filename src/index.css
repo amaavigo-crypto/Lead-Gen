@@ -5978,3 +5978,151 @@ div[class~="fixed"][class~="inset-0"][class~="z-50"][class~="flex"][class~="md:h
 .whatsapp-template-modal-portal [class~="bg-emerald-50"] { background:#effaf4; }
 .whatsapp-template-modal-portal [class~="text-emerald-700"] { color:#16804d; }
 .whatsapp-template-modal-portal [class~="border-emerald-200"] { border-color:#ccebd9; }
+
+
+/* Reliable viewport modal framing for the Database, Knowledge Base and CRM drawer. */
+.lead-db-modal-backdrop--viewport {
+  position:fixed!important;
+  inset:0!important;
+  z-index:1400!important;
+  width:100vw!important;
+  height:100dvh!important;
+  min-height:100dvh!important;
+  max-height:100dvh!important;
+  box-sizing:border-box!important;
+  display:grid!important;
+  place-items:center!important;
+  overflow-y:auto!important;
+  overscroll-behavior:contain;
+  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))!important;
+}
+.lead-db-modal-backdrop--viewport .lead-db-modal {
+  display:flex!important;
+  flex-direction:column!important;
+  width:min(520px,100%)!important;
+  max-height:calc(100dvh - 32px)!important;
+  min-height:0!important;
+  overflow:hidden!important;
+  margin:auto!important;
+}
+.lead-db-modal-backdrop--viewport .lead-db-modal--wide { width:min(820px,100%)!important; }
+.lead-db-modal-backdrop--viewport .lead-db-modal-header {
+  position:relative!important;
+  top:auto!important;
+  z-index:2;
+  flex:0 0 auto!important;
+  background:#fff;
+}
+.lead-db-modal-backdrop--viewport .lead-db-modal-content {
+  flex:1 1 auto!important;
+  min-height:0!important;
+  overflow-y:auto!important;
+  overscroll-behavior:contain;
+}
+.lead-db-modal-backdrop--viewport .lead-db-modal--brand-header .lead-db-modal-header {
+  background:#05051f!important;
+}
+.knowledge-article-modal-backdrop {
+  position:fixed!important;
+  inset:0!important;
+  z-index:1400!important;
+  width:100vw!important;
+  height:100dvh!important;
+  min-height:100dvh!important;
+  max-height:100dvh!important;
+  box-sizing:border-box!important;
+  display:grid!important;
+  place-items:center!important;
+  overflow-y:auto!important;
+  overscroll-behavior:contain;
+  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))!important;
+  background:rgba(15,23,42,.60);
+  backdrop-filter:blur(4px);
+  -webkit-backdrop-filter:blur(4px);
+}
+.knowledge-article-modal-backdrop .knowledge-article-modal {
+  display:flex!important;
+  flex-direction:column!important;
+  width:min(672px,100%)!important;
+  max-height:calc(100dvh - 32px)!important;
+  min-height:0!important;
+  overflow:hidden!important;
+  padding:0!important;
+  margin:auto!important;
+}
+.knowledge-article-modal__header {
+  position:relative!important;
+  top:auto!important;
+  z-index:2;
+  flex:0 0 auto!important;
+  min-height:64px;
+  border-radius:16px 16px 0 0;
+}
+.knowledge-article-modal__body {
+  flex:1 1 auto!important;
+  min-height:0!important;
+  overflow-y:auto!important;
+  overscroll-behavior:contain;
+}
+.knowledge-article-modal__footer {
+  flex:0 0 auto!important;
+  background:#fff;
+}
+.crm-workspace.crm-drawer-overlay--viewport {
+  position:fixed!important;
+  inset:0!important;
+  z-index:1400!important;
+  width:100vw!important;
+  height:100dvh!important;
+  min-height:100dvh!important;
+  max-height:100dvh!important;
+  margin:0!important;
+  padding:0!important;
+  box-sizing:border-box!important;
+  display:flex!important;
+  flex-direction:row!important;
+  align-items:stretch!important;
+  justify-content:flex-end!important;
+  gap:0!important;
+  overflow:hidden!important;
+  background:rgba(17,31,53,.38)!important;
+  backdrop-filter:blur(3px);
+  -webkit-backdrop-filter:blur(3px);
+}
+.crm-workspace.crm-drawer-overlay--viewport .crm-drawer {
+  display:flex!important;
+  flex:0 0 min(560px,100vw)!important;
+  flex-direction:column!important;
+  width:min(560px,100vw)!important;
+  max-width:min(560px,100vw)!important;
+  height:100dvh!important;
+  min-height:0!important;
+  max-height:100dvh!important;
+  margin:0!important;
+  padding:0!important;
+  overflow:hidden!important;
+  border-radius:0!important;
+}
+.crm-drawer-overlay--viewport .crm-drawer-header,
+.crm-drawer-overlay--viewport .crm-drawer-actions {
+  flex:0 0 auto!important;
+}
+.crm-drawer-overlay--viewport .crm-drawer-header {
+  padding-top:max(20px,env(safe-area-inset-top))!important;
+}
+.crm-drawer-overlay--viewport .crm-drawer-body {
+  flex:1 1 auto!important;
+  min-height:0!important;
+  overflow-y:auto!important;
+  overscroll-behavior:contain;
+  padding-bottom:max(20px,env(safe-area-inset-bottom))!important;
+}
+@media(max-width:640px) {
+  .lead-db-modal-backdrop--viewport,
+  .knowledge-article-modal-backdrop { padding:10px!important; }
+  .lead-db-modal-backdrop--viewport .lead-db-modal,
+  .knowledge-article-modal-backdrop .knowledge-article-modal { max-height:calc(100dvh - 20px)!important; }
+  .knowledge-article-modal__footer { align-items:stretch!important; flex-direction:column!important; }
+  .knowledge-article-modal__footer>div { justify-content:flex-end; }
+  .crm-workspace.crm-drawer-overlay--viewport .crm-drawer { width:100vw!important; max-width:100vw!important; flex-basis:100vw!important; }
+}
