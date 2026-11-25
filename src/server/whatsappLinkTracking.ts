@@ -21,10 +21,15 @@ function templateScope(ctx: TenantContext, templateKey: string): string {
 }
 
 function publicAppOrigin(): string {
+  // Prefer an explicitly configured canonical URL. On Vercel, the project production
+  // hostname is stable across deployments (unlike VERCEL_URL, which changes per deploy).
+  // The fallback is the verified production domain currently attached to this project.
   const configured = String(
     process.env.LEADGEN_PUBLIC_URL ||
     process.env.PUBLIC_APP_URL ||
-    'https://leads.amaavigo.com'
+    process.env.APP_URL ||
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    'https://lead-gen-nine-sandy.vercel.app'
   ).trim();
   const withProtocol = /^https?:\/\//i.test(configured) ? configured : `https://${configured}`;
   const parsed = new URL(withProtocol);
