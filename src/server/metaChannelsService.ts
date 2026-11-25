@@ -10,7 +10,7 @@ import { getApplicableAiFeedback, buildAiFeedbackPromptSection, buildAiFeedbackS
 import { recordAiCompletionUsage } from './usageService.js';
 import { listTenantAssets, resolveAssetRaw } from './assetService.js';
 import { AI_RESPONSE_FORMATTING_INSTRUCTIONS, formatAiResponseForChannel } from '../shared/aiResponseFormatting.js';
-import { createWhatsAppTrackedLink, getWhatsAppTemplateLinkConfig, rewriteWhatsAppTemplateLinks, rewriteWhatsAppTextLinks } from './whatsappLinkTracking.js';
+import { createWhatsAppTrackedLink, deleteWhatsAppTemplateLinkConfig, getWhatsAppTemplateLinkConfig, rewriteWhatsAppTemplateLinks, rewriteWhatsAppTextLinks } from './whatsappLinkTracking.js';
 
 /**
  * Per-workspace WhatsApp (Cloud API via Embedded Signup) and Facebook Messenger (Page login),
@@ -771,6 +771,97 @@ export async function saveWhatsAppTemplateAssetAssociation(
     },
     updatedAt: now,
   }, { merge: true });
+}
+
+
+/**
+ * Delete one exact WhatsApp template from this tenant's WABA.
+ * Running and scheduled campaigns are protected from losing their send template.
+ * Draft/paused/completed campaigns are reported to the caller because deleting the
+ * template means those campaigns may need a different template before a future send/restart.
+ */
+export async function deleteWhatsAppTemplate(
+  ctx: TenantContext,
+  input: { name?: string; language?: string; templateId?: string }
+): Promise<{ success: true; name: string; language: string; templateId: string; affectedCampaignCount: number }> {
+  if (ctx.role === 'member') throw new MetaChannelError(403, 'Only workspace admins can delete WhatsApp templates.');
+
+  const name = String(input?.name || '').trim();
+  const language = String(input?.language || '').trim();
+  const templateId = String(input?.templateId || '').trim();
+  if (!/^[a-z][a-z0-9_]{0,511}$/.test(name)) throw new MetaChannelError(400, 'A valid WhatsApp template name is required.');
+  if (!/^[a-z]{2}(?:_[A-Z]{2})?$/.test(language)) throw new MetaChannelError(400, 'A valid WhatsApp template language is required.');
+  if (!/^\d{1,30}$/.test(templateId)) throw new MetaChannelError(400, 'Meta did not return a valid template ID. Refresh the templates list and try again.');
+
+  const connection = await getWhatsAppConnection(ctx);
+  if (!connection || connection.status !== 'connected') throw new MetaChannelError(409, 'WhatsApp is not connected.');
+
+  const campaignSnapshot = await getDocs(query(
+    tenantRepo(ctx).campaigns(),
+    where('whatsappTemplateName', '==', name)
+  ));
+  const matchingCampaigns: any[] = [];
+  const blockingCampaigns: any[] = [];
+  campaignSnapshot.forEach((entry) => {
+    const campaign = entry.data() as any;
+    if (String(campaign?.whatsappTemplateLanguage || '').toLowerCase() !== language.toLowerCase()) return;
+    matchingCampaigns.push(campaign);
+    const status = String(campaign?.status || '').toUpperCase();
+    if (status === 'RUNNING' || status === 'SCHEDULED') blockingCampaigns.push(campaign);
+  });
+  if (blockingCampaigns.length) {
+    const names = blockingCampaigns.slice(0, 3).map((campaign) => String(campaign?.name || campaign?.campaignId || 'Unnamed campaign'));
+    const suffix = blockingCampaigns.length > names.length ? ', and others' : '';
+    throw new MetaChannelError(
+      409,
+      'This template is still used by a running or scheduled campaign (' + names.join(', ') + suffix + '). Stop or reschedule those campaigns before deleting the template.'
+    );
+  }
+
+  const token = await getSecret(ctx, 'whatsapp_access_token');
+  const deleteUrl = new URL(`${GRAPH}/${encodeURIComponent(connection.messagingAccountId || connection.wabaId)}/message_templates`);
+  deleteUrl.searchParams.set('name', name);
+  deleteUrl.searchParams.set('hsm_id', templateId);
+  const result = await graphJson(deleteUrl.toString(), {
+    method: 'DELETE',
+    headers: { Authorization: 'Bearer ' + token },
+  });
+  if (result?.success !== true) throw new MetaChannelError(502, 'Meta did not confirm that the WhatsApp template was deleted.');
+
+  // Remove this language's saved header-image association without deleting the asset itself.
+  try {
+    const associationRef = tenantRepo(ctx).doc('whatsapp_template_assets', whatsappTemplateAssetAssociationId(name, language));
+    const associationSnapshot = await getDoc(associationRef);
+    if (associationSnapshot.exists()) {
+      const association = associationSnapshot.data() as any;
+      await deleteDoc(associationRef);
+      const assetId = String(association?.headerMediaAssetId || '');
+      if (assetId.startsWith('ast_' + ctx.tenantId + '__')) {
+        const assetRef = tenantRepo(ctx).assetDoc(assetId);
+        const assetSnapshot = await getDoc(assetRef);
+        if (assetSnapshot.exists()) {
+          const asset = assetSnapshot.data() as any;
+          const current = asset?.whatsappTemplateAssociation;
+          if (current?.templateName === name && String(current?.templateLanguage || '').toLowerCase() === language.toLowerCase()) {
+            await setDoc(assetRef, { whatsappTemplateAssociation: null, updatedAt: new Date().toISOString() }, { merge: true });
+          }
+        }
+      }
+    }
+  } catch (cleanupError: any) {
+    console.warn('[WhatsApp Templates] Deleted template, but header-image association cleanup was incomplete:', cleanupError?.message || cleanupError);
+  }
+  await deleteWhatsAppTemplateLinkConfig(ctx, name, language).catch((cleanupError: any) => {
+    console.warn('[WhatsApp Templates] Deleted template, but tracking-config cleanup was incomplete:', cleanupError?.message || cleanupError);
+  });
+
+  return {
+    success: true,
+    name,
+    language,
+    templateId,
+    affectedCampaignCount: matchingCampaigns.length,
+  };
 }
 
 

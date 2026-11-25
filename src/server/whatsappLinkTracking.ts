@@ -3,6 +3,7 @@ import {
   collection,
   doc,
   getDoc,
+  deleteDoc,
   increment,
   query,
   runTransaction,
@@ -50,6 +51,19 @@ export async function getWhatsAppTemplateLinkConfig(
     bodyLinks: Array.isArray(data.bodyLinks) ? data.bodyLinks : [],
     urlButtons: Array.isArray(data.urlButtons) ? data.urlButtons : [],
   };
+}
+
+export async function deleteWhatsAppTemplateLinkConfig(
+  ctx: TenantContext,
+  templateName: string,
+  language: string
+): Promise<void> {
+  const ref = templateLinkConfigRef(ctx, templateName, language);
+  const snapshot = await getDoc(ref);
+  if (!snapshot.exists()) return;
+  const data = snapshot.data() as any;
+  if (String(data?.tenantId || '') !== ctx.tenantId) return;
+  await deleteDoc(ref);
 }
 
 async function saveWhatsAppTemplateLinkConfig(

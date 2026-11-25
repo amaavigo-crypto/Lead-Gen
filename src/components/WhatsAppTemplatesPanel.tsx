@@ -110,8 +110,12 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
   const [notice, setNotice] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<TemplateItem | null>(null);
+  const [deleteTemplateTarget, setDeleteTemplateTarget] = useState<TemplateItem | null>(null);
+  const [deletingTemplateKey, setDeletingTemplateKey] = useState<string | null>(null);
+  const [deleteTemplateError, setDeleteTemplateError] = useState<string | null>(null);
   const [companyAssets, setCompanyAssets] = useState<CompanyAsset[]>([]);
   const [insightsEnabled, setInsightsEnabled] = useState<boolean | null>(null);
   const [showInsightsConsent, setShowInsightsConsent] = useState(false);
@@ -214,6 +218,46 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
 
   useEffect(() => { void loadTemplates(); }, [loadTemplates]);
 
+  const handleDeleteTemplate = async () => {
+    const template = deleteTemplateTarget;
+    if (!template) return;
+    if (!canEdit) {
+      setDeleteTemplateError('Only workspace admins can delete WhatsApp templates.');
+      return;
+    }
+    if (!template.id) {
+      setDeleteTemplateError('Meta did not return a template ID. Refresh the template list and try again.');
+      return;
+    }
+    const key = `${template.id}|${template.language}`;
+    setDeletingTemplateKey(key);
+    setDeleteTemplateError(null);
+    try {
+      const response = await fetch('/api/whatsapp/templates/manage', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: template.name, language: template.language, id: template.id }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'Meta could not delete this WhatsApp template.');
+      setTemplates((current) => current.filter((item) =>
+        !(item.id === template.id && item.language === template.language)
+      ));
+      if (previewTemplate?.id === template.id && previewTemplate.language === template.language) setPreviewTemplate(null);
+      setDeleteTemplateTarget(null);
+      const affectedCount = Number(data?.affectedCampaignCount || 0);
+      setNotice(
+        `Deleted WhatsApp template "${template.name}" (${template.language}) from the connected WhatsApp Business Account.` +
+        (affectedCount > 0 ? ` ${affectedCount} saved campaign(s) still reference it and may need another template before a future send or restart.` : '')
+      );
+      await loadTemplates(true);
+    } catch (deleteError: any) {
+      setDeleteTemplateError(deleteError?.message || 'WhatsApp template deletion failed.');
+    } finally {
+      setDeletingTemplateKey(null);
+    }
+  };
+
   const hasPending = templates.some((template) => ['PENDING', 'PENDING_REVIEW', 'IN_APPEAL'].includes(String(template.status || '').toUpperCase()));
   useEffect(() => {
     if (!hasPending) return;
@@ -225,11 +269,14 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
     const needle = query.trim().toLowerCase();
     return templates.filter((template) => {
       const status = String(template.status || 'UNKNOWN').toUpperCase();
-      const matchesStatus = statusFilter === 'ALL' || status === statusFilter;
+      const matchesStatus = statusFilter === 'ALL' ||
+        (statusFilter === 'PENDING' ? ['PENDING', 'PENDING_REVIEW'].includes(status) : status === statusFilter);
+      const category = String(template.category || 'UNCATEGORIZED').toUpperCase();
+      const matchesCategory = categoryFilter === 'ALL' || category === categoryFilter;
       const matchesQuery = !needle || [template.name, template.language, template.category, template.body].some((value) => String(value || '').toLowerCase().includes(needle));
-      return matchesStatus && matchesQuery;
+      return matchesStatus && matchesCategory && matchesQuery;
     });
-  }, [templates, query, statusFilter]);
+  }, [templates, query, statusFilter, categoryFilter]);
 
   const resetForm = () => {
     setName('');
@@ -340,8 +387,17 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
           <option value="PAUSED">Paused</option>
           <option value="DISABLED">Disabled</option>
           <option value="IN_APPEAL">In appeal</option>
-          <option value="ARCHIVED">Archived</option>
           <option value="PENDING_DELETION">Pending deletion</option>
+          <option value="DELETED">Deleted</option>
+          <option value="DISABLED">Disabled</option>
+          <option value="LIMIT_EXCEEDED">Limit exceeded</option>
+          <option value="ARCHIVED">Archived</option>
+          <option value="UNKNOWN">Unknown</option>
+        </select>
+        <select className={inputClass + ' w-auto min-w-[170px]'} value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+          <option value="ALL">All categories</option>
+          <option value="UTILITY">Utility messages</option>
+          <option value="MARKETING">Marketing messages</option>
         </select>
       </div>
 
@@ -380,6 +436,17 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
                     <button type="button" onClick={() => setPreviewTemplate(template)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-emerald-200 hover:text-emerald-700">
                       <Eye className="h-3.5 w-3.5" /> View preview
                     </button>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => { setDeleteTemplateError(null); setDeleteTemplateTarget(template); }}
+                        disabled={!template.id}
+                        title={!template.id ? 'Meta did not return a template ID' : 'Delete this template from the connected WhatsApp Business Account'}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Delete
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
@@ -499,6 +566,42 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
           </div>
         ), document.body);
       })()}
+
+      {deleteTemplateTarget && createPortal((
+        <div
+          className="whatsapp-template-modal-portal fixed inset-0 z-[1350] flex items-center justify-center bg-slate-950/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Delete WhatsApp template ${deleteTemplateTarget.name}`}
+          onClick={() => { if (!deletingTemplateKey) setDeleteTemplateTarget(null); }}
+        >
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-slate-900">Delete WhatsApp template?</h3>
+                <p className="mt-1 break-all text-sm font-semibold text-slate-800">{deleteTemplateTarget.name} · {deleteTemplateTarget.language}</p>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                  This removes this specific language version from the connected WhatsApp Business Account. It does not recall messages already sent.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
+              Draft, paused or completed campaigns that still reference this template may need another approved template before a future send or restart. Running or scheduled campaigns are protected and must be stopped first.
+            </div>
+            {deleteTemplateError && <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">{deleteTemplateError}</div>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setDeleteTemplateTarget(null)} disabled={Boolean(deletingTemplateKey)} className="rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={() => void handleDeleteTemplate()} disabled={Boolean(deletingTemplateKey) || !deleteTemplateTarget.id} className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50">
+                {deletingTemplateKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                {deletingTemplateKey ? 'Deleting…' : 'Delete template'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ), document.body)}
 
       {showInsightsConsent && createPortal((
         <div className="whatsapp-template-modal-portal fixed inset-0 z-[1340] flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="Enable WhatsApp click insights">

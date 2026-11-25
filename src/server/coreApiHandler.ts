@@ -2895,10 +2895,9 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   }
 
   // Workspace WhatsApp templates. Meta is the source of truth for current approval status.
-  if (url === '/api/whatsapp/templates/manage' && (req.method === 'GET' || req.method === 'POST')) {
-    // Any signed-in workspace user may view the current template approval state for campaign selection.
-    // Only workspace admins can create or submit templates to Meta.
-    if (req.method === 'POST' && activeTenantCtx.role === 'member') {
+  if (url === '/api/whatsapp/templates/manage' && ['GET', 'POST', 'DELETE'].includes(String(req.method || '').toUpperCase())) {
+    // Any signed-in workspace user may view status. Creating/deleting is admin-only.
+    if (req.method !== 'GET' && activeTenantCtx.role === 'member') {
       res.statusCode = 403;
       res.end(JSON.stringify({ error: 'Only workspace admins can manage WhatsApp templates.' }));
       return true;
@@ -2909,6 +2908,14 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
         const templates = await meta.listWhatsAppTemplatesForManagement(activeTenantCtx);
         res.statusCode = 200;
         res.end(JSON.stringify({ success: true, templates, syncedAt: new Date().toISOString() }));
+      } else if (req.method === 'DELETE') {
+        const result = await meta.deleteWhatsAppTemplate(activeTenantCtx, {
+          name: String(body?.name || ''),
+          language: String(body?.language || ''),
+          templateId: String(body?.id || body?.templateId || ''),
+        });
+        res.statusCode = 200;
+        res.end(JSON.stringify(result));
       } else {
         const template = await meta.createWhatsAppTemplate(activeTenantCtx, {
           name: String(body?.name || ''),
