@@ -10,6 +10,7 @@ import { getApplicableAiFeedback, buildAiFeedbackPromptSection, buildAiFeedbackS
 import { recordAiCompletionUsage } from './usageService.js';
 import { listTenantAssets, resolveAssetRaw } from './assetService.js';
 import { AI_RESPONSE_FORMATTING_INSTRUCTIONS, formatAiResponseForChannel } from '../shared/aiResponseFormatting.js';
+import { rewriteWhatsAppTemplateLinks, rewriteWhatsAppTextLinks } from './whatsappLinkTracking.js';
 
 /**
  * Per-workspace WhatsApp (Cloud API via Embedded Signup) and Facebook Messenger (Page login),
@@ -1081,6 +1082,7 @@ export async function createWhatsAppTemplate(
     throw new MetaChannelError(400, 'Choose a supported Marketing template format.');
   }
 
+  const trackedComponents = await rewriteWhatsAppTemplateLinks(ctx, name, language, components);
   const submittedHeaderFormat = String(input.headerFormat || 'TEXT').trim().toUpperCase();
   if (submittedHeaderFormat === 'IMAGE' && String(input.headerMediaHandle || '').trim() && !headerMediaAssetId) {
     throw new MetaChannelError(400, 'Save the image header in Company Assets before submitting this template. Select the image again to retry.');
@@ -1089,7 +1091,7 @@ export async function createWhatsAppTemplate(
   const result = await graphJson(GRAPH + '/' + encodeURIComponent(connection.messagingAccountId || connection.wabaId) + '/message_templates', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, language, category, parameter_format: 'POSITIONAL', components }),
+    body: JSON.stringify({ name, language, category, parameter_format: 'POSITIONAL', components: trackedComponents }),
   });
   if (submittedHeaderFormat === 'IMAGE' && headerMediaAssetId) {
     await saveWhatsAppTemplateAssetAssociation(ctx, name, language, headerMediaAssetId, String(result?.id || '') || undefined);
@@ -1098,7 +1100,8 @@ export async function createWhatsAppTemplate(
     id: result?.id ? String(result.id) : undefined,
     name, language, category,
     status: String(result?.status || 'PENDING').toUpperCase(),
-    body, components,
+    body: String(trackedComponents.find((component: any) => String(component?.type || '').toUpperCase() === 'BODY')?.text || body),
+    components: trackedComponents,
     header: String(input.headerText || ''),
     headerFormat: submittedHeaderFormat,
     headerMediaAssetId: headerMediaAssetId || undefined,
@@ -1215,6 +1218,9 @@ export async function sendWhatsAppTemplate(
   const parameterFormat = approvedTemplate.parameterFormat || 'POSITIONAL';
   const params = (template.params || []).map((p) => String(p));
   const headerParams = (template.headerParams || []).map((p) => String(p));
+  const trackedParams = await Promise.all(params.map((value) =>
+    rewriteWhatsAppTextLinks(ctx, value, `${template.name}::${template.language}`)
+  ));
   if (params.length !== approvedTemplate.paramCount) {
     throw new MetaChannelError(400, 'The selected WhatsApp template (' + parameterFormat + ') requires ' + approvedTemplate.paramCount + ' body parameter(s), but ' + params.length + ' were provided. Refresh the approved template list and retry.');
   }
@@ -1250,7 +1256,7 @@ export async function sendWhatsAppTemplate(
     } else if (headerParams.length) {
       components.push({ type: 'header', parameters: makeParameters(headerParams, approvedTemplate.headerParameterNames || []) });
     }
-    if (params.length) components.push({ type: 'body', parameters: makeParameters(params, approvedTemplate.parameterNames || []) });
+    if (trackedParams.length) components.push({ type: 'body', parameters: makeParameters(trackedParams, approvedTemplate.parameterNames || []) });
     const token = await getSecret(ctx, 'whatsapp_access_token');
     const result = await graphJson(`${GRAPH}/${encodeURIComponent(connection.phoneNumberId)}/messages`, {
       method: 'POST',

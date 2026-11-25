@@ -184,6 +184,7 @@ import {
 } from './knowledgeService.js';
 import { getKnowledgeWebsiteScanState, startKnowledgeWebsiteScan, processKnowledgeWebsiteScanStep } from './websiteKnowledgeService.js';
 import { getLeadScoringConfig, saveLeadScoringConfig, suggestLeadScoringParameters, startLeadScoringRecalculation, enqueueLeadScoringEvaluation, evaluateLeadForScoring, getLeadScoringHistory, runLeadScoringWorkerCycle } from './leadScoringService.js';
+import { getWhatsAppTrackedClickCount, resolveAndRecordWhatsAppTrackedClick } from './whatsappLinkTracking.js';
 
 /**
  * Universal API request handler that works in both:
@@ -307,6 +308,8 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     (req.method === 'GET' && /^\/api\/site-resources(?:\/[a-z0-9-]+|\/media\/[a-f0-9-]{36})?$/.test(url.split('?')[0])) ||
     // Public asset raw/view streaming for email clients
     (req.method === 'GET' && /^\/api\/assets\/[^/]+\/view$/.test(url)) ||
+    // Public opaque redirect for WhatsApp URL-click tracking; target URLs stay server-side.
+    (req.method === 'GET' && /^\/api\/whatsapp\/click\/[a-f0-9]{40}$/.test(url)) ||
     // Published legal pages (Privacy, Terms, DPA, AUP) are public by design.
     (req.method === 'GET' && /^\/api\/legal\/[a-z]+(\?.*)?$/.test(url)) ||
     url.startsWith('/api/webhooks/') ||
@@ -361,6 +364,33 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     setSchedulingActiveContext(activeTenantCtx);
     setInboundActiveContext(activeTenantCtx);
     setWhatsAppActiveContext(activeTenantCtx);
+  }
+
+  const whatsappTrackedClickMatch = url.match(/^\/api\/whatsapp\/click\/([a-f0-9]{40})$/);
+  if (req.method === 'GET' && whatsappTrackedClickMatch) {
+    try {
+      const destination = await resolveAndRecordWhatsAppTrackedClick(
+        whatsappTrackedClickMatch[1],
+        String(req.headers?.['user-agent'] || '')
+      );
+      if (!destination) {
+        res.statusCode = 404;
+        res.setHeader('Cache-Control', 'no-store');
+        res.end('Link not found.');
+        return true;
+      }
+      res.statusCode = 302;
+      res.setHeader('Location', destination);
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      res.end();
+    } catch (error: any) {
+      console.error('[WhatsApp link tracking] Redirect failed:', error?.message || error);
+      res.statusCode = 503;
+      res.setHeader('Cache-Control', 'no-store');
+      res.end('This link is temporarily unavailable.');
+    }
+    return true;
   }
 
   // =========================================================================
@@ -5481,42 +5511,23 @@ ${signature || defSig}`;
     try {
       const campaignId = whatsappCampaignEngagementMatch[1];
       const stats = await getWhatsAppCampaignEngagementStats(campaignId);
-      let templateClickAnalytics: any = { enabled: false, available: false, urlClicks: 0, quickReplyClicks: 0 };
-      try {
-        const campaign = await getCampaignByIdAsync(campaignId);
-        if (campaign?.whatsappTemplateName && campaign?.whatsappTemplateLanguage) {
-          const meta = await import('./metaChannelsService.js');
-          const insightStatus = await meta.getWhatsAppTemplateInsightsStatus(activeTenantCtx);
-          templateClickAnalytics.enabled = insightStatus.enabled;
-          if (insightStatus.enabled) {
-            const templates = await meta.listWhatsAppTemplatesForManagement(activeTenantCtx);
-            const template = templates.find((item: any) =>
-              item.name === campaign.whatsappTemplateName &&
-              item.language === campaign.whatsappTemplateLanguage
-            );
-            if (template?.id && ['MARKETING', 'UTILITY'].includes(String(template.category || '').toUpperCase())) {
-              templateClickAnalytics = await meta.getWhatsAppTemplateClickAnalytics(
-                activeTenantCtx,
-                String(template.id),
-                String(campaign.startedAt || campaign.createdAt || '')
-              );
-            }
-          }
-        }
-      } catch (analyticsError: any) {
-        console.warn('[Campaign API] WhatsApp template click analytics unavailable:', analyticsError?.message || analyticsError);
-      }
+      const campaign = await getCampaignByIdAsync(campaignId);
+      const urlClicks = campaign?.whatsappTemplateName && campaign?.whatsappTemplateLanguage
+        ? await getWhatsAppTrackedClickCount(
+            activeTenantCtx,
+            String(campaign.whatsappTemplateName),
+            String(campaign.whatsappTemplateLanguage)
+          ).catch((clickError: any) => {
+            console.warn('[Campaign API] Amaavigo WhatsApp click count unavailable:', clickError?.message || clickError);
+            return 0;
+          })
+        : 0;
       res.statusCode = 200;
       res.end(JSON.stringify({
         success: true,
         ...stats,
-        urlClickAnalyticsEnabled: templateClickAnalytics.enabled === true,
-        urlClickAnalyticsAvailable: templateClickAnalytics.available === true,
-        urlClicks: templateClickAnalytics.available ? Number(templateClickAnalytics.urlClicks || 0) : null,
-        templateQuickReplyClicks: templateClickAnalytics.available ? Number(templateClickAnalytics.quickReplyClicks || 0) : 0,
-        templateClickWindowStart: templateClickAnalytics.windowStart || null,
-        templateClickWindowEnd: templateClickAnalytics.windowEnd || null,
-        templateClickAttribution: 'Meta reports clicks at template level, not per campaign recipient. This total can include other sends of the same template during the reporting window.',
+        urlClicks,
+        urlClickAttribution: 'Amaavigo tracked URL clicks, aggregated by WhatsApp template.',
       }));
     } catch (err: any) {
       res.statusCode = 500;
