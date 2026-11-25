@@ -7,6 +7,7 @@ import { tenantRepo, assertValidTenantId } from './tenantRepo.js';
 import type { TenantContext } from '../types/tenant.js';
 import { getEntitlements } from './entitlements.js';
 import { createQrPageTemplate } from '../shared/qrStudio.js';
+import { createQrPrintDesign } from '../shared/qrStudio.js';
 import type { QrAnalytics, QrCodeStatus, QrPageDocument, QrSavedTheme, QrTemplateType } from '../shared/qrStudio.js';
 
 const zeroAnalytics = (): QrAnalytics => ({ scanCount: 0, pageViewCount: 0, uniqueVisitorCount: 0, leadCount: 0, ctaClickCount: 0 });
@@ -60,6 +61,38 @@ function isHttpQrUrl(value: unknown): boolean {
   } catch {
     return false;
   }
+}
+
+function isPublicQrAssetUrl(input: unknown): string {
+  const value = cleanText(input, 2048);
+  return /^\/api\/assets\/ast_[A-Za-z0-9_.-]+\/view$/.test(value) ? value : '';
+}
+
+function safeQrRedirectUrl(input: unknown): string {
+  const value = cleanText(input, 2048);
+  if (isHttpQrUrl(value)) return isSafeQrUrl(value, false);
+  return isPublicQrAssetUrl(value);
+}
+
+const QR_DESTINATION_TYPES = new Set(['website', 'pdf', 'menu', 'enquiry', 'custom', 'whatsapp']);
+const QR_PRINT_FORMATS = new Set(['a4', 'a5', 'table-tent', 'square', 'flyer', 'business-card']);
+const QR_PRINT_THEMES = new Set(['minimal', 'brand', 'bold']);
+
+function sanitizeQrPrintDesign(input: any, businessName = 'Your business'): any {
+  const source = input && typeof input === 'object' ? input : {};
+  const fallback = createQrPrintDesign(businessName);
+  const color = (value: any, defaultValue: string) => /^#[0-9a-f]{3,8}$/i.test(String(value || '')) ? String(value) : defaultValue;
+  return {
+    format: QR_PRINT_FORMATS.has(source.format) ? source.format : fallback.format,
+    theme: QR_PRINT_THEMES.has(source.theme) ? source.theme : fallback.theme,
+    headline: cleanText(source.headline || fallback.headline, 100),
+    subheadline: cleanText(source.subheadline || fallback.subheadline, 160),
+    footerText: cleanText(source.footerText ?? businessName, 100),
+    backgroundColor: color(source.backgroundColor, fallback.backgroundColor),
+    textColor: color(source.textColor, fallback.textColor),
+    accentColor: color(source.accentColor, fallback.accentColor),
+    logoUrl: isSafeQrUrl(source.logoUrl),
+  };
 }
 
 export function isSafeQrUrl(input: unknown, allowRelative = true): string {
@@ -204,8 +237,11 @@ export async function createQrCode(ctx: TenantContext, input: any): Promise<any>
   const template = ['menu', 'business-profile', 'offer', 'lead-capture', 'blank'].includes(input?.template)
     ? input.template as QrTemplateType : 'blank';
   const destinationKind = input?.destination?.kind === 'url' ? 'url' : 'page';
-  const destinationUrl = destinationKind === 'url' && isHttpQrUrl(input?.destination?.url) ? isSafeQrUrl(input?.destination?.url, false) : '';
-  if (destinationKind === 'url' && !destinationUrl) throw new Error('Enter a valid http or https destination URL.');
+  const destinationType = QR_DESTINATION_TYPES.has(input?.destination?.type)
+    ? input.destination.type
+    : destinationKind === 'url' ? 'website' : template === 'menu' ? 'menu' : template === 'lead-capture' ? 'enquiry' : 'custom';
+  const destinationUrl = destinationKind === 'url' ? safeQrRedirectUrl(input?.destination?.url) : '';
+  if (destinationKind === 'url' && !destinationUrl) throw new Error('Enter a valid website URL or upload a supported PDF document.');
   const entitlements = await getEntitlements(ctx.tenantId);
   const existing = await listQrCodes(ctx);
   const cap = Number(entitlements?.limits?.qrCodes ?? 100);
@@ -217,9 +253,15 @@ export async function createQrCode(ctx: TenantContext, input: any): Promise<any>
   const qrId = id('qr');
   const record = {
     id: qrId, tenantId: ctx.tenantId, name, description: cleanText(input?.description, 240), template,
-    code, status: 'draft', destination: { kind: destinationKind, ...(destinationUrl ? { url: destinationUrl } : {}) },
+    code, status: 'draft', destination: {
+      kind: destinationKind, type: destinationType,
+      ...(destinationUrl ? { url: destinationUrl } : {}),
+      ...(cleanText(input?.destination?.assetId, 180) ? { assetId: cleanText(input.destination.assetId, 180) } : {}),
+      ...(cleanText(input?.destination?.fileName, 180) ? { fileName: cleanText(input.destination.fileName, 180) } : {}),
+    },
     pageData: createQrPageTemplate(template, name),
     qrStyle: { shape: 'square', foregroundColor: '#101828', backgroundColor: '#FFFFFF', frameText: 'SCAN TO EXPLORE' },
+    printDesign: sanitizeQrPrintDesign(input?.printDesign, name),
     analytics: zeroAnalytics(), scanCount: 0, pageViewCount: 0, uniqueVisitorCount: 0, leadCount: 0, ctaClickCount: 0,
     folder: cleanText(input?.folder, 80), tags: Array.isArray(input?.tags) ? input.tags.slice(0, 12).map((v: any) => cleanText(v, 40)) : [],
     createdAt: now, updatedAt: now,
@@ -247,12 +289,24 @@ export async function updateQrCode(ctx: TenantContext, qrId: string, input: any)
   if (input?.description !== undefined) patch.description = cleanText(input.description, 240);
   if (input?.destination !== undefined) {
     if (input.destination?.kind === 'url') {
-      const url = isHttpQrUrl(input.destination.url) ? isSafeQrUrl(input.destination.url, false) : '';
-      if (!url) throw new Error('Enter a valid http or https destination URL.');
-      patch.destination = { kind: 'url', url };
-    } else patch.destination = { kind: 'page' };
+      const url = safeQrRedirectUrl(input.destination.url);
+      if (!url) throw new Error('Enter a valid website URL or supported PDF asset URL.');
+      patch.destination = {
+        kind: 'url',
+        type: QR_DESTINATION_TYPES.has(input.destination.type) ? input.destination.type : 'website',
+        url,
+        ...(cleanText(input.destination.assetId, 180) ? { assetId: cleanText(input.destination.assetId, 180) } : {}),
+        ...(cleanText(input.destination.fileName, 180) ? { fileName: cleanText(input.destination.fileName, 180) } : {}),
+      };
+    } else {
+      const type = QR_DESTINATION_TYPES.has(input.destination?.type)
+        ? input.destination.type
+        : current.destination?.type || (current.template === 'menu' ? 'menu' : current.template === 'lead-capture' ? 'enquiry' : 'custom');
+      patch.destination = { kind: 'page', type };
+    }
   }
   if (input?.pageData !== undefined) patch.pageData = sanitizeQrPage(input.pageData);
+  if (input?.printDesign !== undefined) patch.printDesign = sanitizeQrPrintDesign(input.printDesign, input?.name || current.name);
   if (input?.qrStyle !== undefined) {
     const s = input.qrStyle || {};
     const color = (v: any, fallback: string) => /^#[0-9a-f]{3,8}$/i.test(String(v || '')) ? String(v) : fallback;
@@ -282,14 +336,14 @@ export async function publishQrCode(ctx: TenantContext, qrId: string): Promise<a
   const current = await getCode(ctx, qrId);
   if (!current) return null;
   if (current.status === 'archived') throw new Error('Archived QR codes cannot be published. Duplicate this code to create a new experience.');
-  if (current.destination?.kind === 'url' && !isHttpQrUrl(current.destination.url)) throw new Error('Destination URL must use http or https.');
+  if (current.destination?.kind === 'url' && !safeQrRedirectUrl(current.destination.url)) throw new Error('The website or PDF destination is invalid. Update it before publishing.');
   const page = sanitizeQrPage(current.pageData);
   const now = new Date().toISOString();
   const versions = await getDocs(query(tenantRepo(ctx).collection('qr_page_versions'), where('qrId', '==', qrId)));
   const versionId = id('qrv');
   const versionNumber = versions.size + 1;
   await setDoc(tenantRepo(ctx).doc('qr_page_versions', versionId), {
-    id: versionId, qrId, version: versionNumber, pageData: page, createdAt: now, createdBy: ctx.uid,
+    id: versionId, qrId, version: versionNumber, pageData: page, printDesign: current.printDesign || createQrPrintDesign(current.name), createdAt: now, createdBy: ctx.uid,
   }, { merge: false });
   const patch = { publishedPage: page, status: 'active', publishedAt: now, updatedAt: now };
   await updateDoc(tenantRepo(ctx).doc('qr_codes', qrId), patch);
@@ -353,8 +407,9 @@ export async function restoreQrVersion(ctx: TenantContext, qrId: string, version
   if (!await getCode(ctx, qrId)) return null;
   const snapshot = await getDoc(tenantRepo(ctx).doc('qr_page_versions', versionId));
   if (!snapshot.exists() || (snapshot.data() as any).qrId !== qrId) return null;
-  const pageData = sanitizeQrPage((snapshot.data() as any).pageData);
-  return updateQrCode(ctx, qrId, { pageData });
+  const version = snapshot.data() as any;
+  const pageData = sanitizeQrPage(version.pageData);
+  return updateQrCode(ctx, qrId, { pageData, ...(version.printDesign ? { printDesign: version.printDesign } : {}) });
 }
 
 export async function listQrThemes(ctx: TenantContext): Promise<any[]> {
@@ -452,7 +507,7 @@ export async function getPublicQr(code: string): Promise<any | null> {
   const endsAt = qr.schedule?.endsAt ? Date.parse(qr.schedule.endsAt) : NaN;
   if (Number.isFinite(startsAt) && now < startsAt) return null;
   if (Number.isFinite(endsAt) && now > endsAt) return null;
-  const redirectUrl = qr.destination?.kind === 'url' && isHttpQrUrl(qr.destination.url) ? isSafeQrUrl(qr.destination.url, false) : '';
+  const redirectUrl = qr.destination?.kind === 'url' ? safeQrRedirectUrl(qr.destination.url) : '';
   return {
     code, redirectUrl: redirectUrl || undefined,
     qr: { id: qr.id, name: qr.name, template: qr.template, page: qr.publishedPage, theme: qr.publishedPage?.theme },

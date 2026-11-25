@@ -1,4 +1,7 @@
 export type QrTemplateType = 'menu' | 'business-profile' | 'offer' | 'lead-capture' | 'blank';
+export type QrDestinationType = 'website' | 'pdf' | 'menu' | 'enquiry' | 'custom' | 'whatsapp';
+export type QrPrintFormat = 'a4' | 'a5' | 'table-tent' | 'square' | 'flyer' | 'business-card';
+export type QrPrintTheme = 'minimal' | 'brand' | 'bold';
 export type QrCodeStatus = 'draft' | 'active' | 'paused' | 'archived';
 export type QrBlockType = 'hero' | 'text' | 'image' | 'gallery' | 'video' | 'lottie' | 'button' | 'form' | 'menu' | 'products' | 'divider';
 
@@ -62,6 +65,18 @@ export interface QrCodeStyle {
   frameText?: string;
 }
 
+export interface QrPrintDesign {
+  format: QrPrintFormat;
+  theme: QrPrintTheme;
+  headline: string;
+  subheadline: string;
+  footerText: string;
+  backgroundColor: string;
+  textColor: string;
+  accentColor: string;
+  logoUrl?: string;
+}
+
 export interface QrAnalytics {
   scanCount: number;
   pageViewCount: number;
@@ -78,10 +93,11 @@ export interface QrStudioCode {
   template: QrTemplateType;
   code: string;
   status: QrCodeStatus;
-  destination: { kind: 'page' | 'url'; url?: string };
+  destination: { kind: 'page' | 'url'; type?: QrDestinationType; url?: string; assetId?: string; fileName?: string };
   pageData: QrPageDocument;
   publishedPage?: QrPageDocument;
   qrStyle: QrCodeStyle;
+  printDesign?: QrPrintDesign;
   schedule?: { startsAt?: string; endsAt?: string };
   folder?: string;
   tags?: string[];
@@ -189,4 +205,19 @@ export function createQrPageTemplate(template: QrTemplateType, businessName = 'Y
         hero('Your experience starts here.', 'Add content, images, videos, forms and buttons to create your own page.'),
       ] };
   }
+}
+
+
+export function createQrPrintDesign(businessName = 'Your business'): QrPrintDesign {
+  return {
+    format: 'a4',
+    theme: 'minimal',
+    headline: 'Scan to explore',
+    subheadline: 'Use your phone camera to get started',
+    footerText: businessName,
+    backgroundColor: '#FFFFFF',
+    textColor: '#17213D',
+    accentColor: '#155EEF',
+    logoUrl: '',
+  };
 }

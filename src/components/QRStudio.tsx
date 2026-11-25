@@ -3,14 +3,16 @@ import { createPortal } from 'react-dom';
 import {
   ArrowDown, ArrowLeft, ArrowUp, BarChart3, Bell, BookOpen, Check, ChevronDown, ChevronRight, CirclePause, Copy,
   Download, ExternalLink, Eye, FileImage, FileText, Filter, Globe, Image as ImageIcon, Layers3, Link2, Loader2,
-  Menu as MenuIcon, MoreHorizontal, Palette, PanelRight, Play, Plus, QrCode, RefreshCw, Save, Search,
+  Menu as MenuIcon, MessageCircle, MoreHorizontal, Palette, PanelRight, Play, Plus, QrCode, RefreshCw, Save, Search,
   Settings2, Sparkles, Trash2, Upload, Video, WandSparkles, X, Zap,
 } from 'lucide-react';
 import { authFetch } from '../services/authService';
 import { fileToDataUrl, getImageDimensions, uploadCompanyAsset } from '../services/assetClientService';
 import { renderQrSvg } from '../shared/qrCodeGenerator';
-import type { QrCodeStatus, QrFormField, QrPageBlock, QrPageDocument, QrSavedTheme, QrStudioCode, QrTemplateType } from '../shared/qrStudio';
+import { createQrPrintDesign } from '../shared/qrStudio';
+import type { QrCodeStatus, QrDestinationType, QrFormField, QrPageBlock, QrPageDocument, QrSavedTheme, QrStudioCode, QrTemplateType } from '../shared/qrStudio';
 import { QrExperienceRenderer } from './PublicQrExperience';
+import { QrPrintDesigner } from './QrPrintDesigner';
 
 type Props = { tenantId: string };
 type MainTab = 'overview' | 'codes' | 'analytics' | 'themes';
@@ -113,6 +115,15 @@ async function downloadQr(code: QrStudioCode, kind: 'svg' | 'png' | 'pdf') {
     URL.revokeObjectURL(objectUrl);
   }
 }
+function qrDestinationLabel(code: QrStudioCode): string {
+  const type = code.destination?.type || (code.destination?.kind === 'url' ? 'website' : code.template === 'menu' ? 'menu' : code.template === 'lead-capture' ? 'enquiry' : 'custom');
+  const labels: Record<QrDestinationType, string> = {
+    website: 'Website', pdf: 'PDF document', menu: 'Digital menu',
+    enquiry: 'Enquiry form', custom: 'Custom landing page', whatsapp: 'WhatsApp',
+  };
+  return labels[type] || 'Custom landing page';
+}
+
 function StatusPill({ status }: { status: QrCodeStatus }) {
   const style: Record<QrCodeStatus, string> = {
     active: 'bg-emerald-50 text-emerald-700 ring-emerald-600/15',
@@ -138,11 +149,22 @@ function QrImage({ code, className = '' }: { code: QrStudioCode; className?: str
   return source ? <img src={source} alt={`QR code for ${code.name}`} className={`aspect-square bg-white object-contain ${className}`} /> : <div className={`flex aspect-square items-center justify-center bg-slate-100 text-slate-400 ${className}`}><QrCode className="h-8 w-8" /></div>;
 }
 
+const DESTINATION_OPTIONS: Array<{ id: QrDestinationType; label: string; description: string; icon: React.ReactNode }> = [
+  { id: 'website', label: 'Website', description: 'Open your existing website or a specific page', icon: <Globe className="h-5 w-5" /> },
+  { id: 'pdf', label: 'PDF / document', description: 'Open a brochure, catalogue, rate card or PDF menu', icon: <FileText className="h-5 w-5" /> },
+  { id: 'menu', label: 'Digital menu', description: 'Create an editable mobile menu experience', icon: <MenuIcon className="h-5 w-5" /> },
+  { id: 'enquiry', label: 'Enquiry form', description: 'Collect customer details directly in your CRM', icon: <Plus className="h-5 w-5" /> },
+  { id: 'custom', label: 'Custom landing page', description: 'Build your own mobile page with content and media', icon: <Layers3 className="h-5 w-5" /> },
+  { id: 'whatsapp', label: 'WhatsApp chat', description: 'Start a WhatsApp conversation with your team', icon: <MessageCircle className="h-5 w-5" /> },
+];
+
 function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (code: QrStudioCode) => void }) {
   const [name, setName] = useState('');
-  const [template, setTemplate] = useState<QrTemplateType>('lead-capture');
-  const [destination, setDestination] = useState<'page' | 'url'>('page');
+  const [destinationType, setDestinationType] = useState<QrDestinationType>('enquiry');
   const [url, setUrl] = useState('');
+  const [phone, setPhone] = useState('');
+  const [pdfAsset, setPdfAsset] = useState<{ url: string; id: string; name: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -152,33 +174,103 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
     return () => { document.body.style.overflow = previousOverflow; };
   }, []);
 
+  const uploadPdf = async (file?: File) => {
+    if (!file) return;
+    setUploading(true); setError(''); setPdfAsset(null); setUrl('');
+    try {
+      if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) throw new Error('Choose a PDF document.');
+      // Tenant Company Assets stores data URLs in Firestore; keep this below the document-size ceiling.
+      if (file.size > 650 * 1024) throw new Error('This PDF is larger than 650 KB. Use a hosted PDF URL instead.');
+      const dataUrl = await fileToDataUrl(file);
+      const asset = await uploadCompanyAsset({ name: file.name, category: 'OTHER', mimeType: 'application/pdf', dataUrl, size: file.size, altText: file.name });
+      setPdfAsset({ url: asset.url, id: asset.id, name: file.name });
+    } catch (reason: any) {
+      setError(reason?.message || 'Could not upload the PDF.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true); setError('');
     try {
-      const data = await api<{ code: QrStudioCode }>('/api/qr-studio', {
-        method: 'POST',
-        body: JSON.stringify({ name, template, destination: destination === 'url' ? { kind: 'url', url } : { kind: 'page' } }),
-      });
+      if (!name.trim()) throw new Error('Give this QR code an internal name.');
+      const isDirect = destinationType === 'website' || destinationType === 'pdf' || destinationType === 'whatsapp';
+      let destinationUrl = '';
+      let fileName = '';
+      let assetId = '';
+      if (destinationType === 'website') {
+        try {
+          const parsed = new URL(url.trim());
+          if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) throw new Error();
+          destinationUrl = parsed.toString();
+        } catch { throw new Error('Enter a valid website address starting with https:// or http://.'); }
+      }
+      if (destinationType === 'pdf') {
+        if (pdfAsset) {
+          destinationUrl = pdfAsset.url;
+          fileName = pdfAsset.name;
+          assetId = pdfAsset.id;
+        } else {
+          try {
+            const parsed = new URL(url.trim());
+            if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) throw new Error();
+            destinationUrl = parsed.toString();
+          } catch { throw new Error('Upload a PDF or enter a hosted PDF URL.'); }
+        }
+      }
+      if (destinationType === 'whatsapp') {
+        const digits = phone.replace(/\D/g, '');
+        if (digits.length < 8 || digits.length > 15) throw new Error('Enter a valid WhatsApp phone number including country code.');
+        destinationUrl = `https://wa.me/${digits}`;
+      }
+      const template: QrTemplateType = destinationType === 'menu' ? 'menu'
+        : destinationType === 'enquiry' ? 'lead-capture' : 'blank';
+      const destination = { kind: isDirect ? 'url' : 'page', type: destinationType, ...(destinationUrl ? { url: destinationUrl } : {}), ...(fileName ? { fileName } : {}), ...(assetId ? { assetId } : {}) };
+      const labels: Record<QrDestinationType, { headline: string; subheadline: string }> = {
+        website: { headline: 'Visit our website', subheadline: 'Scan to explore our website and services' },
+        pdf: { headline: 'View our document', subheadline: 'Scan to open the brochure or catalogue' },
+        menu: { headline: 'Explore our menu', subheadline: 'Scan to view items, prices and specials' },
+        enquiry: { headline: 'Let’s start a conversation', subheadline: 'Scan to send an enquiry to our team' },
+        custom: { headline: 'Explore our experience', subheadline: 'Scan to discover more' },
+        whatsapp: { headline: 'Chat with our team', subheadline: 'Scan to start a WhatsApp conversation' },
+      };
+      const printDesign = { ...createQrPrintDesign(name.trim()), ...labels[destinationType], footerText: name.trim() };
+      const data = await api<{ code: QrStudioCode }>('/api/qr-studio', { method: 'POST', body: JSON.stringify({ name, template, destination, printDesign }) });
       onCreated(data.code);
-    } catch (reason: any) { setError(reason?.message || 'Could not create QR code.'); }
-    finally { setBusy(false); }
+    } catch (reason: any) {
+      setError(reason?.message || 'Could not create the QR code.');
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const selected = DESTINATION_OPTIONS.find((option) => option.id === destinationType)!;
   return <div className="fixed inset-0 z-[1010] flex items-start justify-center overflow-y-auto bg-slate-950/55 p-3 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur-sm sm:items-center sm:p-5" role="dialog" aria-modal="true">
-    <form onSubmit={submit} className="my-auto flex max-h-[calc(100dvh-24px-env(safe-area-inset-top))] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-      <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6 sm:py-5"><div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-blue-600">QR Studio</p><h2 className="mt-1 text-xl font-bold text-slate-900">Create a QR experience</h2></div><button type="button" onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-5 sm:p-6">
-        <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-700">Internal QR name</span><input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Mumbai store — welcome counter" className="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" /></label>
-        <div><span className="mb-2 block text-xs font-semibold text-slate-700">Choose a starting template</span><div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {TEMPLATES.map((item) => <button type="button" key={item.id} onClick={() => setTemplate(item.id)} className={`flex items-start gap-3 rounded-xl border p-3 text-left transition ${template === item.id ? 'border-blue-500 bg-blue-50/70 ring-2 ring-blue-500/10' : 'border-slate-200 hover:border-slate-300'}`}><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${template === item.id ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>{item.icon}</span><span><span className="block text-xs font-bold text-slate-900">{item.name}</span><span className="mt-1 block text-[10px] text-slate-500">{item.description}</span></span></button>)}
-        </div></div>
-        <div><span className="mb-2 block text-xs font-semibold text-slate-700">What should happen after scanning?</span><div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <button type="button" onClick={() => setDestination('page')} className={`rounded-xl border p-3 text-left ${destination === 'page' ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}><span className="flex items-center gap-2 text-xs font-bold text-slate-900"><Layers3 className="h-4 w-4 text-blue-600" />Custom experience</span><span className="mt-1 block text-[10px] text-slate-500">Build a mobile page in QR Studio</span></button>
-          <button type="button" onClick={() => setDestination('url')} className={`rounded-xl border p-3 text-left ${destination === 'url' ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}><span className="flex items-center gap-2 text-xs font-bold text-slate-900"><ExternalLink className="h-4 w-4 text-blue-600" />Open a website</span><span className="mt-1 block text-[10px] text-slate-500">Redirect to an external destination</span></button>
-        </div>{destination === 'url' && <input required type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com" className="mt-3 w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-blue-500" />}</div>
+    <form onSubmit={submit} className="my-auto flex max-h-[calc(100dvh-24px-env(safe-area-inset-top))] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-7 sm:py-5"><div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-blue-600">QR Studio</p><h2 className="mt-1 text-xl font-bold text-slate-900">Create a QR code</h2><p className="mt-1 text-xs text-slate-500">First choose what people should see after scanning.</p></div><button type="button" onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-5 sm:p-7">
+        <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-700">Internal QR name</span><input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Hotel lobby — guest services" className="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" /></label>
+        <div><div className="mb-3"><p className="text-xs font-bold text-slate-800">What should happen after scanning?</p><p className="mt-1 text-[10px] text-slate-500">You can edit the destination and print design separately later.</p></div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {DESTINATION_OPTIONS.map((option) => <button type="button" key={option.id} onClick={() => { setDestinationType(option.id); setError(''); }} aria-pressed={destinationType === option.id} className={`flex min-h-[88px] items-start gap-3 rounded-xl border p-3 text-left transition ${destinationType === option.id ? 'border-blue-500 bg-blue-50/70 ring-2 ring-blue-500/10' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}>
+              <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${destinationType === option.id ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>{option.icon}</span>
+              <span className="min-w-0"><span className="block text-xs font-bold text-slate-900">{option.label}</span><span className="mt-1 block text-[10px] leading-4 text-slate-500">{option.description}</span></span>
+            </button>)}
+          </div>
+        </div>
+        {destinationType === 'website' && <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-700">Website URL</span><input required type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://yourwebsite.com" className="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-blue-500" /></label>}
+        {destinationType === 'pdf' && <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-bold text-slate-800">Choose a PDF document</p><p className="mt-1 text-[10px] leading-4 text-slate-500">Upload a small PDF to your workspace or use a hosted PDF URL for larger files.</p>
+          <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-3 py-4 text-xs font-semibold text-slate-600 hover:border-blue-400"><Upload className="h-4 w-4" />{uploading ? 'Uploading PDF…' : pdfAsset ? 'Replace PDF' : 'Upload PDF (650 KB max)'}<input type="file" accept="application/pdf,.pdf" className="hidden" disabled={uploading} onChange={(event) => { void uploadPdf(event.target.files?.[0]); event.currentTarget.value = ''; }} /></label>
+          {pdfAsset && <p className="mt-2 flex items-center gap-2 text-[10px] font-semibold text-emerald-700"><Check className="h-3.5 w-3.5" />{pdfAsset.name} uploaded</p>}
+          <label className="mt-3 block"><span className="mb-1.5 block text-[10px] font-semibold text-slate-600">Or use a hosted PDF URL</span><input type="url" value={url} onChange={(event) => { setUrl(event.target.value); if (event.target.value) setPdfAsset(null); }} placeholder="https://your-site.com/menu.pdf" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs outline-none focus:border-blue-500" /></label>
+        </div>}
+        {destinationType === 'whatsapp' && <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-700">WhatsApp number (include country code)</span><input required value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="e.g. +91 98765 43210" className="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-blue-500" /></label>}
+        {(destinationType === 'menu' || destinationType === 'enquiry' || destinationType === 'custom') && <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3"><div className="flex items-center gap-2 text-xs font-bold text-blue-900">{selected.icon}{destinationType === 'menu' ? 'An editable digital menu will be created.' : destinationType === 'enquiry' ? 'A lead form connected to your CRM will be created.' : 'A blank mobile landing page will be created.'}</div><p className="mt-1 text-[10px] leading-4 text-blue-800">After creating the QR code, you can open “Edit scan experience” to customise its content.</p></div>}
         {error && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>}
       </div>
-      <div className="flex shrink-0 flex-col-reverse items-stretch gap-3 border-t border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6"><p className="text-[10px] text-slate-500">You can change the page, destination and design later.</p><button disabled={busy} type="submit" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#155eef] px-5 py-3 text-xs font-bold text-white shadow-lg shadow-blue-600/20 disabled:opacity-50 sm:w-auto">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create QR code</button></div>
+      <div className="flex shrink-0 flex-col-reverse items-stretch gap-3 border-t border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7"><p className="text-[10px] text-slate-500">Next: design the actual QR poster, table display or print artwork.</p><button disabled={busy || uploading} type="submit" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#155eef] px-5 py-3 text-xs font-bold text-white shadow-lg shadow-blue-600/20 disabled:opacity-50 sm:w-auto">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}Create QR code</button></div>
     </form>
   </div>;
 }
@@ -189,7 +281,8 @@ function FieldInput({ label, value, onChange, placeholder, type = 'text' }: { la
 
 function QrBuilder({ initial, onClose, onSaved }: { initial: QrStudioCode; onClose: () => void; onSaved: (code: QrStudioCode) => void }) {
   const [working, setWorking] = useState<QrStudioCode>(initial);
-  const [pane, setPane] = useState<'content' | 'design' | 'qr' | 'publish'>('content');
+  const [editorMode, setEditorMode] = useState<'print' | 'experience'>('print');
+  const [pane, setPane] = useState<'content' | 'design' | 'publish'>('content');
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [selectedId, setSelectedId] = useState(working.pageData.blocks[0]?.id || '');
   const [themes, setThemes] = useState<QrSavedTheme[]>([]);
@@ -286,6 +379,7 @@ function QrBuilder({ initial, onClose, onSaved }: { initial: QrStudioCode; onClo
           pageData: working.pageData,
           destination: working.destination,
           qrStyle: working.qrStyle,
+          printDesign: working.printDesign || createQrPrintDesign(working.name),
           schedule: working.schedule || {},
         }),
       });
@@ -345,10 +439,24 @@ function QrBuilder({ initial, onClose, onSaved }: { initial: QrStudioCode; onClo
   const scheduleValue = (value?: string) => value ? new Date(value).toISOString().slice(0, 16) : '';
 
   return <div className="fixed inset-0 z-[1000] flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[#f5f7fb]" role="dialog" aria-modal="true" aria-label="QR experience builder">
-    <header className="flex min-h-[66px] shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 sm:px-6">
-      <div className="flex min-w-0 items-center gap-3"><button onClick={onClose} className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /></button><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{working.name}</p><p className="text-[10px] text-slate-400">Experience builder · {working.status}</p></div></div>
-      <div className="flex items-center gap-2"><button onClick={() => void save()} disabled={saving} className="hidden items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 sm:inline-flex">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save draft</button><button onClick={() => setMobileSettingsOpen((open) => !open)} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 xl:hidden"><Settings2 className="h-4 w-4" />Settings</button><button onClick={() => void publish()} disabled={publishing || saving} className="inline-flex items-center gap-2 rounded-xl bg-[#155eef] px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-600/20">{publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Publish</button></div>
+    <header className="flex min-h-[66px] shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 sm:px-6">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3"><button onClick={onClose} aria-label="Close QR designer" className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /></button><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{working.name}</p><p className="text-[10px] text-slate-400">{editorMode === 'print' ? 'Print designer' : 'Scan experience editor'} · {working.status}</p></div></div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {editorMode === 'print' && working.destination.kind === 'page' && <button onClick={() => { setEditorMode('experience'); setPane('content'); setMobileSettingsOpen(true); }} className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-2.5 py-2 text-[10px] font-bold text-blue-700 hover:bg-blue-100 sm:px-3 sm:text-xs"><ArrowDown className="h-3.5 w-3.5" /><span className="hidden sm:inline">Edit scan experience</span><span className="sm:hidden">Edit page</span></button>}
+        {editorMode === 'experience' && <button onClick={() => { setEditorMode('print'); setMobileSettingsOpen(false); }} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-2.5 py-2 text-[10px] font-bold text-slate-600 hover:bg-slate-50 sm:px-3 sm:text-xs"><ArrowLeft className="h-3.5 w-3.5" /><span className="hidden sm:inline">Back to print design</span><span className="sm:hidden">Print design</span></button>}
+        {working.status === 'active' && <button onClick={() => window.open(qrUrl(working.code), '_blank', 'noopener,noreferrer')} className="hidden items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 lg:inline-flex"><Eye className="h-3.5 w-3.5" />Test scan</button>}
+        <button onClick={() => void save()} disabled={saving} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 sm:px-3">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}<span className="hidden sm:inline">Save draft</span></button>
+        <button onClick={() => setMobileSettingsOpen((open) => !open)} className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-600 xl:hidden"><Settings2 className="h-4 w-4" /><span className="hidden sm:inline">Settings</span></button>
+        <button onClick={() => void publish()} disabled={publishing || saving} className="inline-flex items-center gap-1.5 rounded-xl bg-[#155eef] px-3 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-600/20 sm:px-4">{publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}<span className="hidden sm:inline">Publish</span></button>
+      </div>
     </header>
+    {editorMode === 'print' ? (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {error && <p role="alert" className="mx-3 mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] text-rose-700 sm:mx-6">{error}</p>}
+        {message && <p role="status" className="mx-3 mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] text-emerald-700 sm:mx-6">{message}</p>}
+        <QrPrintDesigner code={working} onChange={(patch) => setWorking((old) => ({ ...old, ...patch }))} mobileSettingsOpen={mobileSettingsOpen} onCloseMobileSettings={() => setMobileSettingsOpen(false)} onMessage={setMessage} onError={setError} onEditExperience={() => { setEditorMode('experience'); setPane('content'); setMobileSettingsOpen(true); }} />
+      </div>
+    ) : (
     <div className="flex min-h-0 flex-1 overflow-hidden">
       <aside className="hidden w-[230px] shrink-0 flex-col border-r border-slate-200 bg-white 2xl:flex">
         <div className="border-b border-slate-100 p-4"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-400">Page content</p><p className="mt-1 text-xs text-slate-500">Select a section or add a new one.</p></div>
@@ -366,7 +474,7 @@ function QrBuilder({ initial, onClose, onSaved }: { initial: QrStudioCode; onClo
 
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-6">
         <div className="mx-auto flex w-full min-w-0 max-w-[980px] flex-col items-center gap-4">
-          <div className="flex w-full flex-wrap items-center justify-between gap-2"><div><p className="text-[10px] font-bold uppercase tracking-[.15em] text-slate-400">Live mobile preview</p><p className="mt-1 text-xs text-slate-500">Changes appear as you edit. Test with a real phone after publishing.</p></div><div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1"><button onClick={() => setPane('content')} className={`rounded-lg px-3 py-2 text-[10px] font-bold ${pane === 'content' ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>Content</button><button onClick={() => setPane('design')} className={`rounded-lg px-3 py-2 text-[10px] font-bold ${pane === 'design' ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>Design</button><button onClick={() => setPane('qr')} className={`rounded-lg px-3 py-2 text-[10px] font-bold ${pane === 'qr' ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>QR design</button><button onClick={() => setPane('publish')} className={`rounded-lg px-3 py-2 text-[10px] font-bold ${pane === 'publish' ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>Publish</button></div></div>
+          <div className="flex w-full flex-wrap items-center justify-between gap-2"><div><p className="text-[10px] font-bold uppercase tracking-[.15em] text-slate-400">Live mobile preview</p><p className="mt-1 text-xs text-slate-500">Changes appear as you edit. Test with a real phone after publishing.</p></div><div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1"><button onClick={() => setPane('content')} className={`rounded-lg px-3 py-2 text-[10px] font-bold ${pane === 'content' ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>Content</button><button onClick={() => setPane('design')} className={`rounded-lg px-3 py-2 text-[10px] font-bold ${pane === 'design' ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>Design</button><button onClick={() => setPane('publish')} className={`rounded-lg px-3 py-2 text-[10px] font-bold ${pane === 'publish' ? 'bg-blue-50 text-blue-700' : 'text-slate-500'}`}>Publish</button></div></div>
           <div className="w-full max-w-[420px] overflow-hidden rounded-[34px] border-[8px] border-slate-900 bg-white shadow-[0_28px_80px_rgba(15,23,42,.16)]">
             <div className="mx-auto mt-1 h-1.5 w-20 rounded-full bg-slate-900" />
             <div className="max-h-[min(70vh,760px)] overflow-y-auto">
@@ -379,7 +487,7 @@ function QrBuilder({ initial, onClose, onSaved }: { initial: QrStudioCode; onClo
 
       {mobileSettingsOpen && <button type="button" aria-label="Close settings panel" onClick={() => setMobileSettingsOpen(false)} className="fixed inset-0 z-[1001] bg-slate-950/30 xl:hidden" />}
       <aside className={`hidden w-[330px] shrink-0 flex-col border-l border-slate-200 bg-white xl:flex ${mobileSettingsOpen ? 'qr-mobile-settings-open' : ''}`}>
-        <div className="border-b border-slate-100 px-4 py-4"><div className="flex items-center justify-between"><p className="text-xs font-bold text-slate-900">{pane === 'content' ? 'Section settings' : pane === 'design' ? 'Page design' : pane === 'qr' ? 'QR code style' : 'Publishing'}</p><button onClick={() => setMobileSettingsOpen(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 xl:hidden"><X className="h-4 w-4" /></button></div><p className="mt-1 text-[10px] text-slate-400">Customize the selected experience.</p></div>
+        <div className="border-b border-slate-100 px-4 py-4"><div className="flex items-center justify-between"><p className="text-xs font-bold text-slate-900">{pane === 'content' ? 'Section settings' : pane === 'design' ? 'Page design' : pane === 'publish' ? 'Destination & publishing' : 'Publishing'}</p><button onClick={() => setMobileSettingsOpen(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 xl:hidden"><X className="h-4 w-4" /></button></div><p className="mt-1 text-[10px] text-slate-400">Customize the selected experience.</p></div>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"><div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50 p-3 xl:hidden">
             <div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Page sections</p><div className="mt-2 flex flex-wrap gap-1.5">
               {page.blocks.map((block) => <button key={block.id} onClick={() => { setSelectedId(block.id); setPane('content'); }} className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold ${selectedId === block.id ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600'}`}>{block.title || block.label || block.type}</button>)}
@@ -463,19 +571,11 @@ function QrBuilder({ initial, onClose, onSaved }: { initial: QrStudioCode; onClo
             <label className="block"><span className="mb-1.5 block text-[11px] font-semibold text-slate-700">Content width · {page.theme.contentWidth}px</span><input type="range" min="320" max="1100" step="20" value={page.theme.contentWidth} onChange={(event) => updateTheme({ contentWidth: Number(event.target.value) })} className="w-full accent-blue-600" /></label>
             <label className="block"><span className="mb-1.5 block text-[11px] font-semibold text-slate-700">Card roundness · {page.theme.cardRadius}px</span><input type="range" min="0" max="40" value={page.theme.cardRadius} onChange={(event) => updateTheme({ cardRadius: Number(event.target.value) })} className="w-full accent-blue-600" /></label>
           </>}
-          {pane === 'qr' && <>
-            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-center"><div className="mx-auto w-40 rounded-xl border border-slate-200 bg-white p-2"><QrImage code={working} className="w-full" /></div><p className="mt-3 text-[10px] text-slate-500">Keep strong contrast and the clear quiet-zone border to protect scan reliability.</p></div>
-            <label className="block"><span className="mb-1.5 block text-[11px] font-semibold text-slate-700">Module shape</span><select value={working.qrStyle.shape} onChange={(event) => setWorking((old) => ({ ...old, qrStyle: { ...old.qrStyle, shape: event.target.value as any } }))} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-xs"><option value="square">Square</option><option value="rounded">Rounded</option><option value="dots">Dots</option></select></label>
-            <FieldInput label="QR foreground colour" value={working.qrStyle.foregroundColor} onChange={(foregroundColor) => setWorking((old) => ({ ...old, qrStyle: { ...old.qrStyle, foregroundColor } }))} />
-            <FieldInput label="QR background colour" value={working.qrStyle.backgroundColor} onChange={(backgroundColor) => setWorking((old) => ({ ...old, qrStyle: { ...old.qrStyle, backgroundColor } }))} />
-            <FieldInput label="Centre logo URL (optional)" value={working.qrStyle.logoUrl || ''} onChange={(logoUrl) => setWorking((old) => ({ ...old, qrStyle: { ...old.qrStyle, logoUrl } }))} placeholder="/api/assets/…" /><label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-slate-300 px-3 py-3 text-[10px] font-semibold text-slate-600 hover:border-blue-400"><Upload className="h-4 w-4" />Upload logo<input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file, 'image', (logoUrl) => setWorking((old) => ({ ...old, qrStyle: { ...old.qrStyle, logoUrl } }))); event.currentTarget.value = ''; }} /></label>
-            <FieldInput label="Frame call-to-action" value={working.qrStyle.frameText || ''} onChange={(frameText) => setWorking((old) => ({ ...old, qrStyle: { ...old.qrStyle, frameText } }))} placeholder="SCAN TO EXPLORE" />
-            <div className="grid grid-cols-3 gap-2"><button onClick={() => void downloadQr(working, 'png')} className="rounded-lg border border-slate-200 px-2 py-2 text-[10px] font-bold text-slate-600"><Download className="mx-auto mb-1 h-4 w-4" />PNG</button><button onClick={() => void downloadQr(working, 'svg')} className="rounded-lg border border-slate-200 px-2 py-2 text-[10px] font-bold text-slate-600"><FileImage className="mx-auto mb-1 h-4 w-4" />SVG</button><button onClick={() => void downloadQr(working, 'pdf')} className="rounded-lg border border-slate-200 px-2 py-2 text-[10px] font-bold text-slate-600"><FileText className="mx-auto mb-1 h-4 w-4" />PDF</button></div>
-          </>}
+
           {pane === 'publish' && <>
             <div className="rounded-xl bg-blue-50 p-3"><p className="text-xs font-bold text-blue-900">Dynamic destination</p><p className="mt-1 break-all text-[10px] text-blue-700">{qrUrl(working.code)}</p><button onClick={() => navigator.clipboard?.writeText(qrUrl(working.code)).then(() => setMessage('Link copied.')).catch(() => {})} className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold text-blue-700"><Copy className="h-3 w-3" />Copy scan link</button></div>
-            <label className="block"><span className="mb-1.5 block text-[11px] font-semibold text-slate-700">Destination behaviour</span><select value={working.destination.kind} onChange={(event) => setWorking((old) => ({ ...old, destination: event.target.value === 'url' ? { kind: 'url', url: old.destination.url || '' } : { kind: 'page' } }))} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-xs"><option value="page">Open the QR Studio experience</option><option value="url">Redirect to an external URL</option></select></label>
-            {working.destination.kind === 'url' && <FieldInput label="External URL" value={working.destination.url || ''} onChange={(url) => setWorking((old) => ({ ...old, destination: { kind: 'url', url } }))} />}
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Scan destination</p><p className="mt-1 text-xs font-bold text-slate-800">{working.destination.type === 'pdf' ? 'PDF / document' : working.destination.type === 'menu' ? 'Digital menu' : working.destination.type === 'enquiry' ? 'Enquiry form' : working.destination.type === 'custom' ? 'Custom landing page' : working.destination.type === 'whatsapp' ? 'WhatsApp chat' : working.destination.kind === 'url' ? 'Website' : 'QR experience'}</p><p className="mt-1 text-[10px] text-slate-500">{working.destination.kind === 'url' ? 'Visitors are sent directly to this destination.' : 'Visitors see the mobile experience you build in the page editor.'}</p></div>
+            {working.destination.kind === 'url' && <FieldInput label={working.destination.type === 'pdf' ? 'PDF URL' : 'Destination URL'} value={working.destination.url || ''} onChange={(url) => setWorking((old) => ({ ...old, destination: { ...old.destination, kind: 'url', url } }))} placeholder="https://… or /api/assets/…" />}
             <div className="border-t border-slate-100 pt-4"><p className="mb-2 text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Schedule availability</p><FieldInput label="Start at" type="datetime-local" value={scheduleValue(working.schedule?.startsAt)} onChange={(value) => setWorking((old) => ({ ...old, schedule: { ...old.schedule, startsAt: value ? new Date(value).toISOString() : undefined } }))} /><div className="mt-3"><FieldInput label="End at" type="datetime-local" value={scheduleValue(working.schedule?.endsAt)} onChange={(value) => setWorking((old) => ({ ...old, schedule: { ...old.schedule, endsAt: value ? new Date(value).toISOString() : undefined } }))} /></div><p className="mt-2 text-[9px] text-slate-400">A scheduled page is only available during its configured window.</p></div>
             <div className="border-t border-slate-100 pt-4"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Published versions</p>{versions.length === 0 ? <p className="mt-2 text-[10px] text-slate-400">Versions are created every time you publish.</p> : versions.slice(0, 8).map((version) => <div key={version.id} className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-slate-100 p-2"><span className="text-[10px] text-slate-600">Version {version.version} · {new Date(version.createdAt).toLocaleString()}</span><button onClick={() => void restoreVersion(version.id)} className="text-[10px] font-bold text-blue-600">Restore</button></div>)}</div>
           </>}
@@ -486,6 +586,7 @@ function QrBuilder({ initial, onClose, onSaved }: { initial: QrStudioCode; onClo
         <div className="border-t border-slate-100 p-3"><button disabled={saving} onClick={() => void save()} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-xs font-bold text-white">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Save draft</button></div>
       </aside>
     </div>
+    )}
   </div>;
 }
 
@@ -581,14 +682,14 @@ export const QRStudio: React.FC<Props> = ({ tenantId }) => {
       </div>
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 className="text-sm font-bold">Recently created</h2><p className="mt-1 text-[10px] text-slate-400">Your latest dynamic QR destinations</p></div><button onClick={() => setTab('codes')} className="text-[11px] font-bold text-blue-700">View all <ChevronRight className="inline h-3.5 w-3.5" /></button></div>
-        {loading ? <div className="p-10 text-center text-xs text-slate-400"><Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />Loading QR codes…</div> : codes.length === 0 ? <div className="px-5 py-12 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><QrCode className="h-7 w-7" /></div><h3 className="mt-4 text-sm font-bold">Your first QR experience starts here</h3><p className="mx-auto mt-2 max-w-sm text-xs leading-5 text-slate-500">Create a menu, offer, profile or lead form. You can change its destination even after you print the QR code.</p><button onClick={() => setCreateOpen(true)} className="mt-4 rounded-xl bg-[#155eef] px-4 py-2.5 text-xs font-bold text-white">Create your first QR code</button></div> : <div className="divide-y divide-slate-100">{codes.slice(0, 5).map((code) => <div key={code.id} className="flex items-center gap-3 px-4 py-3.5 sm:px-5"><div className="w-14 shrink-0 rounded-lg border border-slate-200 p-1"><QrImage code={code} className="w-full" /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="truncate text-xs font-bold text-slate-900">{code.name}</p><StatusPill status={code.status} /></div><p className="mt-1 text-[10px] text-slate-400">{TEMPLATES.find((item) => item.id === code.template)?.name || 'Custom'} · {code.destination.kind === 'url' ? 'External link' : 'QR experience'}</p></div><div className="hidden text-right sm:block"><p className="text-xs font-bold text-slate-800">{Number(code.pageViewCount || 0).toLocaleString()}</p><p className="text-[9px] text-slate-400">page visits</p></div><button onClick={() => setEditing(code)} className="rounded-lg border border-slate-200 px-3 py-2 text-[10px] font-bold text-slate-600 hover:border-blue-300 hover:text-blue-700">Edit</button></div>)}</div>}
+        {loading ? <div className="p-10 text-center text-xs text-slate-400"><Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />Loading QR codes…</div> : codes.length === 0 ? <div className="px-5 py-12 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><QrCode className="h-7 w-7" /></div><h3 className="mt-4 text-sm font-bold">Your first QR experience starts here</h3><p className="mx-auto mt-2 max-w-sm text-xs leading-5 text-slate-500">Create a menu, offer, profile or lead form. You can change its destination even after you print the QR code.</p><button onClick={() => setCreateOpen(true)} className="mt-4 rounded-xl bg-[#155eef] px-4 py-2.5 text-xs font-bold text-white">Create your first QR code</button></div> : <div className="divide-y divide-slate-100">{codes.slice(0, 5).map((code) => <div key={code.id} className="flex items-center gap-3 px-4 py-3.5 sm:px-5"><div className="w-14 shrink-0 rounded-lg border border-slate-200 p-1"><QrImage code={code} className="w-full" /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="truncate text-xs font-bold text-slate-900">{code.name}</p><StatusPill status={code.status} /></div><p className="mt-1 text-[10px] text-slate-400">{qrDestinationLabel(code)}</p></div><div className="hidden text-right sm:block"><p className="text-xs font-bold text-slate-800">{Number(code.pageViewCount || 0).toLocaleString()}</p><p className="text-[9px] text-slate-400">page visits</p></div><button onClick={() => setEditing(code)} className="rounded-lg border border-slate-200 px-3 py-2 text-[10px] font-bold text-slate-600 hover:border-blue-300 hover:text-blue-700">Edit</button></div>)}</div>}
       </section>
       <div className="grid gap-3 lg:grid-cols-2"><div className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex items-center gap-2 text-slate-900"><Sparkles className="h-4 w-4 text-blue-600" /><h3 className="text-xs font-bold">Build beyond the QR code</h3></div><p className="mt-2 text-xs leading-5 text-slate-500">Create a complete mobile-first page with images, video, galleries, animations, menus, product cards and conditional lead forms.</p></div><div className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex items-center gap-2 text-slate-900"><Zap className="h-4 w-4 text-blue-600" /><h3 className="text-xs font-bold">Connect scans to sales</h3></div><p className="mt-2 text-xs leading-5 text-slate-500">QR enquiry forms create or update contacts and leads in your CRM with the originating QR code recorded for attribution.</p></div></div>
     </>}
 
     {tab === 'codes' && <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4"><div><h2 className="text-sm font-bold">My QR codes</h2><p className="mt-1 text-[10px] text-slate-400">{filtered.length} QR code{filtered.length === 1 ? '' : 's'}</p></div><div className="flex flex-wrap items-center gap-2"><label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2"><Search className="h-3.5 w-3.5 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search QR codes" className="w-36 text-xs outline-none" /></label><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as any)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs"><option value="all">All statuses</option><option value="active">Active</option><option value="draft">Draft</option><option value="paused">Paused</option><option value="archived">Archived</option></select></div></div>
-      {loading ? <div className="p-10 text-center text-xs text-slate-400"><Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />Loading…</div> : filtered.length === 0 ? <div className="p-12 text-center text-xs text-slate-500">No matching QR codes. Create a new one to get started.</div> : <div className="divide-y divide-slate-100">{filtered.map((code) => <div key={code.id} className="grid grid-cols-[56px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3.5 sm:grid-cols-[64px_minmax(0,1fr)_120px_100px_auto] sm:px-5"><div className="rounded-lg border border-slate-200 p-1"><QrImage code={code} className="w-full" /></div><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="truncate text-xs font-bold text-slate-900">{code.name}</p><StatusPill status={code.status} /></div><p className="mt-1 truncate text-[10px] text-slate-400">{qrUrl(code.code)}</p><p className="mt-1 text-[9px] text-slate-400">{code.template} · Updated {new Date(code.updatedAt).toLocaleDateString()}</p></div><div className="hidden text-right sm:block"><p className="text-xs font-bold">{Number(code.scanCount || 0).toLocaleString()}</p><p className="text-[9px] text-slate-400">link requests</p></div><div className="hidden text-right sm:block"><p className="text-xs font-bold">{Number(code.leadCount || 0).toLocaleString()}</p><p className="text-[9px] text-slate-400">leads</p></div><div className="flex items-center justify-end gap-1"><button title="Edit experience" onClick={() => setEditing(code)} className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-700"><Settings2 className="h-4 w-4" /></button><button title="Copy scan link" onClick={() => void copyLink(code)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><Link2 className="h-4 w-4" /></button><button title="Download PNG" onClick={() => void downloadQr(code, 'png').catch((e) => notify(e.message))} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><Download className="h-4 w-4" /></button><div className="group relative"><button title="More actions" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><MoreHorizontal className="h-4 w-4" /></button><div className="invisible absolute right-0 top-8 z-20 w-44 rounded-xl border border-slate-200 bg-white p-1 opacity-0 shadow-xl transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
+      {loading ? <div className="p-10 text-center text-xs text-slate-400"><Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />Loading…</div> : filtered.length === 0 ? <div className="p-12 text-center text-xs text-slate-500">No matching QR codes. Create a new one to get started.</div> : <div className="divide-y divide-slate-100">{filtered.map((code) => <div key={code.id} className="grid grid-cols-[56px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3.5 sm:grid-cols-[64px_minmax(0,1fr)_120px_100px_auto] sm:px-5"><div className="rounded-lg border border-slate-200 p-1"><QrImage code={code} className="w-full" /></div><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="truncate text-xs font-bold text-slate-900">{code.name}</p><StatusPill status={code.status} /></div><p className="mt-1 truncate text-[10px] text-slate-400">{qrUrl(code.code)}</p><p className="mt-1 text-[9px] text-slate-400">{qrDestinationLabel(code)} · Updated {new Date(code.updatedAt).toLocaleDateString()}</p></div><div className="hidden text-right sm:block"><p className="text-xs font-bold">{Number(code.scanCount || 0).toLocaleString()}</p><p className="text-[9px] text-slate-400">link requests</p></div><div className="hidden text-right sm:block"><p className="text-xs font-bold">{Number(code.leadCount || 0).toLocaleString()}</p><p className="text-[9px] text-slate-400">leads</p></div><div className="flex items-center justify-end gap-1"><button title="Edit experience" onClick={() => setEditing(code)} className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-700"><Settings2 className="h-4 w-4" /></button><button title="Copy scan link" onClick={() => void copyLink(code)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><Link2 className="h-4 w-4" /></button><button title="Download PNG" onClick={() => void downloadQr(code, 'png').catch((e) => notify(e.message))} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><Download className="h-4 w-4" /></button><div className="group relative"><button title="More actions" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><MoreHorizontal className="h-4 w-4" /></button><div className="invisible absolute right-0 top-8 z-20 w-44 rounded-xl border border-slate-200 bg-white p-1 opacity-0 shadow-xl transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
           {code.status === 'active' && <button onClick={() => void setStatus(code, 'paused')} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[10px] text-slate-600 hover:bg-slate-50"><CirclePause className="h-3.5 w-3.5" />Pause QR code</button>}
           {(code.status === 'paused' || code.status === 'draft') && <button onClick={() => void setStatus(code, 'active')} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[10px] text-slate-600 hover:bg-slate-50"><Play className="h-3.5 w-3.5" />Activate</button>}
           <button onClick={() => void duplicate(code)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[10px] text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" />Duplicate</button>
@@ -632,7 +733,7 @@ export const QRStudio: React.FC<Props> = ({ tenantId }) => {
       </div>
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 p-5"><h2 className="text-sm font-bold">Performance by QR code</h2><p className="mt-1 text-[10px] text-slate-400">All-time requests, page views, unique visitors, CTA interactions and CRM enquiries.</p></div>
-        <div className="overflow-x-auto"><table className="w-full min-w-[650px] text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">QR code</th><th className="px-3 py-3 text-right">Requests</th><th className="px-3 py-3 text-right">Visits</th><th className="px-3 py-3 text-right">Visitors</th><th className="px-3 py-3 text-right">Clicks</th><th className="px-5 py-3 text-right">Leads</th></tr></thead><tbody className="divide-y divide-slate-100">{codes.map((code) => <tr key={code.id}><td className="px-5 py-3"><p className="font-bold text-slate-800">{code.name}</p><p className="mt-1 text-[9px] text-slate-400">{code.template}</p></td><td className="px-3 py-3 text-right">{Number(code.scanCount || 0).toLocaleString()}</td><td className="px-3 py-3 text-right">{Number(code.pageViewCount || 0).toLocaleString()}</td><td className="px-3 py-3 text-right">{Number(code.uniqueVisitorCount || 0).toLocaleString()}</td><td className="px-3 py-3 text-right">{Number(code.ctaClickCount || 0).toLocaleString()}</td><td className="px-5 py-3 text-right font-bold">{Number(code.leadCount || 0).toLocaleString()}</td></tr>)}</tbody></table></div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[650px] text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">QR code</th><th className="px-3 py-3 text-right">Requests</th><th className="px-3 py-3 text-right">Visits</th><th className="px-3 py-3 text-right">Visitors</th><th className="px-3 py-3 text-right">Clicks</th><th className="px-5 py-3 text-right">Leads</th></tr></thead><tbody className="divide-y divide-slate-100">{codes.map((code) => <tr key={code.id}><td className="px-5 py-3"><p className="font-bold text-slate-800">{code.name}</p><p className="mt-1 text-[9px] text-slate-400">{qrDestinationLabel(code)}</p></td><td className="px-3 py-3 text-right">{Number(code.scanCount || 0).toLocaleString()}</td><td className="px-3 py-3 text-right">{Number(code.pageViewCount || 0).toLocaleString()}</td><td className="px-3 py-3 text-right">{Number(code.uniqueVisitorCount || 0).toLocaleString()}</td><td className="px-3 py-3 text-right">{Number(code.ctaClickCount || 0).toLocaleString()}</td><td className="px-5 py-3 text-right font-bold">{Number(code.leadCount || 0).toLocaleString()}</td></tr>)}</tbody></table></div>
         <p className="border-t border-slate-100 px-5 py-3 text-[9px] text-slate-400">Link requests can include scanner prefetches. Page visits are counted when the published experience loads. Device and referrer breakdowns use up to 2,000 recent event records for this period. Unique visitors are privacy-conscious estimates based on a first-party browser identifier.</p>
       </div>
     </div>}
