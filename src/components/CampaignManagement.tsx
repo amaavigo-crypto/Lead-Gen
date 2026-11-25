@@ -1711,6 +1711,8 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   };
 
   const selectedCampaignIsWhatsApp = selectedCampaign?.type === 'WHATSAPP';
+  const campaignLeadHasReply = (lead: CampaignLead) =>
+    lead.replyStatus === 'REPLIED' || lead.emailReplied === true || lead.whatsappReplied === true;
 
   const filteredLeads = useMemo(() => {
     // With Firebase, search runs over the whole campaign via the search index (searchResults);
@@ -1724,7 +1726,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
         const sendStatus = String(lead.whatsappSendStatus || '').toUpperCase();
         const deliveryStatus = String(lead.whatsappDeliveryStatus || '').toUpperCase();
         const hasDelivered = deliveryStatus === 'DELIVERED' || deliveryStatus === 'READ';
-        const hasReplied = lead.whatsappReplied === true;
+        const hasReplied = lead.whatsappReplied === true || lead.replyStatus === 'REPLIED';
         const deliveredAt = Date.parse(String(lead.whatsappDeliveredAt || ''));
         switch (leadStatusFilter) {
           case 'PENDING':
@@ -1760,7 +1762,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
         if (leadStatusFilter === 'PENDING' && lead.sendStatus !== 'PENDING') return false;
         if (leadStatusFilter === 'SENT' && lead.sendStatus !== 'SENT') return false;
         if (leadStatusFilter === 'FAILED' && lead.sendStatus !== 'FAILED') return false;
-        if (leadStatusFilter === 'REPLIED' && lead.replyStatus !== 'REPLIED') return false;
+        if (leadStatusFilter === 'REPLIED' && !campaignLeadHasReply(lead)) return false;
         if (leadStatusFilter === 'OPENED' && !lead.opened) return false;
         if (leadStatusFilter === 'CLICKED' && !lead.clicked) return false;
         if (leadStatusFilter === 'BOUNCED' && !lead.bounced) return false;
@@ -1825,6 +1827,9 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
       : null,
   };
   const selectedCampaignIsCombined = selectedCampaign?.type === 'WHATSAPP_EMAIL';
+  const selectedCampaignNeedsEmail = selectedCampaign?.type === 'EMAIL' || selectedCampaignIsCombined;
+  const selectedCampaignNeedsWhatsApp = selectedCampaignIsWhatsApp || selectedCampaignIsCombined;
+  const leadsTableColumnCount = 10 + Number(selectedCampaignNeedsEmail) + Number(selectedCampaignNeedsWhatsApp);
   const campaignLeadFilterOptions = selectedCampaignIsWhatsApp
     ? [
         { value: 'ALL' as const, label: 'ALL' },
@@ -2488,7 +2493,8 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                         <tr>
                           <th className="py-3 px-4">#</th>
                           <th className="py-3 px-4">Lead Name / Title</th>
-                          <th className="py-3 px-4">Email</th>
+                          {selectedCampaignNeedsEmail && <th className="py-3 px-4">Email</th>}
+                          {selectedCampaignNeedsWhatsApp && <th className="py-3 px-4">WhatsApp Number</th>}
                           <th className="py-3 px-4">Company</th>
                           <th className="py-3 px-4">Send Status</th>
                           <th className="py-3 px-4">Reply Status</th>
@@ -2502,12 +2508,13 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                       <tbody className="divide-y divide-slate-100">
                         {filteredLeads.length === 0 ? (
                           <tr>
-                            <td colSpan={11} className="py-10 text-center text-slate-400">
+                            <td colSpan={leadsTableColumnCount} className="py-10 text-center text-slate-400">
                               No leads matching the current filter
                             </td>
                           </tr>
                         ) : (
                           filteredLeads.map((lead, idx) => {
+                            const hasRepliedOnAnyChannel = campaignLeadHasReply(lead);
                             return (
                               <tr
                                 key={lead.campaignLeadId}
@@ -2520,9 +2527,12 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                                     <div className="text-[11px] text-slate-500">{lead.designation}</div>
                                   )}
                                 </td>
-                                <td className="py-3 px-4 text-slate-600 font-mono text-[11px]">
-                                  {lead.email}
-                                </td>
+                                {selectedCampaignNeedsEmail && (
+                                  <td className="py-3 px-4 text-slate-600 font-mono text-[11px]">{lead.email || '—'}</td>
+                                )}
+                                {selectedCampaignNeedsWhatsApp && (
+                                  <td className="py-3 px-4 text-slate-600 font-mono text-[11px]">{lead.phone || '—'}</td>
+                                )}
                                 <td className="py-3 px-4 text-slate-700 font-medium">
                                   <div className="flex items-center gap-1.5">
                                     <Building2 className="w-3.5 h-3.5 text-slate-400" />
@@ -2556,12 +2566,12 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                                     onClick={() => handleToggleReplyStatus(lead)}
                                     title="Click to toggle Lead Reply / Qualification status"
                                     className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider inline-flex items-center gap-1 transition border ${
-                                      lead.replyStatus === 'REPLIED'
+                                      hasRepliedOnAnyChannel
                                         ? 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
                                         : 'bg-slate-100 text-slate-500 border-slate-200 hover:text-slate-800 hover:border-slate-300'
                                     }`}
                                   >
-                                    {lead.replyStatus === 'REPLIED' ? (
+                                    {hasRepliedOnAnyChannel ? (
                                       <>
                                         <MessageSquare className="w-2.5 h-2.5 text-sky-600" />
                                         <span>REPLIED</span>
@@ -2573,7 +2583,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                                 </td>
                                 <td className="py-3 px-4">
                                   {(() => {
-                                    if (lead.replyStatus === 'REPLIED') {
+                                    if (hasRepliedOnAnyChannel) {
                                       return <span className="text-[11px] font-semibold text-sky-700">● Replied</span>;
                                     }
                                     if (lead.complained) return <span className="text-[11px] font-semibold text-rose-700" title="Recipient marked this email as spam">⚠ Spam complaint</span>;
@@ -3363,6 +3373,31 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
         const nextRun = (selectedCampaign.lastRunNumber || 0) + 1;
         const replacementTemplate = restartTemplateResolution.availableTemplates.find((template) => template.templateId === replacementTemplateId);
         const unsupportedReplacementVariables = replacementTemplate ? getUnsupportedEmailTemplateVariables(replacementTemplate) : [];
+        const followUpRecipientLabel = selectedCampaignIsWhatsApp
+          ? 'Will receive follow-up WhatsApp message'
+          : selectedCampaignIsCombined
+            ? 'Will receive follow-up email + WhatsApp message'
+            : 'Will receive follow-up email';
+        const excludedReplyNote = selectedCampaignIsWhatsApp
+          ? '0 WhatsApp messages sent to replied contacts'
+          : selectedCampaignIsCombined
+            ? '0 follow-up messages sent to replied contacts'
+            : '0 emails sent to replied contacts';
+        const zeroFollowUpHeadline = selectedCampaignIsWhatsApp
+          ? 'Zero Follow-up WhatsApp Messages Will Be Dispatched'
+          : selectedCampaignIsCombined
+            ? 'Zero Follow-up Messages Will Be Dispatched'
+            : 'Zero Follow-up Emails Will Be Dispatched';
+        const noFollowUpNotice = selectedCampaignIsWhatsApp
+          ? 'no one will receive a WhatsApp message'
+          : selectedCampaignIsCombined
+            ? 'no one will receive an email or WhatsApp message'
+            : 'no one will receive an email';
+        const allQualifiedButtonLabel = selectedCampaignIsWhatsApp
+          ? `Acknowledge & Record Run #${nextRun} (0 WhatsApp Messages)`
+          : selectedCampaignIsCombined
+            ? `Acknowledge & Record Run #${nextRun} (0 Messages)`
+            : `Acknowledge & Record Run #${nextRun} (0 Mails)`;
 
         return (
           <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
@@ -3445,13 +3480,13 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                   <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-xl text-xs space-y-2.5 text-slate-800">
                     <div className="flex items-center gap-2 text-amber-700 font-semibold">
                       <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>Zero Follow-up Emails Will Be Dispatched</span>
+                      <span>{zeroFollowUpHeadline}</span>
                     </div>
                     <p className="text-slate-700 text-[12px] leading-relaxed">
-                      Every single lead in this campaign (<strong>{campaignLeads.length} of {campaignLeads.length} leads</strong>) has already responded and engaged.
+                      Every single lead in this campaign (<strong>{campaignLeads.length} of {campaignLeads.length} leads</strong>) has already replied through at least one campaign channel.
                     </p>
                     <p className="text-amber-800 text-[11px] bg-amber-100/60 p-2.5 rounded-lg border border-amber-200 font-medium">
-                      ⚠️ <strong>Notice:</strong> If you restart the campaign now for Run #{nextRun}, <span className="underline decoration-amber-500">no one will receive an email</span> because all contacts have already converted and qualified.
+                      ⚠️ <strong>Notice:</strong> If you restart the campaign now for Run #{nextRun}, <span className="underline decoration-amber-500">{noFollowUpNotice}</span> because all contacts have already converted and qualified.
                     </p>
                   </div>
 
@@ -3496,7 +3531,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                           <span>Processing...</span>
                         </>
                       ) : (
-                        <span>Acknowledge & Record Run #{nextRun} (0 Mails)</span>
+                        <span>{allQualifiedButtonLabel}</span>
                       )}
                     </button>
                   </div>
@@ -3540,7 +3575,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                         {repliedLeads.length} <span className="text-xs font-normal text-slate-500">leads</span>
                       </div>
                       <p className="text-[10px] text-slate-500 mt-0.5">
-                        0 emails sent to replied contacts
+                        {excludedReplyNote}
                       </p>
                     </div>
                   </div>
@@ -3549,7 +3584,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                   <div className="space-y-1.5">
                     <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center justify-between">
                       <span>Recipients for Run #{nextRun} ({unrepliedLeads.length})</span>
-                      <span className="text-[10px] text-orange-600 font-medium">Will receive follow-up email</span>
+                      <span className="text-[10px] text-orange-600 font-medium">{followUpRecipientLabel}</span>
                     </p>
                     <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
                       {unrepliedLeads.map((lead) => {
@@ -3561,7 +3596,10 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                           >
                             <div>
                               <div className="font-semibold text-slate-900">{lead.name}</div>
-                              <div className="text-[11px] text-slate-500 font-mono">{lead.email}</div>
+                              <div className="space-y-0.5 text-[11px] text-slate-500 font-mono">
+                                {selectedCampaignNeedsEmail && <div>{lead.email || '—'}</div>}
+                                {selectedCampaignNeedsWhatsApp && <div>{lead.phone || '—'}</div>}
+                              </div>
                             </div>
                             <div className="text-right">
                               <span
@@ -3584,7 +3622,10 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                         >
                           <div>
                             <div className="font-medium text-slate-600">{lead.name}</div>
-                            <div className="text-[11px] text-slate-400 font-mono">{lead.email}</div>
+                            <div className="space-y-0.5 text-[11px] text-slate-400 font-mono">
+                            {selectedCampaignNeedsEmail && <div>{lead.email || '—'}</div>}
+                            {selectedCampaignNeedsWhatsApp && <div>{lead.phone || '—'}</div>}
+                          </div>
                           </div>
                           <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded text-[10px]">
                             Skipped (Replied)

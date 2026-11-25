@@ -81,6 +81,11 @@ import {
 function campaignNeedsEmail(campaign: Pick<Campaign, 'type'>): boolean { return campaign.type === 'EMAIL' || campaign.type === 'WHATSAPP_EMAIL'; }
 function campaignNeedsWhatsApp(campaign: Pick<Campaign, 'type'>): boolean { return campaign.type === 'WHATSAPP' || campaign.type === 'WHATSAPP_EMAIL'; }
 
+/** A lead is considered replied when any channel used by its campaign has received a reply. */
+export function hasCampaignLeadReplied(lead: Pick<CampaignLead, 'replyStatus' | 'emailReplied' | 'whatsappReplied'>): boolean {
+  return lead.replyStatus === 'REPLIED' || lead.emailReplied === true || lead.whatsappReplied === true;
+}
+
 const companyResearchCache = new Map<string, any>();
 
 /**
@@ -2590,8 +2595,8 @@ export async function restartCampaign(
   }
 
   const leads = await getCampaignLeadsFromDb(campaignId);
-  const repliedLeads = leads.filter((l) => l.replyStatus === 'REPLIED');
-  const unrepliedLeads = leads.filter((l) => l.replyStatus !== 'REPLIED');
+  const repliedLeads = leads.filter(hasCampaignLeadReplied);
+  const unrepliedLeads = leads.filter((l) => !hasCampaignLeadReplied(l));
 
   const allQualified = leads.length > 0 && repliedLeads.length === leads.length;
   let targetLeadsCount = 0;
@@ -2599,8 +2604,8 @@ export async function restartCampaign(
 
   if (allQualified) {
     // All leads have replied and qualified: 0 emails will be dispatched
-    message = `All ${leads.length} lead(s) in this campaign have replied & qualified. No one will receive an email in Run #${nextRunNumber}.`;
-    console.log(`[Campaign Engine] Restart requested for campaign ${campaignId}, but ALL leads have already replied. Disagreeing to send any duplicate emails.`);
+    message = `All ${leads.length} lead(s) in this campaign have replied on at least one channel. No follow-up messages will be sent in Run #${nextRunNumber}.`;
+    console.log(`[Campaign Engine] Restart requested for campaign ${campaignId}, but ALL leads have already replied on at least one channel. No follow-up messages will be sent.`);
 
     const newRun: CampaignRun = {
       runId: newRunId,
@@ -2721,7 +2726,7 @@ export async function restartCampaign(
 
   await recalculateAndPersistCampaignMetrics(campaignId);
 
-  message = `Run #${nextRunNumber} started. Sending follow-up to ${targetLeadsCount} unreplied lead(s). (${repliedLeads.length} lead(s) skipped because they already replied).`;
+  message = `Run #${nextRunNumber} started. Sending follow-up messages to ${targetLeadsCount} unreplied lead(s). (${repliedLeads.length} lead(s) skipped because they already replied on at least one channel).`;
   console.log(`[Campaign Engine] ${message}`);
 
   // Synchronously process initial batch for immediate dispatch on Vercel & dev server
@@ -2950,8 +2955,9 @@ export async function processNextCampaignSendBatch(
         break;
       }
 
-      if (lead.replyStatus === 'REPLIED') {
-        lead.sendStatus = 'SENT';
+      if (hasCampaignLeadReplied(lead)) {
+        // A reply on either channel suppresses every channel in this follow-up run.
+        await markLeadAlreadySent(lead);
         continue;
       }
 

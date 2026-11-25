@@ -46,6 +46,7 @@ import {
   pauseCampaign,
   restartCampaign,
   getCampaignRestartTemplateResolution,
+  hasCampaignLeadReplied,
   getAllTemplates,
   getTemplatesFromDbOrCache,
   getTemplateById,
@@ -5574,8 +5575,8 @@ ${signature || defSig}`;
     }
 
     const leads = await getCampaignLeadsFromDb(campaignId);
-    const repliedLeads = leads.filter((l) => l.replyStatus === 'REPLIED');
-    const unrepliedLeads = leads.filter((l) => l.replyStatus !== 'REPLIED');
+    const repliedLeads = leads.filter(hasCampaignLeadReplied);
+    const unrepliedLeads = leads.filter((l) => !hasCampaignLeadReplied(l));
     const allQualified = leads.length > 0 && repliedLeads.length === leads.length;
     const nextRunNumber = (camp.lastRunNumber || 0) + 1;
     const availableTemplates = templateResolution.missing ? templateResolution.availableTemplates.map((template) => ({
