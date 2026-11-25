@@ -178,6 +178,8 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   const [engagementLoadStatus, setEngagementLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [whatsappEngagement, setWhatsappEngagement] = useState<{
     totalRecipients: number; sent: number; delivered: number; seen: number; replied: number;
+    quickReplyClickers: number; quickReplyClicks: number;
+    urlClicks?: number; urlClickAnalyticsEnabled: boolean; urlClickAnalyticsAvailable: boolean;
     ignored: number; waiting: number; pending: number; failed: number; deliveryUnknown: number;
     ignoredAfterDays: number; deliveryRate: number; seenRate: number; replyRate: number;
   } | null>(null);
@@ -927,6 +929,11 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
             delivered: Number(data.delivered) || 0,
             seen: Number(data.seen) || 0,
             replied: Number(data.replied) || 0,
+            quickReplyClickers: Number(data.quickReplyClickers) || 0,
+            quickReplyClicks: Number(data.quickReplyClicks) || 0,
+            urlClicks: data.urlClickAnalyticsAvailable ? (Number(data.urlClicks) || 0) : undefined,
+            urlClickAnalyticsEnabled: data.urlClickAnalyticsEnabled === true,
+            urlClickAnalyticsAvailable: data.urlClickAnalyticsAvailable === true,
             ignored: Number(data.ignored) || 0,
             waiting: Number(data.waiting) || 0,
             pending: Number(data.pending) || 0,
@@ -2246,6 +2253,8 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                             { label: 'Sent', value: whatsappEngagement?.sent, color: 'text-blue-700', note: 'Accepted by Meta' },
                             { label: 'Delivered', value: whatsappEngagement?.delivered, color: 'text-emerald-700', note: (whatsappEngagement?.deliveryRate ?? 0) + '% of sent' },
                             { label: 'Seen', value: whatsappEngagement?.seen, color: 'text-violet-700', note: (whatsappEngagement?.seenRate ?? 0) + '% of delivered' },
+                            { label: 'Clicked links', value: whatsappEngagement?.urlClicks, color: 'text-fuchsia-700', note: whatsappEngagement?.urlClickAnalyticsAvailable ? 'Meta template total · last 7 days' : whatsappEngagement?.urlClickAnalyticsEnabled ? 'Meta click data unavailable' : 'Enable Meta click insights' },
+                            { label: 'Quick replies', value: whatsappEngagement?.quickReplyClickers, color: 'text-indigo-700', note: (whatsappEngagement?.quickReplyClicks ?? 0) + ' confirmed button taps' },
                             { label: 'Replied', value: whatsappEngagement?.replied, color: 'text-sky-700', note: (whatsappEngagement?.replyRate ?? 0) + '% of sent' },
                             { label: 'Waiting', value: whatsappEngagement?.waiting, color: 'text-amber-700', note: 'Within 5 days' },
                             { label: 'Ignored', value: whatsappEngagement?.ignored, color: 'text-slate-700', note: 'No reply after 5 days' },
@@ -2255,7 +2264,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                             <div key={item.label} className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
                               <p className="truncate text-[10px] font-medium text-slate-500">{item.label}</p>
                               <p className={"mt-1 text-[22px] font-bold leading-6 tabular-nums " + item.color}>
-                                {whatsappEngagement ? (item.value ?? 0).toLocaleString() : '—'}
+                                {whatsappEngagement ? (item.value === undefined ? '—' : item.value.toLocaleString()) : '—'}
                               </p>
                               <p className="mt-1 truncate text-[9px] leading-3 text-slate-400">{item.note}</p>
                             </div>
@@ -2279,6 +2288,8 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                           { label: 'Sent', value: whatsappEngagement ? whatsappEngagement.sent : (selectedCampaign.sentCount || 0), color: 'text-blue-700', note: 'Accepted by Meta' },
                           { label: 'Delivered', value: whatsappEngagement?.delivered, color: 'text-emerald-700', note: whatsappEngagement ? whatsappEngagement.deliveryRate.toFixed(1) + '% of sent' : 'Meta delivery receipts' },
                           { label: 'Seen', value: whatsappEngagement?.seen, color: 'text-violet-700', note: whatsappEngagement ? whatsappEngagement.seenRate.toFixed(1) + '% of delivered' : 'Read receipts' },
+                          { label: 'Clicked links', value: whatsappEngagement?.urlClicks, color: 'text-fuchsia-700', note: whatsappEngagement?.urlClickAnalyticsAvailable ? 'Meta template total · last 7 days' : whatsappEngagement?.urlClickAnalyticsEnabled ? 'Meta click data unavailable' : 'Enable Meta click insights' },
+                          { label: 'Quick replies', value: whatsappEngagement?.quickReplyClickers, color: 'text-indigo-700', note: (whatsappEngagement?.quickReplyClicks ?? 0) + ' confirmed button taps' },
                           { label: 'Replies', value: whatsappEngagement ? whatsappEngagement.replied : (selectedCampaign.repliedCount || 0), color: 'text-sky-700', note: whatsappEngagement ? whatsappEngagement.replyRate.toFixed(1) + '% of sent' : 'Inbound replies' },
                           { label: 'Pending', value: whatsappEngagement ? whatsappEngagement.pending : (selectedCampaign.pendingCount || 0), color: 'text-amber-700', note: 'Awaiting dispatch' },
                           { label: 'Failed', value: whatsappEngagement ? whatsappEngagement.failed : (selectedCampaign.failedCount || 0), color: 'text-rose-700', note: 'Dispatch or delivery failure' },
@@ -2342,7 +2353,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500">
                           <span>
                             {isWhatsAppCampaign
-                              ? <>Seen receipts depend on recipient read-receipt settings. Ignored means no reply within {whatsappEngagement?.ignoredAfterDays || 5} days.</>
+                              ? <>Seen receipts depend on recipient read-receipt settings. URL click counts are aggregated by Meta at template level and may include other campaigns using the same template. Quick-reply taps are attributed to individual campaign leads. Ignored means no reply within {whatsappEngagement?.ignoredAfterDays || 5} days.</>
                               : 'Open counts are estimates and can be affected by mail-client privacy protections or image blocking.'}
                           </span>
                           <span>

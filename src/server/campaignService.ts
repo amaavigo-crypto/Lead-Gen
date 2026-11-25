@@ -1244,6 +1244,139 @@ export async function getCampaignEngagementStats(campaignId: string) {
  */
 
 /**
+ * Record a customer button/quick-reply tap against the exact campaign message that contained it.
+ * Meta sends the original outbound WAMID in the webhook context.id. Events are idempotent and
+ * are held as UNMATCHED if Meta's click webhook beats persistence of the send response.
+ */
+type WhatsAppButtonClickInput = {
+  sourceMessageId: string;
+  inboundMessageId: string;
+  buttonText?: string;
+  buttonPayload?: string;
+  buttonType?: string;
+  clickedAt?: string;
+};
+
+async function applyWhatsAppButtonClickEvent(
+  ctx: TenantContext,
+  messageId: string,
+  eventRef: any,
+  eventRecord: Record<string, any>
+): Promise<boolean> {
+  const repo = tenantRepo(ctx);
+  const matches = await getDocs(query(repo.campaignLeads(), where('whatsappMessageId', '==', messageId), limit(10)));
+  if (!matches.size) {
+    await safeSetDoc(eventRef, {
+      ...eventRecord,
+      tenantId: repo.tenantId,
+      source: 'META_BUTTON_CLICK_WEBHOOK',
+      eventType: 'BUTTON_CLICK',
+      messageId,
+      status: 'UNMATCHED',
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+    return false;
+  }
+
+  let applied = false;
+  for (const match of matches.docs) {
+    const leadRef = repo.campaignLeadDoc(match.id);
+    const didApply = await runTransaction(async (tx: any) => {
+      const [eventSnap, leadSnap] = await Promise.all([tx.get(eventRef), tx.get(leadRef)]);
+      if (!leadSnap.exists) return false;
+      if (eventSnap.exists && String((eventSnap.data() as any)?.status || '') === 'PROCESSED') return false;
+      const lead = leadSnap.data() as any;
+      if (String(lead.whatsappMessageId || '') !== messageId) return false;
+
+      const eventAt = String(eventRecord.eventAt || new Date().toISOString());
+      const receivedAt = new Date().toISOString();
+      tx.update(leadRef, {
+        whatsappQuickReplyClicked: true,
+        whatsappQuickReplyClickCount: Math.max(0, Number(lead.whatsappQuickReplyClickCount || 0)) + 1,
+        whatsappQuickReplyClickedAt: lead.whatsappQuickReplyClickedAt || eventAt,
+        whatsappLastButtonClickedAt: eventAt,
+        whatsappLastButtonText: String(eventRecord.buttonText || '').slice(0, 120),
+        whatsappLastButtonPayload: String(eventRecord.buttonPayload || '').slice(0, 500),
+        updatedAt: receivedAt,
+      });
+      tx.set(eventRef, {
+        ...eventRecord,
+        tenantId: repo.tenantId,
+        source: 'META_BUTTON_CLICK_WEBHOOK',
+        eventType: 'BUTTON_CLICK',
+        campaignId: String(lead.campaignId || ''),
+        campaignLeadId: String(lead.campaignLeadId || match.id),
+        messageId,
+        status: 'PROCESSED',
+        processedAt: receivedAt,
+        updatedAt: receivedAt,
+      }, { merge: true });
+      return true;
+    });
+    applied = applied || didApply;
+  }
+  return applied;
+}
+
+export async function handleIncomingWhatsAppButtonClick(input: WhatsAppButtonClickInput): Promise<number> {
+  const sourceMessageId = String(input?.sourceMessageId || '').trim();
+  const inboundMessageId = String(input?.inboundMessageId || '').trim();
+  if (!sourceMessageId || !inboundMessageId || !isFirebaseConfigured || !db) return 0;
+
+  const ctx = getCampaignActiveCtx();
+  const eventKey = crypto.createHash('sha256')
+    .update([ctx.tenantId, sourceMessageId, inboundMessageId].join(':'))
+    .digest('hex');
+  const eventRef = tenantRepo(ctx).campaignEngagementEventDoc('wa_button_' + eventKey);
+  const eventRecord = {
+    tenantId: ctx.tenantId,
+    channel: 'WHATSAPP',
+    source: 'META_BUTTON_CLICK_WEBHOOK',
+    eventType: 'BUTTON_CLICK',
+    eventKey,
+    messageId: sourceMessageId,
+    inboundMessageId,
+    buttonText: String(input.buttonText || ''),
+    buttonPayload: String(input.buttonPayload || ''),
+    buttonType: String(input.buttonType || 'QUICK_REPLY'),
+    eventAt: String(input.clickedAt || new Date().toISOString()),
+    receivedAt: new Date().toISOString(),
+  };
+  const existing = await getDoc(eventRef);
+  if (existing.exists() && String((existing.data() as any)?.status || '') === 'PROCESSED') return 0;
+  return (await applyWhatsAppButtonClickEvent(ctx, sourceMessageId, eventRef, eventRecord)) ? 1 : 0;
+}
+
+/** Replay quick-reply callbacks that arrived before a campaign lead's outbound WAMID was saved. */
+export async function reconcileWhatsAppCampaignButtonClicks(tenantId: string, messageId: string): Promise<number> {
+  if (!isFirebaseConfigured || !db || !tenantId || !messageId) return 0;
+  const ctx: TenantContext = { tenantId, uid: 'campaign-worker', email: 'campaign-worker@system.local', role: 'admin' };
+  return runWithCampaignCtx(ctx, async () => {
+    const repo = tenantRepo(ctx);
+    // Filter source/status in memory to avoid a new composite Firestore index requirement.
+    const pending = await getDocs(query(
+      repo.campaignEngagementEvents(),
+      where('messageId', '==', messageId),
+      limit(50)
+    ));
+    let reconciled = 0;
+    for (const pendingEvent of pending.docs) {
+      const record = pendingEvent.data() as any;
+      if (String(record?.source || '') !== 'META_BUTTON_CLICK_WEBHOOK' ||
+          String(record?.status || '') !== 'UNMATCHED') continue;
+      const applied = await applyWhatsAppButtonClickEvent(
+        ctx,
+        messageId,
+        repo.campaignEngagementEventDoc(pendingEvent.id),
+        record
+      );
+      if (applied) reconciled++;
+    }
+    return reconciled;
+  });
+}
+
+/**
  * WhatsApp campaign engagement from tenant-scoped aggregate queries.
  * Ignored means delivered (including read) with no WhatsApp reply after five days.
  */
@@ -1252,6 +1385,7 @@ export async function getWhatsAppCampaignEngagementStats(campaignId: string) {
   const empty = {
     totalRecipients: 0, sent: 0, delivered: 0, seen: 0, replied: 0,
     ignored: 0, waiting: 0, pending: 0, failed: 0, deliveryUnknown: 0,
+    quickReplyClickers: 0, quickReplyClicks: 0,
     ignoredAfterDays, deliveryRate: 0, seenRate: 0, replyRate: 0,
   };
   if (!isFirebaseConfigured || !db) return empty;
@@ -1278,6 +1412,7 @@ export async function getWhatsAppCampaignEngagementStats(campaignId: string) {
     failedDispatch, failedDelivery, pending,
     ignoredCandidates, ignoredReplied,
     waitingCandidates, waitingReplied,
+    quickReplyClickers, quickReplyClickSums,
   ] = await Promise.all([
     countDocs(query(base(), where('whatsappSendStatus', 'in', waStatus))),
     countDocs(eq('whatsappSendStatus', 'SENT')),
@@ -1291,6 +1426,8 @@ export async function getWhatsAppCampaignEngagementStats(campaignId: string) {
     countDocs(query(deliveredBeforeCutoff(), where('whatsappReplied', '==', true))),
     countDocs(deliveredAfterCutoff()),
     countDocs(query(deliveredAfterCutoff(), where('whatsappReplied', '==', true))),
+    countDocs(eq('whatsappQuickReplyClicked', true)),
+    sumDocs(base(), ['whatsappQuickReplyClickCount']).catch(() => ({ whatsappQuickReplyClickCount: 0 })),
   ]);
 
   // Subtraction deliberately includes legacy records where whatsappReplied is missing.
@@ -1304,6 +1441,8 @@ export async function getWhatsAppCampaignEngagementStats(campaignId: string) {
     delivered,
     seen,
     replied,
+    quickReplyClickers,
+    quickReplyClicks: Number(quickReplyClickSums?.whatsappQuickReplyClickCount || 0),
     ignored,
     waiting,
     pending,
@@ -2995,6 +3134,16 @@ export async function processNextCampaignSendBatch(
               });
               if (reconciled > 0) {
                 console.info('[Campaign Engine] Reconciled early WhatsApp status callback(s):', reconciled);
+              }
+              const reconciledClicks = await reconcileWhatsAppCampaignButtonClicks(
+                getCampaignActiveCtx().tenantId,
+                waResult.messageId
+              ).catch((reconcileError: any) => {
+                console.warn('[Campaign Engine] WhatsApp button-click reconciliation notice:', reconcileError?.message || reconcileError);
+                return 0;
+              });
+              if (reconciledClicks > 0) {
+                console.info('[Campaign Engine] Reconciled early WhatsApp button click(s):', reconciledClicks);
               }
             }
             try {

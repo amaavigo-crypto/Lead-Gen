@@ -5475,16 +5475,82 @@ ${signature || defSig}`;
     return true;
   }
 
-  // WhatsApp delivery/read/reply counts are separate from email tracking and use Meta status callbacks.
+  // WhatsApp delivery/read, quick-reply webhooks, and Meta template URL-click analytics.
   const whatsappCampaignEngagementMatch = url.match(/^\/api\/campaigns\/([a-zA-Z0-9_-]+)\/whatsapp-engagement$/);
   if (whatsappCampaignEngagementMatch && req.method === 'GET') {
     try {
-      const stats = await getWhatsAppCampaignEngagementStats(whatsappCampaignEngagementMatch[1]);
+      const campaignId = whatsappCampaignEngagementMatch[1];
+      const stats = await getWhatsAppCampaignEngagementStats(campaignId);
+      let templateClickAnalytics: any = { enabled: false, available: false, urlClicks: 0, quickReplyClicks: 0 };
+      try {
+        const campaign = await getCampaignByIdAsync(campaignId);
+        if (campaign?.whatsappTemplateName && campaign?.whatsappTemplateLanguage) {
+          const meta = await import('./metaChannelsService.js');
+          const insightStatus = await meta.getWhatsAppTemplateInsightsStatus(activeTenantCtx);
+          templateClickAnalytics.enabled = insightStatus.enabled;
+          if (insightStatus.enabled) {
+            const templates = await meta.listWhatsAppTemplatesForManagement(activeTenantCtx);
+            const template = templates.find((item: any) =>
+              item.name === campaign.whatsappTemplateName &&
+              item.language === campaign.whatsappTemplateLanguage
+            );
+            if (template?.id && ['MARKETING', 'UTILITY'].includes(String(template.category || '').toUpperCase())) {
+              templateClickAnalytics = await meta.getWhatsAppTemplateClickAnalytics(
+                activeTenantCtx,
+                String(template.id),
+                String(campaign.startedAt || campaign.createdAt || '')
+              );
+            }
+          }
+        }
+      } catch (analyticsError: any) {
+        console.warn('[Campaign API] WhatsApp template click analytics unavailable:', analyticsError?.message || analyticsError);
+      }
       res.statusCode = 200;
-      res.end(JSON.stringify({ success: true, ...stats }));
+      res.end(JSON.stringify({
+        success: true,
+        ...stats,
+        urlClickAnalyticsEnabled: templateClickAnalytics.enabled === true,
+        urlClickAnalyticsAvailable: templateClickAnalytics.available === true,
+        urlClicks: templateClickAnalytics.available ? Number(templateClickAnalytics.urlClicks || 0) : null,
+        templateQuickReplyClicks: templateClickAnalytics.available ? Number(templateClickAnalytics.quickReplyClicks || 0) : 0,
+        templateClickWindowStart: templateClickAnalytics.windowStart || null,
+        templateClickWindowEnd: templateClickAnalytics.windowEnd || null,
+        templateClickAttribution: 'Meta reports clicks at template level, not per campaign recipient. This total can include other sends of the same template during the reporting window.',
+      }));
     } catch (err: any) {
       res.statusCode = 500;
       res.end(JSON.stringify({ error: err?.message || 'Failed to load WhatsApp engagement stats' }));
+    }
+    return true;
+  }
+
+  // The one-time Meta Insights opt-in is exposed only behind explicit workspace-admin confirmation.
+  if (url === '/api/whatsapp/template-insights' && (req.method === 'GET' || req.method === 'POST')) {
+    if (req.method === 'POST' && activeTenantCtx.role === 'member') {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ error: 'Only workspace admins can enable WhatsApp template insights.' }));
+      return true;
+    }
+    try {
+      const meta = await import('./metaChannelsService.js');
+      if (req.method === 'GET') {
+        const status = await meta.getWhatsAppTemplateInsightsStatus(activeTenantCtx);
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, enabled: status.enabled }));
+      } else {
+        if (body?.confirm !== true) {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ error: 'Explicit confirmation is required because Meta Insights cannot be disabled once enabled.' }));
+          return true;
+        }
+        const status = await meta.enableWhatsAppTemplateInsights(activeTenantCtx);
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, enabled: status.enabled }));
+      }
+    } catch (err: any) {
+      res.statusCode = err?.status || 500;
+      res.end(JSON.stringify({ error: err?.message || 'Could not read or enable WhatsApp template insights.' }));
     }
     return true;
   }

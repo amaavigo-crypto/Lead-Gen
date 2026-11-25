@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  Trash2,
   X,
 } from 'lucide-react';
 
@@ -34,6 +35,14 @@ type TemplateItem = {
   qualityScore?: string;
   paramCount: number;
   components?: any[];
+};
+
+type UtilityButtonDraft = {
+  id: number;
+  type: 'URL' | 'PHONE_NUMBER' | 'QUICK_REPLY';
+  text: string;
+  url: string;
+  phoneNumber: string;
 };
 
 type Props = { canEdit?: boolean };
@@ -104,6 +113,9 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<TemplateItem | null>(null);
   const [companyAssets, setCompanyAssets] = useState<CompanyAsset[]>([]);
+  const [insightsEnabled, setInsightsEnabled] = useState<boolean | null>(null);
+  const [showInsightsConsent, setShowInsightsConsent] = useState(false);
+  const [enablingInsights, setEnablingInsights] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -120,6 +132,7 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
   const [body, setBody] = useState('Hello {{1}}, your booking {{2}} is confirmed. We will share further details soon.');
   const [footer, setFooter] = useState('');
   const [samples, setSamples] = useState<Record<number, string>>({ 1: 'Customer name', 2: 'BK-10025' });
+  const [utilityButtons, setUtilityButtons] = useState<UtilityButtonDraft[]>([]);
 
   const variables = useMemo(() => getVariables(body), [body]);
   const variableKey = variables.join(',');
@@ -132,6 +145,55 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
       return next;
     });
   }, [variableKey]);
+
+  const loadInsightsStatus = useCallback(async () => {
+    try {
+      const response = await fetch('/api/whatsapp/template-insights');
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) setInsightsEnabled(data?.enabled === true);
+    } catch {
+      setInsightsEnabled(null);
+    }
+  }, []);
+
+  useEffect(() => { void loadInsightsStatus(); }, [loadInsightsStatus]);
+
+  const addUtilityButton = () => {
+    setUtilityButtons((current) => current.length >= 3 ? current : [...current, {
+      id: Date.now() + current.length,
+      type: 'URL',
+      text: 'View details',
+      url: '',
+      phoneNumber: '',
+    }]);
+  };
+
+  const updateUtilityButton = (id: number, patch: Partial<UtilityButtonDraft>) => {
+    setUtilityButtons((current) => current.map((button) => button.id === id ? { ...button, ...patch } : button));
+  };
+
+  const enableTemplateInsights = async () => {
+    setEnablingInsights(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/whatsapp/template-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'Meta click insights could not be enabled.');
+      setInsightsEnabled(data?.enabled === true);
+      setShowInsightsConsent(false);
+      setNotice(data?.enabled
+        ? 'Meta WhatsApp template click insights are enabled. New URL and quick-reply button activity will begin appearing in analytics.'
+        : 'Meta has not confirmed that template insights are enabled. Refresh the status and try again.');
+    } catch (e: any) {
+      setError(e?.message || 'Meta click insights could not be enabled.');
+    } finally {
+      setEnablingInsights(false);
+    }
+  };
 
   const loadTemplates = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -177,6 +239,7 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
     setBody('Hello {{1}}, your booking {{2}} is confirmed. We will share further details soon.');
     setFooter('');
     setSamples({ 1: 'Customer name', 2: 'BK-10025' });
+    setUtilityButtons([]);
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -205,6 +268,12 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
           body: body.trim(),
           footer: footer.trim(),
           samples: requiredSamples,
+          buttons: utilityButtons.map((button) => ({
+            type: button.type,
+            text: button.text.trim(),
+            url: button.url.trim(),
+            phoneNumber: button.phoneNumber.trim(),
+          })),
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -236,7 +305,9 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => void loadTemplates(true)} disabled={refreshing || loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+          {insightsEnabled === true && <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Click insights enabled</span>}
+          {canEdit && insightsEnabled === false && <button type="button" onClick={() => setShowInsightsConsent(true)} className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100">Enable click insights</button>}
+          <button type="button" onClick={() => { void loadTemplates(true); void loadInsightsStatus(); }} disabled={refreshing || loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
             <RefreshCw className={'h-4 w-4 ' + (refreshing ? 'animate-spin' : '')} /> Refresh status
           </button>
           {canEdit && <button type="button" onClick={() => { setError(null); setNotice(null); setIsCreateOpen(true); }} className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-3.5 py-2 text-sm font-semibold text-white hover:bg-orange-600">
@@ -429,6 +500,26 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
         ), document.body);
       })()}
 
+      {showInsightsConsent && createPortal((
+        <div className="whatsapp-template-modal-portal fixed inset-0 z-[1340] flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="Enable WhatsApp click insights">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div><h3 className="text-base font-bold text-slate-900">Enable Meta WhatsApp click insights?</h3><p className="mt-1 text-xs text-slate-500">This is a one-time setting for the connected WhatsApp Business Account.</p></div>
+              <button type="button" onClick={() => setShowInsightsConsent(false)} disabled={enablingInsights} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100" aria-label="Close"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="mt-4 space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <p>Meta uses anonymized data from your WhatsApp chats to produce template delivery, read and button-click analytics.</p>
+              <p className="font-semibold">Once enabled for this WhatsApp Business Account, this setting cannot be turned off.</p>
+              <p>It allows Meta to report URL-button and quick-reply clicks for eligible Utility and Marketing templates. URL click totals are template-level, not tied to an individual campaign recipient.</p>
+            </div>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button type="button" onClick={() => setShowInsightsConsent(false)} disabled={enablingInsights} className="rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button type="button" onClick={() => void enableTemplateInsights()} disabled={enablingInsights} className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50">{enablingInsights ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Confirm and enable</button>
+            </div>
+          </div>
+        </div>
+      ), document.body)}
+
       {isCreateOpen && category === 'MARKETING' && (
         <WhatsAppMarketingTemplateForm
           onBack={() => setCategory('UTILITY')}
@@ -460,6 +551,19 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
                 <div><label className={labelClass}>Message body *</label><textarea className={inputClass + ' min-h-[130px]'} required value={body} onChange={(event) => setBody(event.target.value)} maxLength={1024} placeholder="Hello {{1}}, your booking {{2}} is confirmed." /><div className="mt-1 flex justify-between text-[11px] text-slate-500"><span>Use numbered variables like {'{{1}}'} and {'{{2}}'}.</span><span>{body.length}/1024</span></div></div>
                 {variables.length > 0 && <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-semibold text-slate-700">Example values required by Meta</p>{variables.map((index) => <div key={index}><label className="mb-1 block text-[11px] text-slate-600">{'Example for {{' + index + '}}'}</label><input className={inputClass} value={samples[index] || ''} onChange={(event) => setSamples((prev) => ({ ...prev, [index]: event.target.value }))} placeholder={'Example ' + index} /></div>)}</div>}
                 <div><label className={labelClass}>Footer (optional)</label><input className={inputClass} value={footer} onChange={(event) => setFooter(event.target.value)} maxLength={60} placeholder="Thank you for choosing us." /></div>
+                <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+                  <div className="flex items-center justify-between gap-2"><label className={labelClass}>Buttons (optional)</label><button type="button" onClick={addUtilityButton} disabled={utilityButtons.length >= 3} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 disabled:opacity-40"><Plus className="h-3.5 w-3.5" /> Add button</button></div>
+                  {utilityButtons.map((button, index) => (
+                    <div key={button.id} className="space-y-2 rounded-lg bg-slate-50 p-2.5">
+                      <div className="flex items-center gap-2"><span className="flex-1 text-xs font-semibold text-slate-600">Button {index + 1}</span><button type="button" onClick={() => setUtilityButtons((current) => current.filter((item) => item.id !== button.id))} className="rounded p-1 text-slate-400 hover:text-rose-600" aria-label="Remove button"><Trash2 className="h-3.5 w-3.5" /></button></div>
+                      <select className={inputClass} value={button.type} onChange={(event) => updateUtilityButton(button.id, { type: event.target.value as UtilityButtonDraft['type'] })}><option value="URL">Website URL</option><option value="PHONE_NUMBER">Call phone number</option><option value="QUICK_REPLY">Quick reply</option></select>
+                      <input className={inputClass} value={button.text} onChange={(event) => updateUtilityButton(button.id, { text: event.target.value })} maxLength={25} placeholder="Button label" />
+                      {button.type === 'URL' && <input className={inputClass} type="url" value={button.url} onChange={(event) => updateUtilityButton(button.id, { url: event.target.value })} placeholder="https://example.com" />}
+                      {button.type === 'PHONE_NUMBER' && <input className={inputClass} value={button.phoneNumber} onChange={(event) => updateUtilityButton(button.id, { phoneNumber: event.target.value })} placeholder="+919876543210" />}
+                    </div>
+                  ))}
+                  <p className="text-[11px] text-slate-500">Add up to 3 quick-reply or call-to-action buttons. URL clicks are measured through Meta template insights.</p>
+                </div>
               </div>
               <div className="space-y-3">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -468,6 +572,7 @@ export const WhatsAppTemplatesPanel: React.FC<Props> = ({ canEdit = false }) => 
                     {header && <p className="mb-2 text-sm font-bold text-slate-900">{header}</p>}
                     <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{body.replace(/\{\{(\d+)\}\}/g, (_match, index) => samples[Number(index)] || 'Example ' + index)}</p>
                     {footer && <p className="mt-2 text-[11px] text-slate-500">{footer}</p>}
+                    {utilityButtons.length > 0 && <div className="mt-3 space-y-1.5 border-t border-slate-100 pt-2">{utilityButtons.map((button) => <div key={button.id} className="rounded-lg border border-emerald-100 px-3 py-2 text-center text-xs font-semibold text-blue-700">{button.text || 'Button'}</div>)}</div>}
                     <p className="mt-2 text-right text-[10px] text-slate-400">Just now</p>
                   </div>
                   <p className="mt-3 text-[11px] leading-relaxed text-slate-500">This preview is illustrative. Meta performs the actual review and assigns the template status.</p>

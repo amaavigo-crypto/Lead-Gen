@@ -635,6 +635,96 @@ export async function listWhatsAppTemplates(ctx: TenantContext): Promise<WhatsAp
   return (await listWhatsAppTemplatesForManagement(ctx)).filter((template) => template.status === 'APPROVED');
 }
 
+/** Read the WABA-level one-time opt-in that controls Meta's WhatsApp template click analytics. */
+export async function getWhatsAppTemplateInsightsStatus(ctx: TenantContext): Promise<{ enabled: boolean }> {
+  const connection = await getWhatsAppConnection(ctx);
+  if (!connection || connection.status !== 'connected') throw new MetaChannelError(409, 'WhatsApp is not connected.');
+  const token = await getSecret(ctx, 'whatsapp_access_token');
+  const url = new URL(`${GRAPH}/${encodeURIComponent(connection.wabaId)}`);
+  url.searchParams.set('fields', 'is_enabled_for_insights');
+  const result = await graphJson(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
+  return { enabled: result?.is_enabled_for_insights === true };
+}
+
+/**
+ * Meta's WABA insights opt-in is permanent. This action is only exposed behind an explicit
+ * admin confirmation in the WhatsApp Templates UI; it is never enabled automatically.
+ */
+export async function enableWhatsAppTemplateInsights(ctx: TenantContext): Promise<{ enabled: boolean }> {
+  if (ctx.role === 'member') throw new MetaChannelError(403, 'Only workspace admins can enable WhatsApp template insights.');
+  const connection = await getWhatsAppConnection(ctx);
+  if (!connection || connection.status !== 'connected') throw new MetaChannelError(409, 'WhatsApp is not connected.');
+  const current = await getWhatsAppTemplateInsightsStatus(ctx);
+  if (current.enabled) return current;
+  const token = await getSecret(ctx, 'whatsapp_access_token');
+  const url = new URL(`${GRAPH}/${encodeURIComponent(connection.wabaId)}`);
+  url.searchParams.set('is_enabled_for_insights', 'true');
+  await graphJson(url.toString(), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return getWhatsAppTemplateInsightsStatus(ctx);
+}
+
+/** Meta template click totals are aggregated by template/day, not by individual campaign recipient. */
+export async function getWhatsAppTemplateClickAnalytics(
+  ctx: TenantContext,
+  templateId: string,
+  campaignStartedAt?: string
+): Promise<{
+  enabled: boolean;
+  available: boolean;
+  templateLevel: true;
+  urlClicks: number;
+  quickReplyClicks: number;
+  windowStart: string;
+  windowEnd: string;
+}> {
+  const cleanTemplateId = String(templateId || '').trim();
+  if (!cleanTemplateId) throw new MetaChannelError(400, 'A WhatsApp template ID is required for click analytics.');
+  const connection = await getWhatsAppConnection(ctx);
+  if (!connection || connection.status !== 'connected') throw new MetaChannelError(409, 'WhatsApp is not connected.');
+  const status = await getWhatsAppTemplateInsightsStatus(ctx);
+  const now = Date.now();
+  const lookbackStart = now - 7 * 24 * 60 * 60 * 1000;
+  const campaignStart = Date.parse(String(campaignStartedAt || ''));
+  const requestedStart = Number.isFinite(campaignStart) ? Math.min(campaignStart, now) : lookbackStart;
+  // Meta click analytics has a rolling lookback window. Do not round start/end outside it.
+  const windowStartDate = new Date(Math.max(lookbackStart, requestedStart));
+  const windowEndDate = new Date(now);
+  const windowStart = windowStartDate.toISOString();
+  const windowEnd = windowEndDate.toISOString();
+  if (!status.enabled) {
+    return { enabled: false, available: false, templateLevel: true, urlClicks: 0, quickReplyClicks: 0, windowStart, windowEnd };
+  }
+
+  const token = await getSecret(ctx, 'whatsapp_access_token');
+  const url = new URL(`${GRAPH}/${encodeURIComponent(connection.wabaId)}/template_analytics`);
+  url.searchParams.set('start', String(Math.floor(windowStartDate.getTime() / 1000)));
+  url.searchParams.set('end', String(Math.floor(windowEndDate.getTime() / 1000)));
+  url.searchParams.set('granularity', 'DAILY');
+  url.searchParams.set('metric_types', JSON.stringify(['clicked']));
+  url.searchParams.set('template_ids', JSON.stringify([cleanTemplateId]));
+  const result = await graphJson(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
+
+  let urlClicks = 0;
+  let quickReplyClicks = 0;
+  const templateRows = Array.isArray(result?.data) ? result.data : [];
+  for (const templateRow of templateRows) {
+    const points = Array.isArray(templateRow?.data_points) ? templateRow.data_points : [];
+    for (const point of points) {
+      const metrics = Array.isArray(point?.clicked) ? point.clicked : [];
+      for (const metric of metrics) {
+        const type = String(metric?.type || '').toLowerCase();
+        const value = Math.max(0, Math.floor(Number(metric?.value || 0)));
+        if (type === 'url_button') urlClicks += value;
+        if (type === 'quick_reply_button') quickReplyClicks += value;
+      }
+    }
+  }
+  return { enabled: true, available: true, templateLevel: true, urlClicks, quickReplyClicks, windowStart, windowEnd };
+}
+
 function whatsappTemplateAssetAssociationId(name: string, language: string): string {
   return crypto.createHash('sha256').update(String(name).trim() + '::' + String(language).trim()).digest('hex');
 }
@@ -930,6 +1020,8 @@ export async function createWhatsAppTemplate(
     if (header) components.push({ type: 'HEADER', format: 'TEXT', text: header });
     components.push({ type: 'BODY', text: body, ...(validatedBody.indexes.length ? { example: { body_text: [validatedBody.samples] } } : {}) });
     if (footer) components.push({ type: 'FOOTER', text: footer });
+    const buttons = buildMarketingButtons(Array.isArray(input.buttons) ? input.buttons : []);
+    if (buttons.length) components.push({ type: 'BUTTONS', buttons });
   } else if (templateType === 'STANDARD') {
     addHeader(['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT']);
     components.push({ type: 'BODY', text: body, ...(validatedBody.indexes.length ? { example: { body_text: [validatedBody.samples] } } : {}) });
@@ -1372,6 +1464,12 @@ type InboundEvent = {
   text: string;
   hasText: boolean;
   timestamp: string;
+  buttonClick?: {
+    sourceMessageId: string;
+    text: string;
+    payload: string;
+    type: 'QUICK_REPLY' | 'INTERACTIVE';
+  };
 };
 
 async function fetchMessengerSenderProfile(ctx: TenantContext, senderId: string): Promise<{ name?: string; firstName?: string; lastName?: string; profilePictureUrl?: string } | null> {
@@ -1500,6 +1598,26 @@ async function processInbound(tenantId: string, event: InboundEvent, eventId: st
     senderType: 'CUSTOMER', senderName: displayName, text: event.text, direction: 'INBOUND',
     timestamp: event.timestamp, receivedAt: now, createdAt: now, aiReplied: false, aiProcessed: true,
   });
+
+  // Official Meta webhook button callbacks contain context.id for the original outbound message.
+  // Correlate button taps to the exact campaign lead before recording the ordinary inbound reply.
+  if (isWA && event.buttonClick?.sourceMessageId) {
+    try {
+      const campaignService = await import('./campaignService.js');
+      await campaignService.runWithCampaignCtx(ctx, () =>
+        campaignService.handleIncomingWhatsAppButtonClick({
+          sourceMessageId: event.buttonClick!.sourceMessageId,
+          inboundMessageId: event.externalMessageId,
+          buttonText: event.buttonClick!.text,
+          buttonPayload: event.buttonClick!.payload,
+          buttonType: event.buttonClick!.type,
+          clickedAt: event.timestamp,
+        })
+      );
+    } catch (clickError: any) {
+      console.warn('[Meta Channels] WhatsApp campaign button-click tracking notice:', clickError?.message || clickError);
+    }
+  }
 
   // Official Meta webhooks enter here (not the legacy /api/inbound/whatsapp pipeline).
   // Track WhatsApp campaign replies in the same tenant scope as this webhook event.
@@ -2178,12 +2296,20 @@ export async function handleMetaWebhook(req: any, res: any): Promise<boolean> {
           const id = String(message?.id || '');
           if (!from || !id) continue;
           const { text, hasText } = waText(message);
+          const buttonPayload = message?.button || message?.interactive?.button_reply;
+          const buttonSourceMessageId = String(message?.context?.id || '').trim();
+          const buttonClick = buttonPayload && buttonSourceMessageId ? {
+            sourceMessageId: buttonSourceMessageId,
+            text: String(buttonPayload?.text || buttonPayload?.title || ''),
+            payload: String(buttonPayload?.payload || buttonPayload?.id || ''),
+            type: message?.button ? 'QUICK_REPLY' as const : 'INTERACTIVE' as const,
+          } : undefined;
           const ts = Number(message?.timestamp);
           const ok = await dispatch(
             tenantId,
             {
               channel: 'WHATSAPP', accountId: phoneNumberId, senderId: from, senderName: names[from],
-              externalMessageId: id, text, hasText,
+              externalMessageId: id, text, hasText, buttonClick,
               timestamp: Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000).toISOString() : new Date().toISOString(),
             },
             `wa:${phoneNumberId}:${id}`,

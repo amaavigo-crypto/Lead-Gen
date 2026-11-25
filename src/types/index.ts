@@ -161,6 +161,13 @@ export interface CampaignLead {
   /** Channel-specific marker so combined campaigns do not conflate email and WhatsApp replies. */
   whatsappReplied?: boolean;
   whatsappRepliedAt?: string;
+  /** Confirmed quick-reply/button interactions correlated to this outbound WAMID. */
+  whatsappQuickReplyClicked?: boolean;
+  whatsappQuickReplyClickCount?: number;
+  whatsappQuickReplyClickedAt?: string;
+  whatsappLastButtonClickedAt?: string;
+  whatsappLastButtonText?: string;
+  whatsappLastButtonPayload?: string;
   whatsappLastError?: string;
   sourceDatabaseId?: string;
   sourceDatabaseEntryId?: string;
