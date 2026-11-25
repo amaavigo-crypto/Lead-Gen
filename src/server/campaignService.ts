@@ -3115,7 +3115,7 @@ export async function processNextCampaignSendBatch(
               params,
               headerParams,
               headerMediaAssetId: String(campaign.whatsappTemplateHeaderMediaAssetId || approvedWhatsAppTemplate?.headerMediaAssetId || ''),
-            }, approvedWhatsAppTemplate);
+            }, approvedWhatsAppTemplate, { campaignId: String(campaign.campaignId) });
             lead.whatsappSendStatus = 'SENT';
             lead.whatsappMessageId = waResult.messageId;
             lead.whatsappSentAt = new Date().toISOString();

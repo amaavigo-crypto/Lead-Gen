@@ -185,7 +185,7 @@ import {
 } from './knowledgeService.js';
 import { getKnowledgeWebsiteScanState, startKnowledgeWebsiteScan, processKnowledgeWebsiteScanStep } from './websiteKnowledgeService.js';
 import { getLeadScoringConfig, saveLeadScoringConfig, suggestLeadScoringParameters, startLeadScoringRecalculation, enqueueLeadScoringEvaluation, evaluateLeadForScoring, getLeadScoringHistory, runLeadScoringWorkerCycle } from './leadScoringService.js';
-import { getWhatsAppTrackedClickCount, resolveAndRecordWhatsAppTrackedClick } from './whatsappLinkTracking.js';
+import { getWhatsAppCampaignTrackedClickCount, getWhatsAppTemplateLinkConfig, resolveAndRecordWhatsAppTrackedClick } from './whatsappLinkTracking.js';
 import { listQrCodes, getQrSummary, getQrAnalytics, createQrCode, updateQrCode, publishQrCode, setQrStatus, duplicateQrCode, deleteQrCode, listQrVersions, restoreQrVersion, listQrThemes, saveQrTheme, getPublicQr, trackPublicQrEvent, submitPublicQrLead } from './qrStudioService.js';
 
 /**
@@ -5724,13 +5724,13 @@ ${signature || defSig}`;
       const campaignId = whatsappCampaignEngagementMatch[1];
       const stats = await getWhatsAppCampaignEngagementStats(campaignId);
       const campaign = await getCampaignByIdAsync(campaignId);
-      const urlClicks = campaign?.whatsappTemplateName && campaign?.whatsappTemplateLanguage
-        ? await getWhatsAppTrackedClickCount(
-            activeTenantCtx,
-            String(campaign.whatsappTemplateName),
-            String(campaign.whatsappTemplateLanguage)
-          ).catch((clickError: any) => {
-            console.warn('[Campaign API] Amaavigo WhatsApp click count unavailable:', clickError?.message || clickError);
+      const linkConfig = campaign?.whatsappTemplateName && campaign?.whatsappTemplateLanguage
+        ? await getWhatsAppTemplateLinkConfig(activeTenantCtx, String(campaign.whatsappTemplateName), String(campaign.whatsappTemplateLanguage)).catch(() => ({ bodyLinks: [], urlButtons: [] }))
+        : { bodyLinks: [], urlButtons: [] };
+      const urlClickTrackingReady = linkConfig.bodyLinks.length > 0 || linkConfig.urlButtons.length > 0;
+      const urlClicks = urlClickTrackingReady
+        ? await getWhatsAppCampaignTrackedClickCount(activeTenantCtx, campaignId).catch((clickError: any) => {
+            console.warn('[Campaign API] Amaavigo campaign WhatsApp click count unavailable:', clickError?.message || clickError);
             return 0;
           })
         : 0;
@@ -5739,7 +5739,8 @@ ${signature || defSig}`;
         success: true,
         ...stats,
         urlClicks,
-        urlClickAttribution: 'Amaavigo tracked URL clicks, aggregated by WhatsApp template.',
+        urlClickTrackingReady,
+        urlClickAttribution: 'Amaavigo tracked URL clicks attributed to this campaign.',
       }));
     } catch (err: any) {
       res.statusCode = 500;

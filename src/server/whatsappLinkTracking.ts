@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import {
   collection,
   doc,
+  getDoc,
   increment,
   query,
   runTransaction,
@@ -13,11 +14,58 @@ import {
 import type { TenantContext } from '../types/tenant.js';
 
 const LINK_ROUTE_COLLECTION = 'whatsapp_link_routes';
+const TEMPLATE_LINK_CONFIG_COLLECTION = 'whatsapp_template_link_configs';
 const URL_PATTERN = /https:\/\/[^\s<>"'`]+/gi;
 const BOT_USER_AGENT = /(bot\b|crawler|spider|facebookexternalhit|meta[-_ ]?(externalagent|externalfetcher)|slackbot|discordbot|telegrambot|twitterbot|linkedinbot|googlebot|bingbot)/i;
 
 function templateScope(ctx: TenantContext, templateKey: string): string {
   return `${ctx.tenantId}::${String(templateKey || '').trim().toLowerCase()}`;
+}
+
+function campaignScope(ctx: TenantContext, campaignId: string): string {
+  return `${ctx.tenantId}::${String(campaignId || '').trim()}`;
+}
+
+export type WhatsAppTemplateLinkConfig = {
+  bodyLinks: Array<{ parameterIndex: number; destinationUrl: string }>;
+  urlButtons: Array<{ buttonIndex: number; destinationUrl: string }>;
+};
+
+function templateLinkConfigRef(ctx: TenantContext, templateName: string, language: string) {
+  const key = `${ctx.tenantId}::${String(templateName || '').trim().toLowerCase()}::${String(language || '').trim().toLowerCase()}`;
+  const id = crypto.createHash('sha256').update(key).digest('hex');
+  return doc(db, TEMPLATE_LINK_CONFIG_COLLECTION, id);
+}
+
+export async function getWhatsAppTemplateLinkConfig(
+  ctx: TenantContext,
+  templateName: string,
+  language: string
+): Promise<WhatsAppTemplateLinkConfig> {
+  const snapshot = await getDoc(templateLinkConfigRef(ctx, templateName, language));
+  if (!snapshot.exists()) return { bodyLinks: [], urlButtons: [] };
+  const data = snapshot.data() as any;
+  if (String(data?.tenantId || '') !== ctx.tenantId) return { bodyLinks: [], urlButtons: [] };
+  return {
+    bodyLinks: Array.isArray(data.bodyLinks) ? data.bodyLinks : [],
+    urlButtons: Array.isArray(data.urlButtons) ? data.urlButtons : [],
+  };
+}
+
+async function saveWhatsAppTemplateLinkConfig(
+  ctx: TenantContext,
+  templateName: string,
+  language: string,
+  config: WhatsAppTemplateLinkConfig
+): Promise<void> {
+  await setDoc(templateLinkConfigRef(ctx, templateName, language), {
+    tenantId: ctx.tenantId,
+    templateName: String(templateName || '').trim(),
+    language: String(language || '').trim(),
+    bodyLinks: config.bodyLinks,
+    urlButtons: config.urlButtons,
+    updatedAt: new Date().toISOString(),
+  }, { merge: true });
 }
 
 function publicAppOrigin(): string {
@@ -57,7 +105,8 @@ function normalizeDestination(raw: string): string | null {
 export async function createWhatsAppTrackedLink(
   ctx: TenantContext,
   destination: string,
-  templateKey: string
+  templateKey: string,
+  campaignId?: string
 ): Promise<string | null> {
   const destinationUrl = normalizeDestination(destination);
   if (!destinationUrl || !String(templateKey || '').trim()) return null;
@@ -69,6 +118,7 @@ export async function createWhatsAppTrackedLink(
     tenantId: ctx.tenantId,
     templateScope: templateScope(ctx, templateKey),
     templateKey: String(templateKey).trim(),
+    ...(String(campaignId || '').trim() ? { campaignId: String(campaignId).trim(), campaignScope: campaignScope(ctx, String(campaignId).trim()) } : {}),
     destinationUrl,
     clickCount: 0,
     createdAt: now,
@@ -88,7 +138,8 @@ function trimUrlPunctuation(value: string): { url: string; suffix: string } {
 export async function rewriteWhatsAppTextLinks(
   ctx: TenantContext,
   text: string,
-  templateKey: string
+  templateKey: string,
+  campaignId?: string
 ): Promise<string> {
   const source = String(text || '');
   const matches = Array.from(source.matchAll(URL_PATTERN));
@@ -108,14 +159,18 @@ export async function rewriteWhatsAppTextLinks(
       continue;
     }
 
-    const tracked = await createWhatsAppTrackedLink(ctx, url, templateKey);
+    const tracked = await createWhatsAppTrackedLink(ctx, url, templateKey, campaignId);
     output += tracked ? tracked + suffix : raw;
   }
   output += source.slice(cursor);
   return output;
 }
 
-/** Rewrites body URLs, URL buttons and carousel-card URLs before a new template is submitted to Meta. */
+/**
+ * Fixed body URLs become body parameters; fixed URL buttons become Meta dynamic URL
+ * suffixes. Each send receives a fresh campaign-tagged route, including when campaigns reuse
+ * the same approved WhatsApp template.
+ */
 export async function rewriteWhatsAppTemplateLinks(
   ctx: TenantContext,
   templateName: string,
@@ -124,34 +179,108 @@ export async function rewriteWhatsAppTemplateLinks(
 ): Promise<any[]> {
   const templateKey = `${String(templateName || '').trim()}::${String(language || '').trim()}`;
   const rewritten = JSON.parse(JSON.stringify(Array.isArray(components) ? components : []));
+  const config: WhatsAppTemplateLinkConfig = { bodyLinks: [], urlButtons: [] };
+  const clickPrefix = `${publicAppOrigin()}/api/whatsapp/click/`;
 
-  const rewriteComponentList = async (items: any[]) => {
-    for (const component of items) {
-      const type = String(component?.type || '').toUpperCase();
-      if (type === 'BODY' && typeof component?.text === 'string') {
-        component.text = await rewriteWhatsAppTextLinks(ctx, component.text, templateKey);
-      }
-      if (type === 'BUTTONS' && Array.isArray(component.buttons)) {
-        for (const button of component.buttons) {
-          if (String(button?.type || '').toUpperCase() !== 'URL' || typeof button?.url !== 'string') continue;
-          if (button.url.includes('{{') || button.url.includes('}}')) continue;
-          const tracked = await createWhatsAppTrackedLink(ctx, button.url, templateKey);
-          if (tracked) button.url = tracked;
+  // Convert every static URL in the primary body into an additional positional
+  // parameter. Amaavigo fills this parameter with a fresh campaign-scoped link at send time.
+  const bodyComponent = rewritten.find((component: any) => String(component?.type || '').toUpperCase() === 'BODY');
+  if (bodyComponent && typeof bodyComponent.text === 'string') {
+    const source = String(bodyComponent.text);
+    const existingIndexes = Array.from(source.matchAll(/\{\{\s*(\d+)\s*\}\}/g)).map((match: any) => Number(match[1]));
+    let nextIndex = existingIndexes.length ? Math.max(...existingIndexes) + 1 : 1;
+    const samples = Array.isArray(bodyComponent?.example?.body_text?.[0])
+      ? [...bodyComponent.example.body_text[0]].map((value: any) => String(value ?? ''))
+      : [];
+    const matches = Array.from(source.matchAll(URL_PATTERN));
+    if (matches.length) {
+      let output = '';
+      let cursor = 0;
+      for (const match of matches) {
+        const raw = String(match[0] || '');
+        const index = Number(match.index || 0);
+        const { url, suffix } = trimUrlPunctuation(raw);
+        const destinationUrl = normalizeDestination(url);
+        output += source.slice(cursor, index);
+        cursor = index + raw.length;
+        if (!destinationUrl || url.includes('{{') || url.includes('}}')) {
+          output += raw;
+          continue;
         }
+        if (nextIndex > 20) {
+          throw new Error('This template already uses all 20 WhatsApp body variables. To enable campaign-specific click tracking, move the website link to a URL button or free one body variable.');
+        }
+        const parameterIndex = nextIndex++;
+        config.bodyLinks.push({ parameterIndex, destinationUrl });
+        samples[parameterIndex - 1] = destinationUrl;
+        output += `{{${parameterIndex}}}${suffix}`;
       }
-      if (type === 'CAROUSEL' && Array.isArray(component.cards)) {
-        for (const card of component.cards) {
-          if (Array.isArray(card?.components)) await rewriteComponentList(card.components);
+      output += source.slice(cursor);
+      // Meta does not accept a body variable as the very first or final token.
+      if (/^\s*\{\{\s*\d+\s*\}\}/.test(output)) output = output.replace(/^\s*/, 'Visit ');
+      if (/\{\{\s*\d+\s*\}\}\s*$/.test(output)) output += '.';
+      bodyComponent.text = output;
+      bodyComponent.example = { ...(bodyComponent.example || {}), body_text: [samples] };
+    }
+  }
+
+  // Fixed URL buttons are changed into dynamic URL suffix buttons. Their original
+  // destinations stay server-side, and sendWhatsAppTemplate supplies one token per send.
+  const buttonsComponent = rewritten.find((component: any) => String(component?.type || '').toUpperCase() === 'BUTTONS');
+  if (buttonsComponent && Array.isArray(buttonsComponent.buttons)) {
+    buttonsComponent.buttons.forEach((button: any, buttonIndex: number) => {
+      if (String(button?.type || '').toUpperCase() !== 'URL' || typeof button?.url !== 'string') return;
+      const url = String(button.url);
+      if (url.includes('{{') || url.includes('}}')) return;
+      const destinationUrl = normalizeDestination(url);
+      if (!destinationUrl) return;
+      config.urlButtons.push({ buttonIndex, destinationUrl });
+      button.url = `${clickPrefix}{{1}}`;
+      button.example = ['example-click-token'];
+    });
+  }
+
+  // Keep the existing template-level tracking behaviour for nested carousel-card links.
+  for (const component of rewritten) {
+    if (String(component?.type || '').toUpperCase() !== 'CAROUSEL' || !Array.isArray(component.cards)) continue;
+    for (let cardIndex = 0; cardIndex < component.cards.length; cardIndex++) {
+      const card = component.cards[cardIndex];
+      for (const nested of Array.isArray(card?.components) ? card.components : []) {
+        const type = String(nested?.type || '').toUpperCase();
+        if (type === 'BODY' && typeof nested?.text === 'string') {
+          nested.text = await rewriteWhatsAppTextLinks(ctx, nested.text, `${templateKey}::carousel-card-${cardIndex}`);
+        }
+        if (type === 'BUTTONS' && Array.isArray(nested.buttons)) {
+          for (const button of nested.buttons) {
+            if (String(button?.type || '').toUpperCase() !== 'URL' || typeof button?.url !== 'string') continue;
+            if (button.url.includes('{{') || button.url.includes('}}')) continue;
+            const tracked = await createWhatsAppTrackedLink(ctx, button.url, `${templateKey}::carousel-card-${cardIndex}`);
+            if (tracked) button.url = tracked;
+          }
         }
       }
     }
-  };
+  }
 
-  await rewriteComponentList(rewritten);
+  await saveWhatsAppTemplateLinkConfig(ctx, templateName, language, config);
   return rewritten;
 }
 
-/** Counts tracked URL opens for this tenant and WhatsApp template, without Meta Insights opt-in. */
+/** Sum tracked clicks from routes created specifically for this tenant and campaign. */
+export async function getWhatsAppCampaignTrackedClickCount(
+  ctx: TenantContext,
+  campaignId: string
+): Promise<number> {
+  const id = String(campaignId || '').trim();
+  if (!id) return 0;
+  const totals = await sumDocs(
+    query(collection(db, LINK_ROUTE_COLLECTION), where('campaignScope', '==', campaignScope(ctx, id))),
+    ['clickCount']
+  );
+  return Math.max(0, Math.floor(Number(totals?.clickCount || 0)));
+}
+
+/** Legacy template total, retained for non-campaign sends and previously-created routes. */
 export async function getWhatsAppTrackedClickCount(
   ctx: TenantContext,
   templateName: string,

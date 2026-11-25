@@ -179,7 +179,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
   const [whatsappEngagement, setWhatsappEngagement] = useState<{
     totalRecipients: number; sent: number; delivered: number; seen: number; replied: number;
     quickReplyClickers: number; quickReplyClicks: number;
-    urlClicks: number;
+    urlClicks: number; urlClickTrackingReady: boolean;
     ignored: number; waiting: number; pending: number; failed: number; deliveryUnknown: number;
     ignoredAfterDays: number; deliveryRate: number; seenRate: number; replyRate: number;
   } | null>(null);
@@ -932,6 +932,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
             quickReplyClickers: Number(data.quickReplyClickers) || 0,
             quickReplyClicks: Number(data.quickReplyClicks) || 0,
             urlClicks: Number(data.urlClicks) || 0,
+            urlClickTrackingReady: data.urlClickTrackingReady === true,
             ignored: Number(data.ignored) || 0,
             waiting: Number(data.waiting) || 0,
             pending: Number(data.pending) || 0,
@@ -951,7 +952,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
       }
     };
     void load();
-    const timer = window.setInterval(() => void load(), 60_000);
+    const timer = window.setInterval(() => void load(), 10_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -2256,7 +2257,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                             { label: 'Sent', value: whatsappEngagement?.sent, color: 'text-blue-700', note: 'Accepted by Meta' },
                             { label: 'Delivered', value: whatsappEngagement?.delivered, color: 'text-emerald-700', note: (whatsappEngagement?.deliveryRate ?? 0) + '% of sent' },
                             { label: 'Seen', value: whatsappEngagement?.seen, color: 'text-violet-700', note: (whatsappEngagement?.seenRate ?? 0) + '% of delivered' },
-                            { label: 'Clicked links', value: whatsappEngagement?.urlClicks, color: 'text-fuchsia-700', note: 'Amaavigo-tracked · template links' },
+                            { label: 'Clicked links', value: whatsappEngagement?.urlClickTrackingReady ? whatsappEngagement.urlClicks : undefined, color: 'text-fuchsia-700', note: whatsappEngagement?.urlClickTrackingReady === false ? 'Recreate template for campaign tracking' : 'Amaavigo-tracked · this campaign' },
                             { label: 'Quick replies', value: whatsappEngagement?.quickReplyClickers, color: 'text-indigo-700', note: (whatsappEngagement?.quickReplyClicks ?? 0) + ' confirmed button taps' },
                             { label: 'Replied', value: whatsappEngagement?.replied, color: 'text-sky-700', note: (whatsappEngagement?.replyRate ?? 0) + '% of sent' },
                             { label: 'Waiting', value: whatsappEngagement?.waiting, color: 'text-amber-700', note: 'Within 5 days' },
@@ -2291,7 +2292,7 @@ export const CampaignManagement: React.FC<CampaignManagementProps> = ({
                           { label: 'Sent', value: whatsappEngagement ? whatsappEngagement.sent : (selectedCampaign.sentCount || 0), color: 'text-blue-700', note: 'Accepted by Meta' },
                           { label: 'Delivered', value: whatsappEngagement?.delivered, color: 'text-emerald-700', note: whatsappEngagement ? whatsappEngagement.deliveryRate.toFixed(1) + '% of sent' : 'Meta delivery receipts' },
                           { label: 'Seen', value: whatsappEngagement?.seen, color: 'text-violet-700', note: whatsappEngagement ? whatsappEngagement.seenRate.toFixed(1) + '% of delivered' : 'Read receipts' },
-                          { label: 'Clicked links', value: whatsappEngagement?.urlClicks, color: 'text-fuchsia-700', note: 'Amaavigo-tracked · template links' },
+                          { label: 'Clicked links', value: whatsappEngagement?.urlClickTrackingReady ? whatsappEngagement.urlClicks : undefined, color: 'text-fuchsia-700', note: whatsappEngagement?.urlClickTrackingReady === false ? 'Recreate template for campaign tracking' : 'Amaavigo-tracked · this campaign' },
                           { label: 'Quick replies', value: whatsappEngagement?.quickReplyClickers, color: 'text-indigo-700', note: (whatsappEngagement?.quickReplyClicks ?? 0) + ' confirmed button taps' },
                           { label: 'Replies', value: whatsappEngagement ? whatsappEngagement.replied : (selectedCampaign.repliedCount || 0), color: 'text-sky-700', note: whatsappEngagement ? whatsappEngagement.replyRate.toFixed(1) + '% of sent' : 'Inbound replies' },
                           { label: 'Pending', value: whatsappEngagement ? whatsappEngagement.pending : (selectedCampaign.pendingCount || 0), color: 'text-amber-700', note: 'Awaiting dispatch' },

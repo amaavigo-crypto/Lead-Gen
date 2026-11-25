@@ -10,7 +10,7 @@ import { getApplicableAiFeedback, buildAiFeedbackPromptSection, buildAiFeedbackS
 import { recordAiCompletionUsage } from './usageService.js';
 import { listTenantAssets, resolveAssetRaw } from './assetService.js';
 import { AI_RESPONSE_FORMATTING_INSTRUCTIONS, formatAiResponseForChannel } from '../shared/aiResponseFormatting.js';
-import { rewriteWhatsAppTemplateLinks, rewriteWhatsAppTextLinks } from './whatsappLinkTracking.js';
+import { createWhatsAppTrackedLink, getWhatsAppTemplateLinkConfig, rewriteWhatsAppTemplateLinks, rewriteWhatsAppTextLinks } from './whatsappLinkTracking.js';
 
 /**
  * Per-workspace WhatsApp (Cloud API via Embedded Signup) and Facebook Messenger (Page login),
@@ -1083,6 +1083,8 @@ export async function createWhatsAppTemplate(
   }
 
   const trackedComponents = await rewriteWhatsAppTemplateLinks(ctx, name, language, components);
+  const trackedBodyText = String(trackedComponents.find((component: any) => String(component?.type || '').toUpperCase() === 'BODY')?.text || body);
+  const trackedParameterNames = templatePlaceholderNames(trackedBodyText, 'POSITIONAL');
   const submittedHeaderFormat = String(input.headerFormat || 'TEXT').trim().toUpperCase();
   if (submittedHeaderFormat === 'IMAGE' && String(input.headerMediaHandle || '').trim() && !headerMediaAssetId) {
     throw new MetaChannelError(400, 'Save the image header in Company Assets before submitting this template. Select the image again to retry.');
@@ -1100,16 +1102,16 @@ export async function createWhatsAppTemplate(
     id: result?.id ? String(result.id) : undefined,
     name, language, category,
     status: String(result?.status || 'PENDING').toUpperCase(),
-    body: String(trackedComponents.find((component: any) => String(component?.type || '').toUpperCase() === 'BODY')?.text || body),
+    body: trackedBodyText,
     components: trackedComponents,
     header: String(input.headerText || ''),
     headerFormat: submittedHeaderFormat,
     headerMediaAssetId: headerMediaAssetId || undefined,
     footer,
     parameterFormat: 'POSITIONAL',
-    parameterNames: templatePlaceholderNames(body, 'POSITIONAL'),
+    parameterNames: trackedParameterNames,
     headerParameterNames: [],
-    paramCount: validatedBody.indexes.length,
+    paramCount: trackedParameterNames.length,
   };
 }
 
@@ -1203,7 +1205,8 @@ export async function sendWhatsAppTemplate(
   ctx: TenantContext,
   to: string,
   template: { name: string; language: string; params?: string[]; headerParams?: string[]; headerMediaAssetId?: string },
-  approvedTemplateSnapshot?: WhatsAppTemplate
+  approvedTemplateSnapshot?: WhatsAppTemplate,
+  tracking?: { campaignId?: string }
 ): Promise<{ messageId: string; renderedText: string }> {
   const connection = await getWhatsAppConnection(ctx);
   if (!connection || connection.status !== 'connected') throw new MetaChannelError(409, 'WhatsApp is not connected.');
@@ -1218,11 +1221,23 @@ export async function sendWhatsAppTemplate(
   const parameterFormat = approvedTemplate.parameterFormat || 'POSITIONAL';
   const params = (template.params || []).map((p) => String(p));
   const headerParams = (template.headerParams || []).map((p) => String(p));
-  const trackedParams = await Promise.all(params.map((value) =>
-    rewriteWhatsAppTextLinks(ctx, value, `${template.name}::${template.language}`)
-  ));
+  const campaignId = String(tracking?.campaignId || '').trim() || undefined;
+  const templateKey = `${template.name}::${template.language}`;
+  const linkConfig = await getWhatsAppTemplateLinkConfig(ctx, template.name, template.language);
   if (params.length !== approvedTemplate.paramCount) {
     throw new MetaChannelError(400, 'The selected WhatsApp template (' + parameterFormat + ') requires ' + approvedTemplate.paramCount + ' body parameter(s), but ' + params.length + ' were provided. Refresh the approved template list and retry.');
+  }
+  const trackedParams = await Promise.all(params.map((value) =>
+    rewriteWhatsAppTextLinks(ctx, value, templateKey, campaignId)
+  ));
+  for (const bodyLink of linkConfig.bodyLinks) {
+    const parameterIndex = Number(bodyLink?.parameterIndex);
+    if (!Number.isInteger(parameterIndex) || parameterIndex < 1 || parameterIndex > trackedParams.length) {
+      throw new MetaChannelError(422, 'This WhatsApp template has an invalid campaign-tracking body parameter. Recreate the template in Amaavigo and approve it again.');
+    }
+    const trackedLink = await createWhatsAppTrackedLink(ctx, String(bodyLink.destinationUrl || ''), templateKey, campaignId);
+    if (!trackedLink) throw new MetaChannelError(503, 'Amaavigo could not prepare a tracked website link. The WhatsApp message was not sent.');
+    trackedParams[parameterIndex - 1] = trackedLink;
   }
   if (headerParams.length !== (approvedTemplate.headerParameterNames || []).length) {
     throw new MetaChannelError(400, 'The selected WhatsApp template requires ' + (approvedTemplate.headerParameterNames || []).length + ' text-header parameter(s), but ' + headerParams.length + ' were provided.');
@@ -1236,12 +1251,14 @@ export async function sendWhatsAppTemplate(
     throw new MetaChannelError(422, 'This approved WhatsApp template needs an image header. Choose and save a JPG/PNG image in Company Assets, then associate it with this template in the campaign setup.');
   }
   const templateComponents = Array.isArray(approvedTemplate.components) ? approvedTemplate.components : [];
-  const dynamicUrlButton = templateComponents
+  const configuredButtonIndexes = new Set(linkConfig.urlButtons.map((item) => Number(item.buttonIndex)));
+  const dynamicUrlButtons = templateComponents
     .filter((component: any) => String(component?.type || '').toUpperCase() === 'BUTTONS')
     .flatMap((component: any) => Array.isArray(component?.buttons) ? component.buttons : [])
-    .some((button: any) => String(button?.type || '').toUpperCase() === 'URL' && /\{\{[^}]+\}\}/.test(String(button?.url || '')));
-  if (dynamicUrlButton) {
-    throw new MetaChannelError(422, 'This approved WhatsApp template contains a dynamic URL button. Campaign sending needs a recipient-specific URL suffix for that button; add button URL mapping before using this template.');
+    .map((button: any, index: number) => ({ button, index }))
+    .filter(({ button }: any) => String(button?.type || '').toUpperCase() === 'URL' && /\{\{[^}]+\}\}/.test(String(button?.url || '')));
+  if (dynamicUrlButtons.some(({ index }: any) => !configuredButtonIndexes.has(index))) {
+    throw new MetaChannelError(422, 'This approved WhatsApp template contains a dynamic URL button that Amaavigo cannot map to a destination. Recreate the URL button in Amaavigo Template Studio or use a fixed URL button when creating the template.');
   }
   const makeParameters = (values: string[], names: string[]) => values.map((text, index) => ({
     type: 'text',
@@ -1257,6 +1274,20 @@ export async function sendWhatsAppTemplate(
       components.push({ type: 'header', parameters: makeParameters(headerParams, approvedTemplate.headerParameterNames || []) });
     }
     if (trackedParams.length) components.push({ type: 'body', parameters: makeParameters(trackedParams, approvedTemplate.parameterNames || []) });
+    for (const buttonLink of linkConfig.urlButtons) {
+      const buttonIndex = Number(buttonLink?.buttonIndex);
+      const trackedButtonUrl = await createWhatsAppTrackedLink(ctx, String(buttonLink.destinationUrl || ''), templateKey, campaignId);
+      const tokenMatch = trackedButtonUrl?.match(/\/api\/whatsapp\/click\/([a-f0-9]{40})$/);
+      if (!Number.isInteger(buttonIndex) || buttonIndex < 0 || !tokenMatch) {
+        throw new MetaChannelError(503, 'Amaavigo could not prepare this campaign-specific URL button. The WhatsApp message was not sent.');
+      }
+      components.push({
+        type: 'button',
+        sub_type: 'url',
+        index: String(buttonIndex),
+        parameters: [{ type: 'text', text: tokenMatch[1] }],
+      });
+    }
     const token = await getSecret(ctx, 'whatsapp_access_token');
     const result = await graphJson(`${GRAPH}/${encodeURIComponent(connection.phoneNumberId)}/messages`, {
       method: 'POST',
