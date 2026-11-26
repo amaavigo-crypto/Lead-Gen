@@ -12,7 +12,7 @@ if [[ ! -f "$BASELINE_FILE" ]]; then
 fi
 
 BASELINE="$(tr -d '[:space:]' < "$BASELINE_FILE")"
-if [[ ! "$BASELINE" =~ ^[0-9]+$$ ]]; then
+if [[ ! "$BASELINE" =~ ^[0-9]+$ ]]; then
   echo "ERROR: .typecheck-baseline must contain one non-negative integer."
   exit 1
 fi
