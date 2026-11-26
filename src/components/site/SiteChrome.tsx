@@ -129,5 +129,6 @@ export const SiteFooter: React.FC = () => (
       <div className="sx-footer-col"><strong>Legal</strong><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="/dpa">Data Processing</a><a href="/aup">Acceptable Use</a><a href="/login">Log in</a></div>
     </div>
     
+    <div className="sx-footer-bottom"><span>© {new Date().getFullYear()} Amaavigo Digital Solutions LLP. All rights reserved.</span></div>
   </footer>
 );
