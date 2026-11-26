@@ -246,11 +246,60 @@ export async function generateTenantChatbotReply(tenantId: string, payload: any)
   const brand = await getTenantBrand(tenantId);
   const history = normalizeHistory(payload?.history);
   const visitor = payload?.visitor && typeof payload.visitor === 'object' ? payload.visitor : {};
+  const suppliedConversationId = String(payload?.conversationId || '').trim().slice(0, 128);
+  const visitorIdentity = String(visitor.visitorId || visitor.sessionId || visitor.id || visitor.email || visitor.phone || '').trim().toLowerCase();
+  const conversationId = suppliedConversationId || (visitorIdentity
+    ? 'website_' + crypto.createHash('sha256').update(tenantId + ':' + visitorIdentity).digest('hex').slice(0, 32)
+    : crypto.randomUUID());
   const visitorContext = [
     visitor.name ? 'Name: ' + String(visitor.name).slice(0, 120) : '',
     visitor.company ? 'Company: ' + String(visitor.company).slice(0, 120) : '',
     visitor.email ? 'Email: ' + String(visitor.email).slice(0, 160) : '',
   ].filter(Boolean).join('\n');
+
+  // Use the same guarded scheduling conversation for website-chat messages.
+  // Return the scheduling response in the existing chatbot webhook response shape.
+  try {
+    const { tryHandleInboundDemoScheduling } = await import('./demoSchedulingChannelBridge.js');
+    const emailFromMessage = message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || '';
+    const schedulingTurn = await tryHandleInboundDemoScheduling({
+      ctx,
+      messageText: message,
+      channel: 'WEBSITE',
+      conversationHistory: history,
+      leadContext: {
+        leadId: String(payload?.leadId || visitor.leadId || ''),
+        contactId: String(payload?.contactId || visitor.contactId || ''),
+        leadName: String(visitor.name || [visitor.firstName, visitor.lastName].filter(Boolean).join(' ') || 'Website visitor'),
+        leadEmail: String(visitor.email || '').trim() || emailFromMessage,
+        leadPhone: String(visitor.phone || '').trim(),
+        companyName: String(visitor.company || brand.companyName || ''),
+        channel: 'WEBSITE',
+        conversationId,
+      },
+    });
+    if (schedulingTurn?.handled && schedulingTurn.replyText) {
+      const markdown = String(schedulingTurn.replyText).slice(0, 6000);
+      const messages = [{
+        id: crypto.randomUUID(),
+        type: 'text' as const,
+        format: 'html' as const,
+        text: aiResponseMarkdownToPlainText(markdown).slice(0, 6000),
+        html: renderAiResponseMarkdownHtml(markdown),
+      }];
+      return {
+        success: true,
+        conversationId,
+        messages,
+        responseText: messages.map((item) => item.text).join('\n\n'),
+        responseHtml: messages.map((item) => item.html).join(''),
+        knowledgeSources: chunks.map((chunk) => chunk.title),
+      };
+    }
+  } catch (schedulingError: any) {
+    console.warn('[ChatbotWebhook] Demo scheduling could not process this turn:', schedulingError?.message || schedulingError);
+    throw new ChatbotWebhookError('The demo scheduling assistant could not complete this request. Please retry.', 502);
+  }
 
   const provider = process.env.OPENAI_API_KEY ? 'openai' : 'gemini';
   const apiKey = process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY;
@@ -341,8 +390,6 @@ export async function generateTenantChatbotReply(tenantId: string, payload: any)
       html: renderAiResponseMarkdownHtml(markdown),
     };
   });
-  const suppliedConversationId = String(payload?.conversationId || '').trim().slice(0, 128);
-  const conversationId = suppliedConversationId || crypto.randomUUID();
   return {
     success: true,
     conversationId,

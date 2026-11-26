@@ -2887,7 +2887,7 @@ Output JSON only: {"isDemoIntent": boolean, "requestedDate": string|null, "reque
           handled: true,
           action: 'RESCHEDULED',
           booking: resched.booking,
-          replyText: `You're all set! Your ${brandName()} demo has been rescheduled to ${slotLabel}.\n\n• New Google Meet Link: ${resched.booking.googleMeetLink}\n• Company: ${companyName}\n• Attendee: ${leadName} (${leadEmail || 'Email invite updated'})\n• Timezone: ${tzDisplay()}\n\n${resched.calendarInviteSent ? 'A new calendar invitation has been sent. The previous invitation was cancelled.' : 'The booking time was updated, but Google did not confirm sending the new calendar invitation; please check the calendar connection.'} We look forward to demonstrating how ${sb().playbook === 'umrah360' ? 'Umrah360 automates your pilgrimage operations' : `${brandName()} can help your business`}!`,
+          replyText: `You're all set! Your ${brandName()} demo has been rescheduled to ${slotLabel}.\n\n• New Google Meet Link: ${resched.booking.googleMeetLink}\n• Company: ${companyName}\n• Attendee: ${leadName} (${leadEmail || 'Email invite updated'})\n• Timezone: ${tzDisplay()}\n\n${leadEmail && resched.calendarInviteSent ? `A new calendar invitation has been sent to ${leadEmail}. The previous invitation was cancelled.` : 'Your updated Google Meet link is included above; use the new link to join.'} We look forward to demonstrating how ${sb().playbook === 'umrah360' ? 'Umrah360 automates your pilgrimage operations' : `${brandName()} can help your business`}!`,
         };
       }
       return {
@@ -2925,6 +2925,9 @@ Output JSON only: {"isDemoIntent": boolean, "requestedDate": string|null, "reque
     if (bookingResult.success && bookingResult.booking) {
       await clearSchedulingState(stateKey);
       const meetLink = bookingResult.googleMeetLink || 'Will be shared via calendar invitation';
+      const inviteConfirmation = leadEmail && bookingResult.calendarInviteSent
+        ? `I have sent the calendar invitation to ${leadEmail}.`
+        : 'You can join using the Google Meet link above; the booking is confirmed.';
       const replyText = [
         `You're all set! Your ${brandName()} demo is booked for ${slotLabel}.`,
         ``,
@@ -2935,8 +2938,8 @@ Output JSON only: {"isDemoIntent": boolean, "requestedDate": string|null, "reque
         `• Timezone: ${tzDisplay()}`,
         ``,
         sb().playbook === 'umrah360'
-          ? `I have sent the calendar invitation to your email. We look forward to showing you Umrah360's group series operations, visa tracking, and B2B portal!`
-          : `I have sent the calendar invitation to your email. We look forward to showing you ${brandName()}!`,
+          ? `${inviteConfirmation} We look forward to showing you Umrah360's group series operations, visa tracking, and B2B portal!`
+          : `${inviteConfirmation} We look forward to showing you ${brandName()}!`,
       ].join('\n');
       return { handled: true, action: 'CONFIRMED_BOOKING', booking: bookingResult.booking, replyText };
     }

@@ -471,6 +471,162 @@ async function processInstagramMessageEvent(tenantId: string, accountId: string,
     }
   }
 
+  // Route demo scheduling requests and their short follow-up replies through the shared agent.
+  let schedulingTurn: any = null;
+  try {
+    const { tryHandleInboundDemoScheduling } = await import('./demoSchedulingChannelBridge.js');
+    const emailFromMessage = String(messageText).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || '';
+    schedulingTurn = await tryHandleInboundDemoScheduling({
+      ctx,
+      messageText,
+      channel: 'INSTAGRAM',
+      conversationHistory: thread.map((item) => ({
+        role: item.direction === 'OUTBOUND' ? 'assistant' as const : 'user' as const,
+        content: String(item.text || '').slice(0, 1500),
+      })),
+      leadContext: {
+        contactId,
+        leadName: senderDisplayName,
+        leadEmail: String(contact.email || '').trim() || emailFromMessage,
+        leadPhone: String(contact.phone || ''),
+        companyName: String(contact.companyName || ''),
+        channel: 'INSTAGRAM',
+        conversationId,
+      },
+    });
+  } catch (schedulingError: any) {
+    console.error('[Instagram Demo Scheduling] Scheduling turn failed:', schedulingError?.message || schedulingError);
+    await updateDoc(eventRef, {
+      status: 'scheduling_failed',
+      reason: String(schedulingError?.message || 'Demo scheduling could not process this message.').slice(0, 500),
+      processedAt: new Date().toISOString(),
+      conversationId,
+    });
+    return;
+  }
+
+  if (schedulingTurn?.handled && schedulingTurn.replyText) {
+    const schedulingPersonaService = await import('./personaService.js');
+    const schedulingSettings = await schedulingPersonaService.getTenantChannelResponseSettings(ctx, 'INSTAGRAM');
+    const schedulingBubbles = schedulingPersonaService.splitChannelReplyIntoBubbles(
+      schedulingTurn.replyText,
+      schedulingSettings?.bubbleMode || 'single'
+    );
+    const schedulingDraftText = schedulingBubbles.join('\n\n');
+
+    if (mode === 'REVIEW') {
+      await updateDoc(repo.conversationDoc(conversationId), {
+        status: 'REVIEW',
+        draftReply: {
+          draftId: 'igdraft_' + stableHash(externalMessageId + ':scheduling'),
+          text: schedulingDraftText,
+          generatedAt: new Date().toISOString(),
+          status: 'PENDING',
+        },
+        updatedAt: new Date().toISOString(),
+      });
+      await updateDoc(repo.messageDoc(messageId), { aiProcessed: true });
+      await updateDoc(eventRef, {
+        status: 'draft_created',
+        reason: 'Demo scheduling response is waiting for human review.',
+        schedulingAction: schedulingTurn.action,
+        processedAt: new Date().toISOString(),
+        conversationId,
+      });
+      return;
+    }
+
+    const latestSchedulingSnap = await getDoc(repo.conversationDoc(conversationId));
+    const latestSchedulingConversation = latestSchedulingSnap.exists() ? latestSchedulingSnap.data() as any : {};
+    if (latestSchedulingConversation.aiEnabled === false || latestSchedulingConversation.humanHandoff === true || latestSchedulingConversation.managementMode === 'HUMAN') {
+      await updateDoc(repo.messageDoc(messageId), { aiProcessed: true });
+      await updateDoc(eventRef, {
+        status: 'suppressed_human_takeover',
+        processedAt: new Date().toISOString(),
+        conversationId,
+      });
+      return;
+    }
+
+    const schedulingOutboundIds: string[] = [];
+    let schedulingSentAt = new Date().toISOString();
+    try {
+      for (let index = 0; index < schedulingBubbles.length; index++) {
+        const bubble = schedulingBubbles[index];
+        const sent = await sendInstagramMessage(ctx, senderId, bubble);
+        schedulingSentAt = new Date().toISOString();
+        const outboundId = index === 0
+          ? 'igout_' + stableHash(externalMessageId)
+          : 'igout_' + stableHash(externalMessageId + ':' + index);
+        await setDoc(repo.messageDoc(outboundId), {
+          messageId: outboundId,
+          externalMessageId: String(sent?.message_id || sent?.messageId || ''),
+          conversationId,
+          channel: 'INSTAGRAM',
+          senderType: 'AI',
+          senderName: 'AI Assistant',
+          instagramUserId: senderId,
+          text: bubble,
+          direction: 'OUTBOUND',
+          timestamp: schedulingSentAt,
+          sentAt: schedulingSentAt,
+          createdAt: schedulingSentAt,
+          aiProcessed: true,
+          aiGenerated: true,
+          deliveryStatus: 'DELIVERED',
+          bubbleIndex: index + 1,
+          bubbleCount: schedulingBubbles.length,
+          schedulingAction: schedulingTurn.action,
+        });
+        schedulingOutboundIds.push(outboundId);
+      }
+    } catch (dispatchError: any) {
+      if (schedulingOutboundIds.length) {
+        await updateDoc(repo.messageDoc(messageId), {
+          aiReplied: true,
+          repliedAt: schedulingSentAt,
+          repliedByMessageId: schedulingOutboundIds[0],
+          aiProcessed: true,
+        });
+        await updateDoc(repo.conversationDoc(conversationId), {
+          lastMessageAt: schedulingSentAt,
+          lastMessageText: schedulingBubbles[Math.max(0, schedulingOutboundIds.length - 1)] || schedulingTurn.replyText,
+          updatedAt: schedulingSentAt,
+        });
+      }
+      await updateDoc(eventRef, {
+        status: schedulingOutboundIds.length ? 'scheduling_reply_partial' : 'scheduling_reply_failed',
+        reason: String(dispatchError?.message || 'The scheduling reply could not be sent.').slice(0, 500),
+        schedulingAction: schedulingTurn.action,
+        processedAt: new Date().toISOString(),
+        conversationId,
+      });
+      return;
+    }
+
+    const schedulingOutboundId = schedulingOutboundIds[0];
+    await updateDoc(repo.messageDoc(messageId), {
+      aiReplied: true,
+      repliedAt: schedulingSentAt,
+      repliedByMessageId: schedulingOutboundId,
+      aiProcessed: true,
+    });
+    await updateDoc(repo.conversationDoc(conversationId), {
+      lastMessageAt: schedulingSentAt,
+      lastMessageText: schedulingBubbles[schedulingBubbles.length - 1] || schedulingTurn.replyText,
+      updatedAt: schedulingSentAt,
+    });
+    await updateDoc(eventRef, {
+      status: 'replied',
+      schedulingAction: schedulingTurn.action,
+      processedAt: schedulingSentAt,
+      conversationId,
+      outboundMessageId: schedulingOutboundId,
+      outboundMessageIds: schedulingOutboundIds,
+    });
+    return;
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey || !messageText) {
     await updateDoc(eventRef, { status: 'processed_no_reply', reason: !apiKey ? 'OPENAI_API_KEY is not configured' : 'No text available for AI reply', processedAt: now, conversationId });
