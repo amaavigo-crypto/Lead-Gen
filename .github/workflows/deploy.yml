@@ -1,0 +1,84 @@
+name: Lead-Gen staging CI and deploy
+
+on:
+  push:
+    branches: [leads-staging]
+  pull_request:
+    branches: [leads-staging]
+  workflow_dispatch:
+
+# Serialize staging deployments so two pushes cannot update the same folder together.
+concurrency:
+  group: lead-gen-staging-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Typecheck ratchet, isolation, SEO, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript error ratchet
+        run: bash scripts/typecheck-ratchet.sh
+
+      - name: Tenant isolation check
+        run: npm run check:isolation
+
+      - name: SEO settings tests
+        run: npm run test:seo
+
+      - name: Production build
+        run: npm run build
+
+  deploy-staging:
+    name: Deploy to Lead-Gen staging VPS
+    needs: test
+    # Deployment stays off until the UAT database and staging integration credentials
+    # are isolated from production. Set the repository variable STAGING_DEPLOY_ENABLED=true
+    # when the server's ~/uat/leads-staging/.env is safe for staging automation.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/leads-staging' && vars.STAGING_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    steps:
+      - name: Set up SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy over SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o BatchMode=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "set -e; cd '$DEPLOY_PATH'; PREV_SHA=\$(git rev-parse HEAD); git fetch --quiet origin leads-staging; git checkout -q -f -B leads-staging '$COMMIT_SHA'; PM2_APP=lead-gen-staging APP_PORT=3011 PREV_SHA=\$PREV_SHA bash scripts/deploy.sh"
+
+      - name: Clean up SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
