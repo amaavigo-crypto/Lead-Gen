@@ -128,6 +128,6 @@ export const SiteFooter: React.FC = () => (
       <div className="sx-footer-col"><strong>Company</strong><a href="/solutions">Solutions</a><a href="/pricing">Pricing</a><a href="/resources">Resources</a><a href="/how-it-works">How it works</a><a href="/faqs">FAQs</a><a href="/about">About</a><a href="/contact">Contact</a></div>
       <div className="sx-footer-col"><strong>Legal</strong><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="/dpa">Data Processing</a><a href="/aup">Acceptable Use</a><a href="/login">Log in</a></div>
     </div>
-    <div className="sx-footer-bottom"><span>© {new Date().getFullYear()} Amaavigo Digital Solutions LLP. All rights reserved.</span></div>
+    
   </footer>
 );
