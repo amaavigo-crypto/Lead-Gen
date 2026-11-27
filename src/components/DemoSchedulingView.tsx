@@ -1025,6 +1025,28 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
                 <label><span>Timezone label (automatic)</span><input type="text" readOnly aria-readonly="true" value={timezoneLabelFor(availabilityDraft.timezone) || 'Select a valid timezone'} /></label>
                 <label><span>Calendar invite email</span><input type="email" disabled={!canEditSettings || isSavingAvailability} value={availabilityDraft.calendarEmail} onChange={(event) => updateAvailabilityText('calendarEmail', event.target.value)} placeholder="calendar@company.com" /></label>
               </div>
+              <div style={{ marginTop: 14, padding: 12, border: '1px solid var(--border, #e5e7eb)', borderRadius: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                  <input
+                    type="checkbox"
+                    disabled={!canEditSettings || isSavingAvailability}
+                    checked={availabilityDraft.meetingAssistantEnabled !== false}
+                    onChange={(event) => setAvailabilityDraft((current) => ({
+                      ...current,
+                      meetingAssistantEnabled: event.target.checked,
+                    }))}
+                  />
+                  <span>
+                    <strong>AI Meeting Assistant</strong>
+                    <small style={{ display: 'block', opacity: 0.75, marginTop: 4 }}>
+                      Invite Amaavigo AI Assistant ({'automation@amaavigo.com'}) to new Google Meet demos when attendee recording consent is verified.
+                    </small>
+                  </span>
+                </label>
+                <p className="schedule-settings-hint" style={{ marginTop: 8 }}>
+                  Enabled by default. Turning this off stops invitations for new bookings. Existing calendar invitations are not removed automatically.
+                </p>
+              </div>
               <p className="schedule-settings-hint">The full session must fit inside a working window. Start times repeat at the selected session duration.</p>
             </div>
             <div className="schedule-settings-card">
