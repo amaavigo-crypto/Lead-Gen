@@ -6,6 +6,7 @@ import type { TenantContext } from '../types/tenant.js';
 import {
   getInstagramStatus,
   startInstagramOAuth,
+  disconnectInstagram,
 } from './instagramIntegrationService.js';
 
 type Provider = 'instagram' | 'facebook' | 'youtube' | 'x' | 'linkedin' | 'reddit';
@@ -364,6 +365,26 @@ export async function handleNativeSocialOAuthCallback(req: any, res: any, url: s
 }
 
 export async function handleNativeSocialStudioApi(req: any, res: any, ctx: TenantContext, url: string): Promise<boolean> {
+  if (url === '/api/social-studio/status' && req.method === 'GET') {
+    json(res, 200, {
+      success: true,
+      provisioned: true,
+      provider: 'native',
+      connectedChannels: 0,
+    });
+    return true;
+  }
+
+  if (url === '/api/social-studio/posts' && req.method === 'GET') {
+    json(res, 200, { success: true, posts: [] });
+    return true;
+  }
+
+  if (url === '/api/social-studio/media' && req.method === 'GET') {
+    json(res, 200, { success: true, media: [] });
+    return true;
+  }
+
   const connect = url.match(/^\/api\/social-studio\/channels\/connect\/(instagram|facebook|youtube|x|linkedin|reddit)$/);
   if (connect && req.method === 'POST') {
     if (!ctx.isPlatformAdmin && ctx.role !== 'admin') {
@@ -384,12 +405,14 @@ export async function handleNativeSocialStudioApi(req: any, res: any, ctx: Tenan
       const results: any[] = [];
       const instagram = await getInstagramStatus(ctx).catch(() => ({ connected: false, connection: null }));
       if (instagram.connected && instagram.connection) {
+        const grantedScopes = Array.isArray(instagram.connection.scopes) ? instagram.connection.scopes : [];
         results.push({
           id: 'instagram',
           identifier: 'instagram',
           name: instagram.connection.username || 'Instagram',
           username: instagram.connection.username || '',
           status: instagram.connection.status,
+          disabled: !grantedScopes.includes('instagram_business_content_publish'),
         });
       }
       for (const provider of ['facebook', 'youtube', 'x', 'linkedin', 'reddit'] as const) {
@@ -420,9 +443,13 @@ export async function handleNativeSocialStudioApi(req: any, res: any, ctx: Tenan
       return true;
     }
     const provider = disconnect[1];
-    const repository = tenantRepo(ctx);
-    await deleteDoc(repository.secretDoc('social_studio_' + provider + '_oauth'));
-    await deleteDoc(repository.integrationDoc('social_studio_' + provider));
+    if (provider === 'instagram') {
+      await disconnectInstagram(ctx);
+    } else {
+      const repository = tenantRepo(ctx);
+      await deleteDoc(repository.secretDoc('social_studio_' + provider + '_oauth'));
+      await deleteDoc(repository.integrationDoc('social_studio_' + provider));
+    }
     json(res, 200, { success: true });
     return true;
   }
