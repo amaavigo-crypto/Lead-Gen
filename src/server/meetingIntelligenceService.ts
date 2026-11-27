@@ -17,7 +17,7 @@ function verifySignature(rawBody: Buffer, presented: string | undefined, secret:
 
 function statusForEvent(type: string): string {
   const states: Record<string, string> = {
-    'meeting.scheduled': 'scheduled', 'meeting.joined': 'joining',
+    'meeting.scheduled': 'scheduled', 'meeting.rescheduled': 'scheduled', 'meeting.joined': 'joining',
     'meeting.recording.started': 'recording', 'meeting.recording.completed': 'recorded',
     'meeting.transcript.completed': 'transcribed', 'meeting.analysis.completed': 'completed',
     'meeting.needs_reauth': 'needs_reauth', 'meeting.failed': 'failed',
