@@ -291,6 +291,8 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
   const [leadPhone, setLeadPhone] = useState('');
   const [channel, setChannel] = useState<Channel>('EMAIL');
   const [isBooking, setIsBooking] = useState(false);
+  const [recordingConsentConfirmed, setRecordingConsentConfirmed] = useState(false);
+  const [recordingConsentSource, setRecordingConsentSource] = useState<'' | 'attendee_form' | 'attendee_chat' | 'attendee_email' | 'attendee_whatsapp'>('');
   const [bookingSuccessMsg, setBookingSuccessMsg] = useState<string | null>(null);
 
   // Simulator State
@@ -599,6 +601,10 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
   const handleQuickBook = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSlot || !leadEmail) return;
+    if (recordingConsentConfirmed && !recordingConsentSource) {
+      setBookingError('Select how the attendee gave explicit recording consent, or leave recording disabled.');
+      return;
+    }
 
     setIsBooking(true);
     setBookingSuccessMsg(null);
@@ -628,6 +634,10 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
           startTime,
           endTime,
           accessToken: token || undefined,
+          recordingConsent: recordingConsentConfirmed,
+          recordingConsentAt: recordingConsentConfirmed ? new Date().toISOString() : undefined,
+          recordingConsentSource: recordingConsentConfirmed ? recordingConsentSource : undefined,
+          recordingConsentTextVersion: recordingConsentConfirmed ? 'recording-consent-v1' : undefined,
         }),
       });
 
@@ -643,8 +653,9 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
             : '';
         setBookingSuccessMsg(`Demo booked.${crmSyncMessage} ${videoLabel} link: ${data.booking.googleMeetLink}`);
         setSelectedSlot(null);
-        setSelectedLeadId('');
-        setSelectedBookingId(data.booking.bookingId || null);
+        setRecordingConsentConfirmed(false);
+        setRecordingConsentSource('');
+        setSelectedLeadId('');        setSelectedBookingId(data.booking.bookingId || null);
         fetchAvailability(calendarWeekStart);
         fetchBookings();
       } else {
@@ -845,6 +856,8 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
     setCompanyName('');
     setLeadPhone('');
     setChannel('EMAIL');
+    setRecordingConsentConfirmed(false);
+    setRecordingConsentSource('');
     setSelectedSlot(slot);
   };
   const visibleCalendarBookings = (dateKey: string) => bookings
@@ -1100,6 +1113,14 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
               <label><span>Phone number</span><input value={leadPhone} onChange={(event) => setLeadPhone(event.target.value)} placeholder="+91…" /></label>
               <label><span>Origin channel</span><select value={channel} onChange={(event) => setChannel(event.target.value as Channel)}><option value="EMAIL">Email</option><option value="WHATSAPP">WhatsApp</option><option value="WEBSITE">Website</option><option value="INSTAGRAM">Instagram</option><option value="FACEBOOK">Facebook</option><option value="LINKEDIN">LinkedIn</option></select></label>
               <div className="schedule-booking-confirmation"><CalendarDays className="h-4 w-4" /><span>{videoLabel} · {brand.demoDurationMinutes} minutes · {tzl}</span></div>
+              <div className="schedule-booking-consent" style={{ border: '1px solid var(--border, #e5e7eb)', borderRadius: 12, padding: 12, gridColumn: '1 / -1' }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                  <input type="checkbox" checked={recordingConsentConfirmed} onChange={(event) => { setRecordingConsentConfirmed(event.target.checked); if (!event.target.checked) setRecordingConsentSource(''); }} />
+                  <span><strong>Attendee recording and AI transcription consent verified</strong><small style={{ display: 'block', opacity: 0.75, marginTop: 4 }}>Only enable after the attendee has explicitly agreed. They may decline and still attend the demo.</small></span>
+                </label>
+                <p style={{ margin: '10px 0 8px', fontSize: 12, opacity: 0.8 }}>Disclosure to share with the attendee: “We would like to record and transcribe this demo with AI to prepare a meeting summary, key points and action items. You may decline and still attend the demo.”</p>
+                {recordingConsentConfirmed && <label className="schedule-full-field"><span>Where did the attendee give consent? *</span><select required value={recordingConsentSource} onChange={(event) => setRecordingConsentSource(event.target.value as typeof recordingConsentSource)}><option value="">Select consent source</option><option value="attendee_form">Attendee opt-in form</option><option value="attendee_chat">Attendee chat</option><option value="attendee_email">Attendee email reply</option><option value="attendee_whatsapp">Attendee WhatsApp reply</option></select></label>}
+              </div>
               {bookingError && <div className="schedule-inline-message error">{bookingError}</div>}
               <div className="schedule-modal-actions"><button type="button" className="schedule-secondary-button" onClick={() => { setSelectedSlot(null); setSelectedLeadId(''); }}>Cancel</button><button type="submit" className="schedule-primary-button" disabled={isBooking}>{isBooking ? <><RefreshCw className="h-4 w-4 animate-spin" /> Booking…</> : <><CheckCircle2 className="h-4 w-4" /> Confirm and send invite</>}</button></div>
             </form>
