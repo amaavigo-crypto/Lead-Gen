@@ -12,7 +12,8 @@ export type ActiveTab =
   | 'settings'
   | 'auto-followup'
   | 'database'
-  | 'campaign-reports';
+  | 'campaign-reports'
+  | 'social-studio';
 
 export type AuditModule =
   | 'CAMPAIGNS'
