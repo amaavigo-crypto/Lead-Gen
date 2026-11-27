@@ -133,7 +133,7 @@ export async function startInstagramOAuth(ctx: TenantContext): Promise<{ authori
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
-    scope: 'instagram_business_basic,instagram_business_manage_messages',
+    scope: 'instagram_business_basic,instagram_business_manage_messages,instagram_business_content_publish,instagram_business_manage_comments,instagram_business_manage_insights',
     state,
   });
   return { authorizationUrl: `https://www.instagram.com/oauth/authorize?${params.toString()}` };
@@ -289,7 +289,7 @@ export async function handleInstagramOAuthCallback(req: any, res: any): Promise<
       status: 'connected',
       connectedAt: existing?.connectedAt || now,
       updatedAt: now,
-      scopes: ['instagram_business_basic', 'instagram_business_manage_messages'],
+      scopes: ['instagram_business_basic', 'instagram_business_manage_messages', 'instagram_business_content_publish', 'instagram_business_manage_comments', 'instagram_business_manage_insights'],
       tokenExpiresAt: account.expiresIn ? new Date(Date.now() + account.expiresIn * 1000).toISOString() : null,
       webhookSubscriptionStatus: account.webhookSubscribed ? 'subscribed' : 'needs_setup',
     };
