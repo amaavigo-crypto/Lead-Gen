@@ -93,6 +93,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     if (currentUser.accessLevel === 'ALL' || currentUser.role === 'ADMIN') return true;
     if (tabId === 'email-design-studio' && (currentUser.allowedModules || []).includes('settings')) return true;
     if (tabId === 'lead-scoring') return isModuleAccessible('crm');
+    if (tabId === 'social-studio') return (currentUser.allowedModules || []).includes('social-studio') || (currentUser.allowedModules || []).includes('social_studio');
     return (currentUser.allowedModules || []).includes(tabId);
   };
 
