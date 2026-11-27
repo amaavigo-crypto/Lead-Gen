@@ -1,0 +1,34 @@
+name: Native Social Studio validation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/server/nativeSocialOAuth.ts"
+      - "src/server/instagramIntegrationService.ts"
+      - "src/server/coreApiHandler.ts"
+      - ".env.example"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/native-social-studio-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  production-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Build application and API bundles
+        run: npm run build
