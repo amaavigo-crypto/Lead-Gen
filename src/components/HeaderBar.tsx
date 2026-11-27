@@ -14,6 +14,7 @@ import {
   FileBarChart,
   QrCode,
   Building2,
+  Share2,
   Mail,
   Inbox,
   Settings,
@@ -70,6 +71,7 @@ const TAB_TITLES: Record<ActiveTab, { title: string; icon: React.ReactNode; cate
   settings: { title: 'Workspace', icon: <Settings className="h-4 w-4" />, category: 'WORKSPACE SETTINGS', workspaceLabel: 'Workspace' },
   'company-profile': { title: 'Workspace', icon: <Building2 className="h-4 w-4" />, category: 'WORKSPACE SETTINGS', workspaceLabel: 'Workspace' },
   'audit-logs': { title: 'Workspace', icon: <ShieldCheck className="h-4 w-4" />, category: 'WORKSPACE SETTINGS', workspaceLabel: 'Workspace' },
+  'social-studio': { title: 'Social Studio', icon: <Share2 className="h-4 w-4" />, category: 'SOCIAL PUBLISHING', workspaceLabel: 'Social Studio' },
 };
 
 const AI_TABS: ModuleTab[] = [
@@ -121,6 +123,7 @@ const APP_SHORTCUTS: ModuleTab[] = [
   { id: 'database', label: 'Lead Database', icon: <Database className="h-4 w-4" /> },
   { id: 'knowledge', label: 'Knowledge Base', icon: <BookOpen className="h-4 w-4" /> },
   { id: 'workspace', label: 'Workspace', icon: <Building2 className="h-4 w-4" /> },
+  { id: 'social-studio', label: 'Social Studio', icon: <Share2 className="h-4 w-4" /> },
 ];
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
