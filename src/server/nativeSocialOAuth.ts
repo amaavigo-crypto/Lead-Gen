@@ -436,7 +436,7 @@ export async function handleNativeSocialStudioApi(req: any, res: any, ctx: Tenan
     return true;
   }
 
-  const disconnect = url.match(/^\/api\/social-studio\/channels\/(facebook|youtube|x|linkedin|reddit)$/);
+  const disconnect = url.match(/^\/api\/social-studio\/channels\/(instagram|facebook|youtube|x|linkedin|reddit)$/);
   if (disconnect && req.method === 'DELETE') {
     if (!ctx.isPlatformAdmin && ctx.role !== 'admin') {
       json(res, 403, { success: false, error: 'Only a workspace administrator can disconnect social accounts.' });
