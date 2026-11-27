@@ -735,6 +735,12 @@ export interface Booking {
   summary?: string;
   description?: string;
   attendees?: string[];
+  /** Participant consent must be captured explicitly before Meeting Intelligence is scheduled. */
+  recordingConsent?: boolean;
+  recordingConsentAt?: string;
+  recordingConsentSource?: 'attendee_form' | 'attendee_chat' | 'attendee_email' | 'attendee_whatsapp';
+  recordingConsentTextVersion?: string;
+  meetingIntelligence?: { meetingId?: string; status?: string; report?: Record<string, unknown>; recordingObjectKey?: string; transcriptId?: string; updatedAt?: string };
   notes?: string;
   createdAt: string;
   updatedAt: string;
