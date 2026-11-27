@@ -5,9 +5,7 @@ on:
     branches:
       - main
     paths:
-      - "src/server/nativeSocialOAuth.ts"
-      - "src/server/instagramIntegrationService.ts"
-      - "src/server/coreApiHandler.ts"
+      - "src/**"
       - ".env.example"
       - "package.json"
       - "package-lock.json"
