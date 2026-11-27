@@ -2696,6 +2696,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
     currentUser.accessLevel === 'ALL' ||
     currentUser.role === 'ADMIN' ||
     (currentUser.allowedModules || []).includes(activeTab) ||
+    (activeTab === 'social-studio' && (currentUser.allowedModules || []).includes('social_studio')) ||
     (activeTab === 'email-design-studio' && (currentUser.allowedModules || []).includes('settings')) ||
     (activeTab === 'lead-scoring' && (currentUser.allowedModules || []).includes('crm')) ||
     activeTab === 'dashboard' ||
