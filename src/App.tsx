@@ -62,6 +62,7 @@ const DashboardView = lazyNamed(() => import('./components/DashboardView'), 'Das
 const CampaignManagement = lazyNamed(() => import('./components/CampaignManagement'), 'CampaignManagement');
 const CampaignReports = lazyNamed(() => import('./components/CampaignReports'), 'CampaignReports');
 const QRStudioView = lazyNamed(() => import('./components/QRStudio'), 'QRStudio');
+const SocialStudioView = lazyNamed(() => import('./components/SocialStudioView'), 'SocialStudioView');
 const TemplateStudio = lazyNamed(() => import('./components/TemplateStudio'), 'TemplateStudio');
 const CrmPipeline = lazyNamed(() => import('./components/CrmPipeline'), 'CrmPipeline');
 const LeadScoringView = React.lazy(() => import('./components/LeadScoringView'));
@@ -240,6 +241,7 @@ const ALL_TABS: readonly ActiveTab[] = [
   'database',
   'campaign-reports',
   'qr-studio',
+  'social-studio',
   'company-profile',
   'agent',
 ];
@@ -2743,7 +2745,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
           onSwitchTenant={(tenantId) => setCurrentTenantId(tenantId)}
           entitlements={entitlements}
           planLocked={planLocked}
-          hideModuleNavigation={activeTab === 'inbox' || activeTab === 'dashboard' || activeTab === 'agent'}
+          hideModuleNavigation={activeTab === 'inbox' || activeTab === 'dashboard' || activeTab === 'agent' || activeTab === 'social-studio'}
         />
 
         <main className={`app-workspace-content flex-1 min-w-0 min-h-0 ${activeTab === 'dashboard' ? 'app-workspace-content--dark p-0 overflow-y-auto' : activeTab === 'inbox' ? 'p-0 overflow-hidden flex flex-col' : activeTab === 'agent' ? 'p-0 overflow-hidden flex flex-col' : 'app-workspace-content--joined p-3 sm:p-5 overflow-y-auto'}`}>
@@ -3025,6 +3027,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
             {activeTab === 'database' && <LeadDatabase isAdmin={currentUser.role === 'ADMIN'} tenantId={currentTenantId} />}
             {activeTab === 'campaign-reports' && <CampaignReports tenantId={currentTenantId} />}
             {activeTab === 'qr-studio' && <QRStudioView tenantId={currentTenantId} />}
+            {activeTab === 'social-studio' && <SocialStudioView tenantId={currentTenantId} tenantName={currentTenant?.name} currentUser={currentUser} onBackToLeadGen={() => setActiveTab('dashboard')} />}
           </Suspense>
         )}
       </main>
