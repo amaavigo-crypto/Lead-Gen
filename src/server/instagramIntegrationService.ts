@@ -112,7 +112,7 @@ async function getAccessToken(ctx: TenantContext): Promise<string> {
   return accessToken;
 }
 
-export async function startInstagramOAuth(ctx: TenantContext): Promise<{ authorizationUrl: string }> {
+export async function startInstagramOAuth(ctx: TenantContext, options?: { returnToSocialStudio?: boolean }): Promise<{ authorizationUrl: string }> {
   const clientId = requiredEnv('META_INSTAGRAM_APP_ID');
   const redirectUri = requiredEnv('META_INSTAGRAM_REDIRECT_URI');
   requiredEnv('META_INSTAGRAM_APP_SECRET');
@@ -126,6 +126,7 @@ export async function startInstagramOAuth(ctx: TenantContext): Promise<{ authori
     uid: ctx.uid,
     email: ctx.email || '',
     role: ctx.role,
+    ...(options?.returnToSocialStudio ? { source: 'social-studio' } : {}),
     createdAt: now,
     expiresAt: now + OAUTH_STATE_TTL_MS,
   });
@@ -263,7 +264,8 @@ export async function handleInstagramOAuthCallback(req: any, res: any): Promise<
   if (error || !code) {
     const appUrl = process.env.APP_BASE_URL || process.env.APP_URL || '/';
     res.statusCode = 302;
-    res.setHeader('Location', `${appUrl}${appUrl.includes('?') ? '&' : '?'}instagram=error`);
+    const returnParams = stateData.source === 'social-studio' ? 'tab=social-studio&social_oauth=error&provider=instagram' : 'instagram=error';
+    res.setHeader('Location', `${appUrl}${appUrl.includes('?') ? '&' : '?'}${returnParams}`);
     res.end();
     return true;
   }
@@ -308,7 +310,8 @@ export async function handleInstagramOAuthCallback(req: any, res: any): Promise<
     }
     const appUrl = process.env.APP_BASE_URL || process.env.APP_URL || '/';
     res.statusCode = 302;
-    res.setHeader('Location', `${appUrl}${appUrl.includes('?') ? '&' : '?'}instagram=connected`);
+    const returnParams = stateData.source === 'social-studio' ? 'tab=social-studio&social_oauth=connected&provider=instagram' : 'instagram=connected';
+    res.setHeader('Location', `${appUrl}${appUrl.includes('?') ? '&' : '?'}${returnParams}`);
     res.end();
   } catch (err: any) {
     console.error('[Instagram OAuth] Connection failed:', err?.message || 'unknown error');
