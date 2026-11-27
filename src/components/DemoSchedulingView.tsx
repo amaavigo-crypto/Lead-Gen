@@ -201,6 +201,7 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
   const [meetingIntelData, setMeetingIntelData] = useState<any | null>(null);
   const [meetingIntelLoading, setMeetingIntelLoading] = useState(false);
   const [meetingIntelError, setMeetingIntelError] = useState<string | null>(null);
+  useEffect(() => { setMeetingIntelData(null); setMeetingIntelError(null); }, [selectedBookingId]);
 
   const calendarWeekStart = useMemo(() => mondayOfDateKey(calendarAnchorDate), [calendarAnchorDate]);
   const calendarWeekStartRef = useRef(calendarWeekStart);
