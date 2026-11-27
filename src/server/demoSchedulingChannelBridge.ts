@@ -2,6 +2,7 @@ import type { Channel } from '../types/index.js';
 import type { TenantContext } from '../types/tenant.js';
 import {
   detectDemoSchedulingIntent,
+  getSchedulingStateKey,
   hasPendingSchedulingState,
   processSchedulingConversationTurn,
   runWithSchedulingCtx,
@@ -30,9 +31,17 @@ export async function tryHandleInboundDemoScheduling(params: {
 
   const leadContext = params.leadContext;
   const hasIntent = detectDemoSchedulingIntent(messageText);
+  const containsEmail = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(messageText);
   const couldBeSchedulingFollowUp =
     messageText.length <= 300 &&
-    /\b(yes|yeah|yep|sure|okay|ok|no|nope|works|perfect|great|sounds good|that works|let'?s do it|monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow|morning|afternoon|evening|option|slot)\b|\b\d{1,2}(?::\d{2})?\s*(am|pm)?\b/i.test(messageText);
+    (containsEmail || /\b(yes|yeah|yep|sure|okay|ok|no|nope|works|perfect|great|sounds good|that works|let'?s do it|monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow|morning|afternoon|evening|option|slot)\b|\b\d{1,2}(?::\d{2})?\s*(am|pm)?\b/i.test(messageText));
+  const stateKeyOverride = leadContext.channel === 'EMAIL'
+    ? undefined
+    : getSchedulingStateKey({
+        leadPhone: leadContext.leadPhone,
+        conversationId: leadContext.conversationId,
+        leadId: leadContext.leadId,
+      });
   const hasPendingState = hasIntent || !couldBeSchedulingFollowUp
     ? false
     : await runWithSchedulingCtx(params.ctx, () =>
@@ -42,6 +51,7 @@ export async function tryHandleInboundDemoScheduling(params: {
           leadPhone: leadContext.leadPhone,
           conversationId: leadContext.conversationId,
           leadId: leadContext.leadId,
+          stateKeyOverride: stateKeyOverride || undefined,
         })
       );
 
@@ -53,6 +63,7 @@ export async function tryHandleInboundDemoScheduling(params: {
       messageText,
       conversationHistory: params.conversationHistory || [],
       leadContext,
+      schedulingStateKeyOverride: stateKeyOverride,
     })
   );
 }

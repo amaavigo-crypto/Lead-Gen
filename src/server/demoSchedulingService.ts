@@ -1583,7 +1583,8 @@ export async function rescheduleDemoBooking(
   newDateString: string,
   newStartTime: string,
   newEndTime: string,
-  accessToken?: string
+  accessToken?: string,
+  inviteEmail?: string
 ): Promise<{ success: boolean; booking?: Booking; error?: string; conflict?: boolean; calendarInviteSent?: boolean }> {
   await warmSchedBrand();
   if (!isFirebaseConfigured || !db) {
@@ -1629,6 +1630,13 @@ export async function rescheduleDemoBooking(
     }
 
     // Create the new calendar event FIRST. The previous booking is untouched if this fails.
+    // A new invite email supplied during a social-channel reschedule replaces the old primary invitee.
+    const nextLeadEmail = normalizeLeadEmail(inviteEmail || booking.leadEmail);
+    const previousPrimaryEmail = normalizeLeadEmail(booking.leadEmail);
+    const additionalAttendees = (booking.attendees || [])
+      .map((email) => normalizeLeadEmail(email))
+      .filter((email) => email && email !== previousPrimaryEmail);
+    const nextAttendees = Array.from(new Set([...additionalAttendees, ...(nextLeadEmail ? [nextLeadEmail] : [])]));
     const createRes = await createGoogleCalendarDemoBookingInner({
       replacingBookingId: booking.bookingId,
       leadId: booking.leadId,
@@ -1637,10 +1645,10 @@ export async function rescheduleDemoBooking(
       conversationId: booking.conversationId,
       channel: booking.channel,
       leadName: booking.leadName,
-      leadEmail: booking.leadEmail,
+      leadEmail: nextLeadEmail,
       leadPhone: booking.leadPhone,
       companyName: booking.companyName,
-      attendees: booking.attendees || [],
+      attendees: nextAttendees,
       startIso: newStartIso,
       endIso: newEndIso,
       dateString: newDateString,
@@ -1676,6 +1684,8 @@ export async function rescheduleDemoBooking(
     const nowIso = new Date().toISOString();
     const updatedBooking: Booking = {
       ...booking,
+      leadEmail: nextLeadEmail,
+      attendees: createRes.booking.attendees || nextAttendees,
       date: newDateString,
       startTime: newStartTime,
       endTime: newEndTime,
@@ -2057,6 +2067,7 @@ export interface SchedulingTurnResult {
     | 'HOURS_NOT_ALLOWED'
     | 'ATTENDEE_ADDED'
     | 'ASKED_ATTENDEE_EMAIL'
+    | 'ASKED_EMAIL'
     | 'ADD_ATTENDEE_FAILED'
     | 'AWAITING_CONFIRMATION'
     | 'SLOT_UNAVAILABLE'
@@ -2075,7 +2086,7 @@ const AVAILABILITY_STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CONFIRMATION_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 
 interface SchedulingState {
-  stage: 'AWAITING_AVAILABILITY' | 'AWAITING_CONFIRMATION';
+  stage: 'AWAITING_AVAILABILITY' | 'AWAITING_CONFIRMATION' | 'AWAITING_EMAIL';
   offeredSlots?: OfferedSlot[];
   proposedSlot?: OfferedSlot;
   mode?: 'NEW' | 'RESCHEDULE';
@@ -2094,7 +2105,7 @@ function addDaysToDate(dateString: string, days: number): string {
 }
 
 /** Stable per-lead key: email first, then phone, then conversation / lead id. */
-function schedulingStateKey(p: { leadEmail?: string; leadPhone?: string; conversationId?: string; leadId?: string }): string | null {
+export function getSchedulingStateKey(p: { leadEmail?: string; leadPhone?: string; conversationId?: string; leadId?: string }): string | null {
   const email = normalizeLeadEmail(String(p.leadEmail || '').trim());
   let raw = '';
   if (email.includes('@')) raw = `email:${email}`;
@@ -2127,7 +2138,7 @@ async function loadSchedulingState(key: string | null): Promise<SchedulingState 
 
 async function saveSchedulingState(key: string | null, state: SchedulingState): Promise<void> {
   if (!key || !isFirebaseConfigured || !db) return;
-  const ttl = state.stage === 'AWAITING_CONFIRMATION' ? CONFIRMATION_STATE_TTL_MS : AVAILABILITY_STATE_TTL_MS;
+  const ttl = state.stage === 'AWAITING_AVAILABILITY' ? AVAILABILITY_STATE_TTL_MS : CONFIRMATION_STATE_TTL_MS;
   try {
     await safeSetDoc(tenantRepo(getSchedCtx()).doc('scheduling_state', key), {
       stage: state.stage,
@@ -2165,11 +2176,17 @@ export async function hasPendingSchedulingState(params: {
   leadPhone?: string;
   conversationId?: string;
   leadId?: string;
+  stateKeyOverride?: string;
 }): Promise<boolean> {
   await warmSchedBrand();
   const fresh = stripQuotedEmailHistoryShared(params.messageText || '') || String(params.messageText || '').trim();
-  if (!looksLikeSchedulingFollowUp(fresh)) return false;
-  return !!(await loadSchedulingState(schedulingStateKey(params)));
+  const containsEmail = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(fresh);
+  if (!looksLikeSchedulingFollowUp(fresh) && !containsEmail) return false;
+  const keys = Array.from(new Set([params.stateKeyOverride, getSchedulingStateKey(params)].filter(Boolean) as string[]));
+  for (const key of keys) {
+    if (await loadSchedulingState(key)) return true;
+  }
+  return false;
 }
 
 /**
@@ -2298,7 +2315,7 @@ export async function processSchedulingConversationTurn(params: {
   const ctx: any = params.leadContext || {};
   const leadName = ctx.leadName || params.senderName || params.leadName || 'Valued Partner';
   const companyName = ctx.companyName || params.companyName || 'your travel agency';
-  const leadEmail = ctx.leadEmail || params.senderEmail || params.leadEmail || '';
+  let leadEmail = ctx.leadEmail || params.senderEmail || params.leadEmail || '';
   const leadPhone = ctx.leadPhone || params.senderPhone || params.leadPhone || '';
   const channel: Channel = ctx.channel || params.channel || 'EMAIL';
   const leadId = ctx.leadId || params.leadId;
@@ -2322,16 +2339,42 @@ export async function processSchedulingConversationTurn(params: {
 
   // Saved state of an in-progress scheduling exchange (we asked for availability / for a "yes").
   // Only read for messages that could continue one, to keep Firestore reads down.
-  const stateKey = schedulingStateKey({ leadEmail, leadPhone, conversationId, leadId });
-  const schedState =
-    stateKey && (detectDemoSchedulingIntent(fresh) || looksLikeSchedulingFollowUp(fresh))
-      ? await loadSchedulingState(stateKey)
-      : null;
+  const defaultStateKey = getSchedulingStateKey({ leadEmail, leadPhone, conversationId, leadId });
+  const stateKeyOverride = typeof params.schedulingStateKeyOverride === 'string' ? params.schedulingStateKeyOverride : '';
+  const stateKeys = Array.from(new Set([stateKeyOverride, defaultStateKey].filter(Boolean)));
+  let stateKey = stateKeys[0] || null;
+  let schedState: SchedulingState | null = null;
+  const containsEmail = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(fresh);
+  if (detectDemoSchedulingIntent(fresh) || looksLikeSchedulingFollowUp(fresh) || containsEmail) {
+    for (const candidateKey of stateKeys) {
+      const candidateState = await loadSchedulingState(candidateKey);
+      if (candidateState) {
+        stateKey = candidateKey;
+        schedState = candidateState;
+        break;
+      }
+    }
+  }
 
   // Booking only happens when the sender actually asks for it, or is answering our scheduling question.
   // Manual calls (Demo Scheduling tab simulator) always proceed to the guarded checks below.
   if (params.manual !== true && !detectDemoSchedulingIntent(fresh) && !schedState) {
     return { handled: false, replyText: '', action: 'NOT_DEMO_INTENT' };
+  }
+
+  // Capture a requested calendar-invite email before the attendee parser sees it.
+  // The primary invite address must not be mistaken for an additional guest.
+  if (schedState?.stage === 'AWAITING_EMAIL' && schedState.proposedSlot) {
+    const suppliedEmail = fresh.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i)?.[0] || '';
+    if (!suppliedEmail) {
+      return {
+        handled: true,
+        action: 'ASKED_EMAIL',
+        replyText: 'Before I confirm your demo, please share the email address where you would like me to send the Google Calendar invitation.',
+      };
+    }
+    leadEmail = normalizeLeadEmail(suppliedEmail);
+    leadContext.leadEmail = leadEmail;
   }
 
   const nowIst = getNowInIst();
@@ -2496,6 +2539,13 @@ export async function processSchedulingConversationTurn(params: {
   // Judged on the lead's own reply only: not the email subject, not our earlier message pasted back by
   // the mail client, not the signature. Otherwise a word from those ("different day", "no" in a subject)
   // turned a plain "Yes, that is correct." into a refusal and the lead was asked for a time again.
+  if (schedState?.stage === 'AWAITING_EMAIL' && schedState.proposedSlot) {
+    return finalizeConfirmedSlot(
+      schedState.proposedSlot,
+      schedState.mode === 'RESCHEDULE' ? 'RESCHEDULE' : 'NEW'
+    );
+  }
+
   if (schedState?.stage === 'AWAITING_CONFIRMATION' && schedState.proposedSlot) {
     const answerSource = params.bodyText != null ? stripQuotedEmailHistoryShared(String(params.bodyText)) || String(params.bodyText) : fresh;
     const answer = leadReplyHead(answerSource) || answerSource.trim();
@@ -2857,6 +2907,28 @@ Output JSON only: {"isDemoIntent": boolean, "requestedDate": string|null, "reque
 
   /** The lead said yes to a proposed slot: re-validate, then book or reschedule. */
   async function finalizeConfirmedSlot(slot: OfferedSlot, slotMode: 'NEW' | 'RESCHEDULE'): Promise<SchedulingTurnResult> {
+    const isEmailChannel = channel === 'EMAIL';
+    const emailAddress = normalizeLeadEmail(leadEmail);
+    const isValidLeadEmail = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(emailAddress);
+    if (!isEmailChannel && !isValidLeadEmail) {
+      await saveSchedulingState(stateKey, {
+        stage: 'AWAITING_EMAIL',
+        proposedSlot: {
+          date: slot.date,
+          startHour: slot.startHour,
+          startMinute: slot.startMinute || 0,
+          label: formatSlotLabel(slot.date, slot.startHour, slot.startMinute || 0),
+        },
+        offeredSlots: [],
+        mode: slotMode,
+      });
+      return {
+        handled: true,
+        action: 'ASKED_EMAIL',
+        replyText: 'Perfect. Before I confirm your demo and send the Google Calendar invitation, please share the email address you would like the invitation sent to.',
+      };
+    }
+
     const problem = await slotProblem(slot);
     if (problem) return problem;
 
@@ -2879,7 +2951,8 @@ Output JSON only: {"isDemoIntent": boolean, "requestedDate": string|null, "reque
         targetDateStr,
         startTimeStr,
         endTimeStr,
-        accessToken
+        accessToken,
+        leadEmail
       );
       if (resched.success && resched.booking) {
         await clearSchedulingState(stateKey);
