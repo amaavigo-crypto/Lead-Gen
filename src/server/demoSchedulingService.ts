@@ -138,6 +138,9 @@ export const WORKING_END_HOUR = 19;
 export const DEMO_DURATION_MINUTES = 60; // Backward-compatible default for tenants without a saved duration.
 export const VALID_SLOT_START_HOURS = [10, 11, 12, 13, 14, 15, 16, 17, 18]; // Legacy hourly start times only.
 
+const getMeetingAssistantEmail = () =>
+  String(process.env.MEETING_INTELLIGENCE_BOT_EMAIL || 'automation@amaavigo.com').trim().toLowerCase();
+
 // Server-side in-memory cache for OAuth access tokens, one entry per workspace (never shared between them).
 const serverCalendarTokens = new Map<string, { token: string; expiresAt: number }>();
 
@@ -936,7 +939,6 @@ export interface CreateBookingResult {
 }
 
 async function scheduleMeetingIntelligenceIfConsented(booking: Booking, params: CreateBookingParams): Promise<void> {
-  if (params.recordingConsent !== true) return;
   const source = params.recordingConsentSource;
   const consentAt = params.recordingConsentAt;
   const textVersion = params.recordingConsentTextVersion;
@@ -945,6 +947,11 @@ async function scheduleMeetingIntelligenceIfConsented(booking: Booking, params: 
     await safeSetDoc(tenantRepo(getSchedCtx()).bookingDoc(booking.bookingId), update as any, { merge: true });
     if (booking.leadId) await safeSetDoc(tenantRepo(getSchedCtx()).leadDoc(booking.leadId), { meetingIntelligence: update.meetingIntelligence, updatedAt: update.updatedAt } as any, { merge: true });
   };
+  if (params.recordingConsent !== true) return;
+  if (sb().meetingAssistantEnabled === false) {
+    await recordState('disabled_by_tenant');
+    return;
+  }
   if (!consentAt || !source || !textVersion) {
     await recordState('consent_metadata_incomplete');
     console.warn('[Meeting Intelligence] Explicit consent was true but capture timestamp/source/text version was missing; meeting was not scheduled.');
@@ -971,8 +978,14 @@ async function scheduleMeetingIntelligenceIfConsented(booking: Booking, params: 
         lead_id: booking.leadId || undefined, meeting_url: booking.googleMeetLink,
         scheduled_start: booking.startDateTimeIso, timezone: booking.timezone, duration_minutes: durationMinutes,
         attendees: booking.attendees || [booking.leadEmail].filter(Boolean), recording_consent: true,
-        metadata: { recording_consent_captured_at: consentAt, recording_consent_source: source,
-          recording_consent_text_version: textVersion, company_name: booking.companyName },
+        metadata: {
+          recording_consent_captured_at: consentAt,
+          recording_consent_source: source,
+          recording_consent_text_version: textVersion,
+          company_name: booking.companyName,
+          meeting_assistant_email: getMeetingAssistantEmail(),
+          meeting_assistant_invited: (booking.attendees || []).some((email) => String(email).toLowerCase() === getMeetingAssistantEmail()),
+        },
       }),
     });
     const payload: any = await response.json().catch(() => ({}));
@@ -1286,12 +1299,29 @@ async function createGoogleCalendarDemoBookingInner(
       : [`- Product walkthrough`, `- Q&A and next steps`]),
   ].join('\n');
 
+  const meetingAssistantEmail = getMeetingAssistantEmail();
+  const meetingAssistantEnabled = sb().meetingAssistantEnabled !== false;
+  const meetingAssistantConsentReady =
+    params.recordingConsent === true &&
+    Boolean(params.recordingConsentAt && params.recordingConsentSource && params.recordingConsentTextVersion);
+  const includeMeetingAssistant = meetingAssistantEnabled && meetingAssistantConsentReady;
+
   // 2. Create Event in Google Calendar with genuine Google Meet video conference
   // and send the calendar invitation ONCE to leadEmail
   if (token) {
     try {
       const hostEmail = hostCalendarEmail().toLowerCase().trim();
-      const inviteEmails = Array.from(new Set([leadEmail, ...(params.attendees || [])]
+      // Never carry a previous bot invite through a reschedule if the tenant has since
+      // disabled the assistant or the current booking no longer has auditable consent.
+      const requestedAttendees = (params.attendees || []).filter(
+        (email) => String(email || '').trim().toLowerCase() !== meetingAssistantEmail
+      );
+      const shouldAddAssistantAsGuest = includeMeetingAssistant && meetingAssistantEmail !== hostEmail;
+      const inviteEmails = Array.from(new Set([
+        leadEmail,
+        ...requestedAttendees,
+        ...(shouldAddAssistantAsGuest ? [meetingAssistantEmail] : []),
+      ]
         .map((email) => String(email || '').toLowerCase().trim())
         .filter((email) => email.includes('@') && email !== hostEmail)));
       const attendees: Array<{ email: string }> = inviteEmails.map((email) => ({ email }));
@@ -1444,9 +1474,12 @@ async function createGoogleCalendarDemoBookingInner(
     summary,
     description,
     calendarProvider: 'google',
-    attendees: Array.from(new Set([hostCalendarEmail(), leadEmail, ...(params.attendees || [])]
-      .map((email) => String(email || '').toLowerCase().trim())
-      .filter(Boolean))),
+    attendees: Array.from(new Set([
+      hostCalendarEmail(),
+      leadEmail,
+      ...(params.attendees || []).filter((email) => String(email || '').trim().toLowerCase() !== meetingAssistantEmail),
+      ...(includeMeetingAssistant ? [meetingAssistantEmail] : []),
+    ].map((email) => String(email || '').toLowerCase().trim()).filter(Boolean))),
     ...(params.recordingConsent === true ? {
       recordingConsent: true,
       recordingConsentAt: params.recordingConsentAt || '',
@@ -1742,6 +1775,10 @@ export async function rescheduleDemoBooking(
       leadPhone: booking.leadPhone,
       companyName: booking.companyName,
       attendees: booking.attendees || [],
+      recordingConsent: booking.recordingConsent === true,
+      recordingConsentAt: booking.recordingConsentAt,
+      recordingConsentSource: booking.recordingConsentSource,
+      recordingConsentTextVersion: booking.recordingConsentTextVersion,
       startIso: newStartIso,
       endIso: newEndIso,
       dateString: newDateString,
@@ -1822,10 +1859,15 @@ export async function rescheduleDemoBooking(
       };
     }
 
-    // Keep the bot on the same Meet URL and time as the calendar replacement.
+    // Keep the bot aligned with the replacement event. If the tenant has disabled
+    // the assistant, cancel its queued meeting job instead of moving it to the new slot.
     try {
       if (booking.meetingIntelligence?.meetingId) {
-        await updateMeetingIntelligenceSchedule(booking, updatedBooking);
+        if (sb().meetingAssistantEnabled === false) {
+          await cancelMeetingIntelligence(booking);
+        } else {
+          await updateMeetingIntelligenceSchedule(booking, updatedBooking);
+        }
       }
     } catch (meetingError: any) {
       await setDoc(bookingRef, booking as any, { merge: true }).catch((rollbackError) =>
