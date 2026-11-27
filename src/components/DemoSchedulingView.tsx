@@ -198,6 +198,9 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [isLoadingBookings, setIsLoadingBookings] = useState(false);
+  const [meetingIntelData, setMeetingIntelData] = useState<any | null>(null);
+  const [meetingIntelLoading, setMeetingIntelLoading] = useState(false);
+  const [meetingIntelError, setMeetingIntelError] = useState<string | null>(null);
 
   const calendarWeekStart = useMemo(() => mondayOfDateKey(calendarAnchorDate), [calendarAnchorDate]);
   const calendarWeekStartRef = useRef(calendarWeekStart);
@@ -655,6 +658,22 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
     }
   };
 
+  const loadMeetingIntelligence = async (bookingId: string) => {
+    setMeetingIntelLoading(true);
+    setMeetingIntelError(null);
+    setMeetingIntelData(null);
+    try {
+      const response = await fetch(`/api/meetings/intelligence/${encodeURIComponent(bookingId)}`);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || `Could not load meeting report (${response.status}).`);
+      setMeetingIntelData(payload);
+    } catch (error: any) {
+      setMeetingIntelError(error?.message || 'Meeting Intelligence is not available.');
+    } finally {
+      setMeetingIntelLoading(false);
+    }
+  };
+
   // Handle Cancel Booking
   const handleCancelBooking = async (bookingId: string) => {
     if (!window.confirm('Are you sure you want to cancel this demo booking and free up the Google Calendar slot?')) {
@@ -1098,6 +1117,17 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
               <div className="schedule-detail-facts"><div><span>Status</span>{renderBookingStatus(selectedBooking.status)}</div><div><span>Channel</span><strong>{selectedBooking.channel}</strong></div><div><span>Platform</span><strong>{selectedBooking.calendarProvider === 'microsoft' ? 'Microsoft Teams' : 'Google Meet'}</strong></div><div><span>Email</span><strong>{selectedBooking.leadEmail || '—'}</strong></div><div><span>Phone</span><strong>{selectedBooking.leadPhone || '—'}</strong></div><div><span>Booking ID</span><strong>{selectedBooking.bookingId}</strong></div></div>
               {selectedBooking.googleMeetLink && <a className="schedule-detail-join" href={selectedBooking.googleMeetLink} target="_blank" rel="noreferrer"><Video className="h-4 w-4" /> Join {selectedBooking.calendarProvider === 'microsoft' ? 'Teams' : 'Meet'} <ArrowUpRight className="h-3.5 w-3.5" /></a>}
               {selectedBooking.notes && <div className="schedule-detail-note"><strong>Notes</strong><p>{selectedBooking.notes}</p></div>}
+              <div className="schedule-detail-note schedule-meeting-intelligence-card">
+                <div className="schedule-card-title"><strong>Meeting Intelligence</strong><button type="button" className="schedule-secondary-button" onClick={() => loadMeetingIntelligence(selectedBooking.bookingId)} disabled={meetingIntelLoading || !selectedBooking.meetingIntelligence?.meetingId}><RefreshCw className={'h-3.5 w-3.5 ' + (meetingIntelLoading ? 'animate-spin' : '')} /> {meetingIntelLoading ? 'Loading…' : 'Load report'}</button></div>
+                <p>{selectedBooking.meetingIntelligence?.status ? `Status: ${selectedBooking.meetingIntelligence.status.replaceAll('_', ' ')}` : 'Not scheduled — attendee recording consent has not been captured for this booking.'}</p>
+                {meetingIntelError && <p className="schedule-inline-message error">{meetingIntelError}</p>}
+                {meetingIntelData?.meeting?.status && <p><strong>Service status:</strong> {meetingIntelData.meeting.status}</p>}
+                {meetingIntelData?.report?.report?.executive_summary && <><strong>Executive summary</strong><p>{meetingIntelData.report.report.executive_summary}</p></>}
+                {Array.isArray(meetingIntelData?.report?.report?.key_points) && meetingIntelData.report.report.key_points.length > 0 && <><strong>Key points</strong><ul>{meetingIntelData.report.report.key_points.map((point: string, index: number) => <li key={index}>{point}</li>)}</ul></>}
+                {Array.isArray(meetingIntelData?.report?.report?.action_items) && meetingIntelData.report.report.action_items.length > 0 && <><strong>Action items</strong><ul>{meetingIntelData.report.report.action_items.map((item: any, index: number) => <li key={index}>{[item.task, item.owner ? `Owner: ${item.owner}` : '', item.due_date ? `Due: ${item.due_date}` : ''].filter(Boolean).join(' · ')}</li>)}</ul></>}
+                {meetingIntelData?.recording?.url && <p><a className="schedule-join-link" href={meetingIntelData.recording.url} target="_blank" rel="noreferrer"><Video className="h-3.5 w-3.5" /> Open recording (link expires in 15 minutes) <ArrowUpRight className="h-3 w-3" /></a></p>}
+                {meetingIntelData?.transcript?.text && <details><summary>Full transcript and speaker labels</summary><pre style={{ whiteSpace: 'pre-wrap', maxHeight: 320, overflow: 'auto' }}>{meetingIntelData.transcript.text}</pre></details>}
+              </div>
             </div> : <div className="schedule-detail-body">
               <div className="schedule-attendee-primary"><User className="h-4 w-4" /><div><strong>{selectedBooking.leadName}</strong><span>{selectedBooking.leadEmail}</span></div><em>Lead</em></div>
               {(selectedBooking.attendees || []).filter((attendee) => attendee && attendee.toLowerCase() !== selectedBooking.leadEmail?.toLowerCase() && attendee.toLowerCase() !== CALENDAR_TARGET_ACCOUNT.toLowerCase()).map((attendee) => <div className="schedule-attendee-primary" key={attendee}><Mail className="h-4 w-4" /><div><strong>{attendee}</strong><span>Invited guest</span></div></div>)}
