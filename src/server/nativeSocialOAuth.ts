@@ -132,7 +132,7 @@ function base64Url(value: Buffer): string {
 async function createAuthorization(provider: Provider, ctx: TenantContext): Promise<string> {
   if (!PROVIDERS.includes(provider)) throw new Error('Unsupported social platform.');
   if (provider === 'instagram') {
-    const result = await startInstagramOAuth(ctx);
+    const result = await startInstagramOAuth(ctx, { returnToSocialStudio: true });
     return result.authorizationUrl;
   }
 
