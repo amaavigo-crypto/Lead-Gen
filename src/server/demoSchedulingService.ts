@@ -910,6 +910,11 @@ export interface CreateBookingParams {
   endTime: string; // HH:mm
   /** Existing guests to carry over when replacing a booking. */
   attendees?: string[];
+  /** Only true after an attendee explicitly opted in; never infer from the fact that a demo is booked. */
+  recordingConsent?: boolean;
+  recordingConsentAt?: string;
+  recordingConsentSource?: 'attendee_form' | 'attendee_chat' | 'attendee_email' | 'attendee_whatsapp';
+  recordingConsentTextVersion?: string;
   accessToken?: string;
   /** Internal (reschedule only): the booking being moved. Skips the duplicate check and the new record. */
   replacingBookingId?: string;
@@ -928,6 +933,55 @@ export interface CreateBookingResult {
   /** True only when a confirmed booking was synchronized to an existing CRM lead. */
   crmLeadUpdated?: boolean;
   error?: string;
+}
+
+async function scheduleMeetingIntelligenceIfConsented(booking: Booking, params: CreateBookingParams): Promise<void> {
+  if (params.recordingConsent !== true) return;
+  const source = params.recordingConsentSource;
+  const consentAt = params.recordingConsentAt;
+  const textVersion = params.recordingConsentTextVersion;
+  const recordState = async (status: string, extra: Record<string, unknown> = {}) => {
+    const update = { meetingIntelligence: { status, updatedAt: new Date().toISOString(), ...extra }, updatedAt: new Date().toISOString() };
+    await safeSetDoc(tenantRepo(getSchedCtx()).bookingDoc(booking.bookingId), update as any, { merge: true });
+    if (booking.leadId) await safeSetDoc(tenantRepo(getSchedCtx()).leadDoc(booking.leadId), { meetingIntelligence: update.meetingIntelligence, updatedAt: update.updatedAt } as any, { merge: true });
+  };
+  if (!consentAt || !source || !textVersion) {
+    await recordState('consent_metadata_incomplete');
+    console.warn('[Meeting Intelligence] Explicit consent was true but capture timestamp/source/text version was missing; meeting was not scheduled.');
+    return;
+  }
+  if (!/^https:\/\/meet\.google\.com\//.test(String(booking.googleMeetLink || ''))) {
+    await recordState('not_scheduled_missing_meet_link');
+    return;
+  }
+  const baseUrl = String(process.env.MEETING_INTELLIGENCE_API_URL || '').replace(/\/+$/, '');
+  const apiKey = process.env.MEETING_INTELLIGENCE_API_KEY || '';
+  if (!baseUrl || !apiKey) {
+    await recordState('not_configured');
+    return;
+  }
+  try {
+    const durationMinutes = Math.round((Date.parse(booking.endDateTimeIso) - Date.parse(booking.startDateTimeIso)) / 60000);
+    const response = await fetch(`${baseUrl}/v1/meetings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Service-Key': apiKey },
+      signal: AbortSignal.timeout(15000),
+      body: JSON.stringify({
+        tenant_id: getSchedCtx().tenantId, external_booking_id: booking.bookingId,
+        lead_id: booking.leadId || undefined, meeting_url: booking.googleMeetLink,
+        scheduled_start: booking.startDateTimeIso, timezone: booking.timezone, duration_minutes: durationMinutes,
+        attendees: booking.attendees || [booking.leadEmail].filter(Boolean), recording_consent: true,
+        metadata: { recording_consent_captured_at: consentAt, recording_consent_source: source,
+          recording_consent_text_version: textVersion, company_name: booking.companyName },
+      }),
+    });
+    const payload: any = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.id) throw new Error(payload.detail || payload.error || `Meeting service returned HTTP ${response.status}`);
+    await recordState('scheduled', { meetingId: String(payload.id), consentCapturedAt: consentAt, consentSource: source, consentTextVersion: textVersion });
+  } catch (error: any) {
+    await recordState('dispatch_failed', { lastError: String(error?.message || error).slice(0, 500), consentCapturedAt: consentAt });
+    console.error('[Meeting Intelligence] Could not queue consented meeting:', error?.message || error);
+  }
 }
 
 const normalizeLeadEmail = (e?: string) => String(e || '').trim().toLowerCase();
@@ -1095,7 +1149,11 @@ export async function createGoogleCalendarDemoBooking(params: CreateBookingParam
         error: `${params.leadName || 'This lead'} already has a demo booked for ${bookingWhen(again)}. Reschedule that one instead.`,
       };
     }
-    return await createGoogleCalendarDemoBookingInner({ ...params, leadEmail: email });
+    const result = await createGoogleCalendarDemoBookingInner({ ...params, leadEmail: email });
+    if (result.success && result.booking && params.recordingConsent === true) {
+      await scheduleMeetingIntelligenceIfConsented(result.booking, params);
+    }
+    return result;
   } finally {
     await lock.release();
   }
@@ -1361,6 +1419,12 @@ async function createGoogleCalendarDemoBookingInner(
     attendees: Array.from(new Set([hostCalendarEmail(), leadEmail, ...(params.attendees || [])]
       .map((email) => String(email || '').toLowerCase().trim())
       .filter(Boolean))),
+    ...(params.recordingConsent === true ? {
+      recordingConsent: true,
+      recordingConsentAt: params.recordingConsentAt || '',
+      recordingConsentSource: params.recordingConsentSource,
+      recordingConsentTextVersion: params.recordingConsentTextVersion,
+    } : {}),
     createdAt: nowIso,
     updatedAt: nowIso,
   };
