@@ -51,6 +51,8 @@ export interface TenantBrand {
   workingHoursByDay: Record<number, { start: number; end: number }>;
   /** @deprecated Legacy compatibility field. The connected calendar identity is resolved from OAuth. */
   calendarEmail: string;
+  /** Invite the platform AI meeting assistant to demos with recorded attendee consent. */
+  meetingAssistantEnabled?: boolean;
 }
 
 export const UMRAH360_BRAND: TenantBrand = {
@@ -80,6 +82,7 @@ export const UMRAH360_BRAND: TenantBrand = {
     5: { start: 10, end: 19 },
   },
   calendarEmail: '',
+  meetingAssistantEnabled: true,
 };
 
 /** Neutral defaults for any workspace that is not umrah360. */
@@ -113,6 +116,7 @@ export function defaultBrandFor(tenantId: string, tenantName?: string, extra?: {
       5: { start: 10, end: 19 },
     },
     calendarEmail: '',
+    meetingAssistantEnabled: true,
   };
 }
 
@@ -127,6 +131,7 @@ export function mergeBrand(base: TenantBrand, stored: Partial<TenantBrand> | nul
   (['companyName', 'tagline', 'defaultProduct', 'industryDescription', 'websiteUrl', 'salesEmail', 'supportPhone',
     'teamName', 'senderName', 'aiAgentName', 'logoUrl', 'timezone', 'timezoneLabel', 'calendarEmail',
     'companyDescription'] as (keyof TenantBrand)[]).forEach(str);
+  if (typeof stored.meetingAssistantEnabled === 'boolean') out.meetingAssistantEnabled = stored.meetingAssistantEnabled;
   if (stored.playbook === 'umrah360' || stored.playbook === 'generic') out.playbook = stored.playbook;
   const duration = (stored as any).demoDurationMinutes;
   if (Number.isInteger(duration) && duration >= 5 && duration <= 240) out.demoDurationMinutes = duration;

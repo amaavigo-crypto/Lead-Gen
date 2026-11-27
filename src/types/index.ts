@@ -793,6 +793,11 @@ export interface Booking {
   summary?: string;
   description?: string;
   attendees?: string[];
+  /** Explicit attendee permission for recording and AI transcription. */
+  recordingConsent?: boolean;
+  recordingConsentAt?: string;
+  recordingConsentSource?: 'attendee_form' | 'attendee_chat' | 'attendee_email' | 'attendee_whatsapp';
+  recordingConsentTextVersion?: string;
   notes?: string;
   createdAt: string;
   updatedAt: string;

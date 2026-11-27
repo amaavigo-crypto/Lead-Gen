@@ -146,6 +146,8 @@ export const WORKING_END_HOUR = 19;
 export const DEMO_DURATION_MINUTES = 60; // Backward-compatible default for tenants without a saved duration.
 export const VALID_SLOT_START_HOURS = [10, 11, 12, 13, 14, 15, 16, 17, 18]; // Legacy hourly start times only.
 
+const getMeetingAssistantEmail = () => String(process.env.MEETING_INTELLIGENCE_BOT_EMAIL || 'automation@amaavigo.com').trim().toLowerCase();
+
 // Server-side in-memory cache for OAuth access tokens, one entry per workspace (never shared between them).
 const serverCalendarTokens = new Map<string, { token: string; expiresAt: number }>();
 
@@ -918,6 +920,11 @@ export interface CreateBookingParams {
   endTime: string; // HH:mm
   /** Existing guests to carry over when replacing a booking. */
   attendees?: string[];
+  /** Only true after the attendee explicitly opted in to recording and AI transcription. */
+  recordingConsent?: boolean;
+  recordingConsentAt?: string;
+  recordingConsentSource?: 'attendee_form' | 'attendee_chat' | 'attendee_email' | 'attendee_whatsapp';
+  recordingConsentTextVersion?: string;
   accessToken?: string;
   /** Internal (reschedule only): the booking being moved. Skips the duplicate check and the new record. */
   replacingBookingId?: string;
@@ -1208,14 +1215,22 @@ async function createGoogleCalendarDemoBookingInner(
       : [`- Product walkthrough`, `- Q&A and next steps`]),
   ].join('\n');
 
+  const meetingAssistantEmail = getMeetingAssistantEmail();
+  const validConsentSources = ['attendee_form', 'attendee_chat', 'attendee_email', 'attendee_whatsapp'];
+  const hasRecordingConsent = params.recordingConsent === true && Boolean(params.recordingConsentAt && params.recordingConsentTextVersion)
+    && validConsentSources.includes(String(params.recordingConsentSource || ''));
+  const includeMeetingAssistant = sb().meetingAssistantEnabled !== false && hasRecordingConsent;
+
   // 2. Create Event in Google Calendar with genuine Google Meet video conference
   // and send the calendar invitation ONCE to leadEmail
   if (token) {
     try {
       const hostEmail = hostCalendarEmail().toLowerCase().trim();
-      const inviteEmails = Array.from(new Set([leadEmail, ...(params.attendees || [])]
-        .map((email) => String(email || '').toLowerCase().trim())
-        .filter((email) => email.includes('@') && email !== hostEmail)));
+      const requestedAttendees = (params.attendees || []).filter((email) => String(email || '').trim().toLowerCase() !== meetingAssistantEmail);
+      const inviteEmails = Array.from(new Set([
+        leadEmail, ...requestedAttendees,
+        ...(includeMeetingAssistant && meetingAssistantEmail !== hostEmail ? [meetingAssistantEmail] : []),
+      ].map((email) => String(email || '').toLowerCase().trim()).filter((email) => email.includes('@') && email !== hostEmail)));
       const attendees: Array<{ email: string }> = inviteEmails.map((email) => ({ email }));
 
       const eventPayload = {
@@ -1366,9 +1381,12 @@ async function createGoogleCalendarDemoBookingInner(
     summary,
     description,
     calendarProvider: 'google',
-    attendees: Array.from(new Set([hostCalendarEmail(), leadEmail, ...(params.attendees || [])]
-      .map((email) => String(email || '').toLowerCase().trim())
-      .filter(Boolean))),
+    attendees: Array.from(new Set([
+      hostCalendarEmail(), leadEmail,
+      ...(params.attendees || []).filter((email) => String(email || '').trim().toLowerCase() !== meetingAssistantEmail),
+      ...(includeMeetingAssistant && meetingAssistantEmail !== hostCalendarEmail().toLowerCase().trim() ? [meetingAssistantEmail] : []),
+    ].map((email) => String(email || '').toLowerCase().trim()).filter(Boolean))),
+    ...(hasRecordingConsent ? { recordingConsent: true, recordingConsentAt: params.recordingConsentAt, recordingConsentSource: params.recordingConsentSource, recordingConsentTextVersion: params.recordingConsentTextVersion } : {}),
     createdAt: nowIso,
     updatedAt: nowIso,
   };
@@ -1649,6 +1667,10 @@ export async function rescheduleDemoBooking(
       leadPhone: booking.leadPhone,
       companyName: booking.companyName,
       attendees: nextAttendees,
+      recordingConsent: booking.recordingConsent === true,
+      recordingConsentAt: booking.recordingConsentAt,
+      recordingConsentSource: booking.recordingConsentSource,
+      recordingConsentTextVersion: booking.recordingConsentTextVersion,
       startIso: newStartIso,
       endIso: newEndIso,
       dateString: newDateString,
