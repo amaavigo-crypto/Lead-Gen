@@ -1620,12 +1620,29 @@ export async function cancelDemoBooking(
       { merge: true }
     );
 
+    // Cancel the bot first so a queued worker cannot join after the customer booking is cancelled.
+    let meetingIntelligenceCancelled = false;
+    try {
+      if (booking.meetingIntelligence?.meetingId) {
+        await cancelMeetingIntelligence(booking);
+        meetingIntelligenceCancelled = true;
+      }
+    } catch (meetingError: any) {
+      await setDoc(bookingRef, booking as any, { merge: true }).catch(() => {});
+      return { success: false, error: `Meeting Intelligence could not be cancelled, so the calendar booking was left active. ${meetingError?.message || ''}`.trim() };
+    }
+
     if (hasLiveCalendarEvent && token) {
       const removed = await deleteGoogleCalendarDemoEvent(booking.calendarEventId!, token);
       if (!removed.success) {
         await setDoc(bookingRef, booking as any, { merge: true }).catch((rollbackError) =>
           console.error('[Cancellation Rollback] Could not restore original booking:', rollbackError)
         );
+        if (meetingIntelligenceCancelled) {
+          await updateMeetingIntelligenceSchedule(booking, booking).catch((rollbackError) =>
+            console.error('[Meeting Intelligence Rollback] Bot schedule could not be restored after calendar deletion failed:', rollbackError)
+          );
+        }
         return {
           success: false,
           error: `${removed.error || 'The calendar event could not be deleted'} The cancellation was not completed; the original booking was restored where possible.`,
@@ -1805,6 +1822,20 @@ export async function rescheduleDemoBooking(
       };
     }
 
+    // Keep the bot on the same Meet URL and time as the calendar replacement.
+    try {
+      if (booking.meetingIntelligence?.meetingId) {
+        await updateMeetingIntelligenceSchedule(booking, updatedBooking);
+      }
+    } catch (meetingError: any) {
+      await setDoc(bookingRef, booking as any, { merge: true }).catch((rollbackError) =>
+        console.error('[Reschedule Rollback] Could not restore booking after Meeting Intelligence update failed:', rollbackError)
+      );
+      const cleanup = await deleteGoogleCalendarDemoEvent(newCalendarEventId, token);
+      if (!cleanup.success) console.error('[Reschedule Cleanup] Could not remove replacement after Meeting Intelligence update failed:', cleanup.error);
+      return { success: false, error: `Meeting Intelligence could not be moved, so the original booking was restored. ${meetingError?.message || ''}`.trim() };
+    }
+
     // Only now release the old event. If Google refuses, restore the original booking and remove
     // the replacement event so the lead never ends up with two active invitations.
     if (booking.calendarEventId && !booking.calendarEventId.startsWith('mock-') && booking.calendarEventId !== newCalendarEventId) {
@@ -1813,6 +1844,11 @@ export async function rescheduleDemoBooking(
         await setDoc(bookingRef, booking as any, { merge: true }).catch((rollbackError) =>
           console.error('[Reschedule Rollback] Could not restore original booking:', rollbackError)
         );
+        if (booking.meetingIntelligence?.meetingId) {
+          await updateMeetingIntelligenceSchedule(updatedBooking, booking).catch((rollbackError) =>
+            console.error('[Meeting Intelligence Rollback] Could not restore original bot schedule:', rollbackError)
+          );
+        }
         if (booking.leadId) {
           await setDoc(
             tenantRepo(getSchedCtx()).leadDoc(booking.leadId),
