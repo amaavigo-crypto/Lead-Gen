@@ -382,7 +382,42 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     }
   }
 
-  // Tenant-scoped AI Lead Scoring. Configuration changes are admin-only; lead evaluation/history
+  // Tenant-scoped Meeting Intelligence reader. Tenant identity always comes from the authenticated context.
+const meetingIntelligenceMatch = url.match(/^\/api\/meetings\/intelligence\/([A-Za-z0-9_-]+)$/);
+if (meetingIntelligenceMatch && req.method === 'GET') {
+  try {
+    const bookingSnap = await getDoc(tenantRepo(activeTenantCtx).bookingDoc(meetingIntelligenceMatch[1]));
+    if (!bookingSnap.exists()) { res.statusCode = 404; res.end(JSON.stringify({ error: 'Booking not found.' })); return true; }
+    const booking: any = bookingSnap.data();
+    const meetingId = String(booking.meetingIntelligence?.meetingId || '');
+    if (!meetingId) { res.statusCode = 409; res.end(JSON.stringify({ error: 'Meeting Intelligence has not been scheduled for this booking.', status: booking.meetingIntelligence?.status || 'not_scheduled' })); return true; }
+    const baseUrl = String(process.env.MEETING_INTELLIGENCE_API_URL || '').replace(/\/+$/, '');
+    const apiKey = process.env.MEETING_INTELLIGENCE_API_KEY || '';
+    if (!baseUrl || !apiKey) { res.statusCode = 503; res.end(JSON.stringify({ error: 'Meeting Intelligence service is not configured.' })); return true; }
+    const tenantQuery = `tenant_id=${encodeURIComponent(activeTenantCtx.tenantId)}`;
+    const getJson = async (path: string) => {
+      const response = await fetch(`${baseUrl}${path}`, { headers: { 'X-Service-Key': apiKey }, signal: AbortSignal.timeout(12000) });
+      if (response.status === 404 || response.status === 409) return null;
+      if (!response.ok) throw new Error(`Meeting Intelligence returned HTTP ${response.status}`);
+      return response.json();
+    };
+    const encodedId = encodeURIComponent(meetingId);
+    const [meeting, report, transcript, recording] = await Promise.all([
+      getJson(`/v1/meetings/${encodedId}?${tenantQuery}`),
+      getJson(`/v1/meetings/${encodedId}/report?${tenantQuery}`),
+      getJson(`/v1/meetings/${encodedId}/transcript?${tenantQuery}`),
+      getJson(`/v1/meetings/${encodedId}/recording-url?${tenantQuery}`),
+    ]);
+    res.statusCode = 200;
+    res.end(JSON.stringify({ bookingId: meetingIntelligenceMatch[1], meeting, report, transcript, recording }));
+  } catch (err: any) {
+    console.error('[Meeting Intelligence read error]:', err);
+    res.statusCode = 502;
+    res.end(JSON.stringify({ error: 'Could not retrieve the Meeting Intelligence report.' }));
+  }
+  return true;
+}
+// Tenant-scoped AI Lead Scoring. Configuration changes are admin-only; lead evaluation/history
   // remain inside the authenticated workspace boundary.
   if (url === '/api/crm/lead-scoring/config') {
     if (req.method === 'GET') {
