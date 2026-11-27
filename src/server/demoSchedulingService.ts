@@ -984,6 +984,34 @@ async function scheduleMeetingIntelligenceIfConsented(booking: Booking, params: 
   }
 }
 
+async function updateMeetingIntelligenceSchedule(previous: Booking, next: Booking): Promise<void> {
+  const meetingId = String(previous.meetingIntelligence?.meetingId || '');
+  if (!meetingId) return;
+  const baseUrl = String(process.env.MEETING_INTELLIGENCE_API_URL || '').replace(/\/+$/, '');
+  const apiKey = process.env.MEETING_INTELLIGENCE_API_KEY || '';
+  if (!baseUrl || !apiKey) throw new Error('Meeting Intelligence API is not configured; cannot safely reschedule a consented meeting.');
+  const durationMinutes = Math.round((Date.parse(next.endDateTimeIso) - Date.parse(next.startDateTimeIso)) / 60000);
+  const response = await fetch(`${baseUrl}/v1/meetings/${encodeURIComponent(meetingId)}?tenant_id=${encodeURIComponent(getSchedCtx().tenantId)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Service-Key': apiKey }, signal: AbortSignal.timeout(15000),
+    body: JSON.stringify({ meeting_url: next.googleMeetLink, scheduled_start: next.startDateTimeIso, timezone: next.timezone, duration_minutes: durationMinutes }),
+  });
+  const payload: any = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || payload.error || `Meeting Intelligence reschedule returned HTTP ${response.status}`);
+}
+
+async function cancelMeetingIntelligence(booking: Booking): Promise<void> {
+  const meetingId = String(booking.meetingIntelligence?.meetingId || '');
+  if (!meetingId) return;
+  const baseUrl = String(process.env.MEETING_INTELLIGENCE_API_URL || '').replace(/\/+$/, '');
+  const apiKey = process.env.MEETING_INTELLIGENCE_API_KEY || '';
+  if (!baseUrl || !apiKey) throw new Error('Meeting Intelligence API is not configured; cannot safely cancel a consented meeting.');
+  const response = await fetch(`${baseUrl}/v1/meetings/${encodeURIComponent(meetingId)}/cancel?tenant_id=${encodeURIComponent(getSchedCtx().tenantId)}`, {
+    method: 'POST', headers: { 'X-Service-Key': apiKey }, signal: AbortSignal.timeout(15000),
+  });
+  const payload: any = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || payload.error || `Meeting Intelligence cancellation returned HTTP ${response.status}`);
+}
+
 const normalizeLeadEmail = (e?: string) => String(e || '').trim().toLowerCase();
 const phoneLast10 = (p?: string) => {
   const d = String(p || '').replace(/\D/g, '');
