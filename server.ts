@@ -84,6 +84,19 @@ app.all(['/api/webhooks/resend', '/api/webhooks/email/resend'], express.raw({ ty
   }
 });
 
+// Meeting Intelligence callbacks must receive the exact raw body for HMAC verification.
+app.post('/api/webhooks/meeting-intelligence', express.raw({ type: '*/*', limit: '2mb' }), async (req: any, res: any) => {
+  try {
+    const raw: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const { handleMeetingIntelligenceWebhook } = await import('./src/server/meetingIntelligenceService.js');
+    const result = await handleMeetingIntelligenceWebhook(raw, req.headers['x-amaavigo-signature'] as string | undefined);
+    res.status(result.status).json(result.body);
+  } catch (err: any) {
+    console.error('[Meeting Intelligence webhook error]:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Meeting Intelligence webhook processing failed.' });
+  }
+});
+
 // Body parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
