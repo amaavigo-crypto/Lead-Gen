@@ -52,7 +52,7 @@ function providerRedirect(provider: Provider): string {
     linkedin: 'LINKEDIN_REDIRECT_URI',
     reddit: 'REDDIT_REDIRECT_URI',
   };
-  const configured = String(process.env[envNames[Exclude<Provider, 'instagram'>] & string] || '').trim();
+  const configured = String(process.env[envNames[provider as Exclude<Provider, 'instagram'>]] || '').trim();
   return configured || callbackBase() + '/api/oauth/social/' + provider + '/callback';
 }
 
