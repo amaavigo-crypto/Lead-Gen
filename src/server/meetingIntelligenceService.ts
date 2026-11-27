@@ -44,6 +44,17 @@ export async function handleMeetingIntelligenceWebhook(rawBody: Buffer, signatur
 
   // This callback is server-to-server. The tenant identity is signed and is never taken from a browser.
   const ctx: TenantContext = { tenantId: event.tenant_id, uid: 'meeting-intelligence-webhook', email: '', role: 'admin' };
+  const apiBaseUrl = String(process.env.MEETING_INTELLIGENCE_API_URL || '').replace(/\/+$/, '');
+  const apiKey = process.env.MEETING_INTELLIGENCE_API_KEY || '';
+  if (!apiBaseUrl || !apiKey) return { status: 503, body: { error: 'Meeting Intelligence API access is not configured.' } };
+  const serviceResponse = await fetch(`${apiBaseUrl}/v1/meetings/${encodeURIComponent(event.meeting_id)}?tenant_id=${encodeURIComponent(event.tenant_id)}`, {
+    headers: { 'X-Service-Key': apiKey }, signal: AbortSignal.timeout(10000),
+  });
+  if (!serviceResponse.ok) return { status: 502, body: { error: `Could not verify current meeting state (HTTP ${serviceResponse.status}).` } };
+  const liveMeeting: any = await serviceResponse.json();
+  if (liveMeeting.tenant_id !== event.tenant_id || liveMeeting.external_booking_id !== event.external_booking_id) {
+    return { status: 409, body: { error: 'Signed event booking identity does not match the service meeting.' } };
+  }
   const repo = tenantRepo(ctx);
   const bookingRef = repo.bookingDoc(String(event.external_booking_id));
   const bookingSnap = await getDoc(bookingRef);
@@ -52,7 +63,7 @@ export async function handleMeetingIntelligenceWebhook(rawBody: Buffer, signatur
   const data = event.data || {};
   const now = new Date().toISOString();
   const intelligence: Record<string, unknown> = {
-    meetingId: event.meeting_id, status: statusForEvent(event.type),
+    meetingId: event.meeting_id, status: String(liveMeeting.status || statusForEvent(event.type)),
     lastEventId: event.event_id, lastEventType: event.type, updatedAt: now,
   };
   if (typeof data.object_key === 'string') intelligence.recordingObjectKey = data.object_key;
