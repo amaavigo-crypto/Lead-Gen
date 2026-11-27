@@ -167,6 +167,7 @@ import {
   runAutoFollowUpWorkerCycle,
 } from './autoFollowUpService.js';
 import { encryptSecret, decryptSecret } from './cryptoUtils.js';
+import { handleNativeSocialOAuthCallback, handleNativeSocialStudioApi } from './nativeSocialOAuth.js';
 import { handleAgentApi } from './agentService.js';
 import { getTenantCurrentUsage, getTenantCurrentDailyEmailCount, getTenantUsageForDateRange, recordTenantUsage, recordAiCompletionUsage, checkTenantQuota, repriceTenantAiUsageEvents } from './usageService.js';
 import {
@@ -339,7 +340,8 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     // Google Calendar returns through its own state-bound, one-time callback.
     url.split('?')[0] === '/api/oauth/google-calendar/callback' ||
     // Instagram redirects the browser here; the single-use OAuth state identifies the workspace.
-    url === '/api/instagram/oauth/callback';
+    url === '/api/instagram/oauth/callback' ||
+    /^\/api\/oauth\/social\/(facebook|youtube|x|linkedin|reddit)\/callback$/.test(url);
 
   let resolvedTenantId = '';
   let userUid = 'anonymous';
@@ -369,6 +371,17 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     role: userRole,
     isPlatformAdmin,
   };
+
+  // Native Social Studio OAuth callbacks are public, but tenant ownership is resolved
+  // only from the single-use, server-stored OAuth state.
+  if (req.method === 'GET' && url.startsWith('/api/oauth/social/')) {
+    if (await handleNativeSocialOAuthCallback(req, res, url)) return true;
+  }
+
+  // Customer-initiated Social Studio connection management; all routes use verified Firebase tenant claims.
+  if (url.startsWith('/api/social-studio/')) {
+    if (await handleNativeSocialStudioApi(req, res, activeTenantCtx, url)) return true;
+  }
 
   // Public QR destinations and visitor actions. Public routes resolve their tenant only
   // through the server-owned qr_public_routes index; visitors never supply a tenant ID.
