@@ -636,6 +636,10 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
           startTime,
           endTime,
           accessToken: token || undefined,
+          recordingConsent: recordingConsentConfirmed,
+          recordingConsentAt: recordingConsentConfirmed ? new Date().toISOString() : undefined,
+          recordingConsentSource: recordingConsentConfirmed ? recordingConsentSource : undefined,
+          recordingConsentTextVersion: recordingConsentConfirmed ? 'recording-consent-v1' : undefined,
         }),
       });
 
@@ -765,10 +769,6 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
           bookingId: attendeeModalBooking.bookingId,
           attendeeEmails: rawEmails,
           accessToken: token || undefined,
-          recordingConsent: recordingConsentConfirmed,
-          recordingConsentAt: recordingConsentConfirmed ? new Date().toISOString() : undefined,
-          recordingConsentSource: recordingConsentConfirmed ? recordingConsentSource : undefined,
-          recordingConsentTextVersion: recordingConsentConfirmed ? 'recording-consent-v1' : undefined,
         }),
       });
 
