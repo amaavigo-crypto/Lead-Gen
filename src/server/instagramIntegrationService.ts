@@ -65,7 +65,7 @@ async function getConnection(ctx: TenantContext): Promise<InstagramConnection | 
   return data?.channel === 'instagram' ? (data.connection as InstagramConnection) || null : null;
 }
 
-async function getAccessToken(ctx: TenantContext): Promise<string> {
+export async function getInstagramAccessToken(ctx: TenantContext): Promise<string> {
   const repo = tenantRepo(ctx);
   const snap = await getDoc(repo.secretDoc('instagram_access_token'));
   if (!snap.exists()) throw new Error('Instagram is not connected. Reconnect the account.');
@@ -150,7 +150,7 @@ export async function disconnectInstagram(ctx: TenantContext): Promise<void> {
   const existing = await getConnection(ctx);
   // Best-effort token revocation; disconnect still completes if Meta is unavailable.
   try {
-    const token = await getAccessToken(ctx);
+    const token = await getInstagramAccessToken(ctx);
     const revokeUrl = new URL('https://graph.instagram.com/' + GRAPH_VERSION + '/me/permissions');
     revokeUrl.searchParams.set('access_token', token);
     await fetch(revokeUrl, { method: 'DELETE' });
@@ -334,7 +334,7 @@ function isValidMetaSignature(req: any): boolean {
 
 async function fetchInstagramSenderProfile(ctx: TenantContext, senderId: string): Promise<{ name?: string; username?: string; profilePictureUrl?: string } | null> {
   try {
-    const accessToken = await getAccessToken(ctx);
+    const accessToken = await getInstagramAccessToken(ctx);
     const profileUrl = new URL(`https://graph.instagram.com/${GRAPH_VERSION}/${encodeURIComponent(senderId)}`);
     profileUrl.searchParams.set('fields', 'name,username,profile_pic');
     profileUrl.searchParams.set('access_token', accessToken);
@@ -868,7 +868,7 @@ export async function sendInstagramMessage(ctx: TenantContext, recipientId: stri
   if (connection.tokenExpiresAt && Date.parse(connection.tokenExpiresAt) <= Date.now()) {
     throw new Error('Instagram access token may have expired. Reconnect the account.');
   }
-  const accessToken = await getAccessToken(ctx);
+  const accessToken = await getInstagramAccessToken(ctx);
   const url = `https://graph.instagram.com/${GRAPH_VERSION}/${encodeURIComponent(connection.accountId)}/messages`;
   const response = await fetch(url, {
     method: 'POST',
@@ -896,7 +896,7 @@ export async function diagnoseInstagram(ctx: TenantContext): Promise<Record<stri
   const notes: string[] = [];
   let token = '';
   try {
-    token = await getAccessToken(ctx);
+    token = await getInstagramAccessToken(ctx);
   } catch (err: any) {
     return { ...result, summary: err?.message || 'The stored Instagram token cannot be used. Click Reconnect.' };
   }
