@@ -39,3 +39,6 @@ React 19 + Vite + Tailwind · Express API · MongoDB (data) · Firebase Auth (si
 All application data is stored in MongoDB; Firebase is used only for sign-in. See
 [MONGODB_MIGRATION.md](./MONGODB_MIGRATION.md) for the design, the cutover steps from Firestore, and the checks
 (`npm run test:mongo`, `npm run test:client-db`).
+
+
+ssh amaavigotech@148.66.159.186
