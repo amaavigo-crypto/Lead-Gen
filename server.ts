@@ -5,6 +5,7 @@ import { handleCoreApi } from './src/server/coreApiHandler.js';
 import { checkAndDispatchPendingWebsiteLeadEmails } from './src/server/websiteLeadAutoResponder.js';
 import { processActiveRunningCampaignsBatch } from './src/server/campaignService.js';
 import { runAutoFollowUpWorkerCycle, isFollowUpWorkerDue } from './src/server/autoFollowUpService.js';
+import { runSocialStudioPublishWorkerCycle } from './src/server/nativeSocialStudioContent.js';
 import { hasFeature } from './src/server/entitlements.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -159,6 +160,16 @@ const safeBackgroundPoll = async () => {
       if (await hasFeature(tId, 'campaigns')) {
         await runWithJobLease(tId, 'campaign_dispatch_worker', 20_000, async () => {
           await processActiveRunningCampaignsBatch(3, ctx).catch(() => {});
+        }).catch(() => {});
+      }
+
+      // Social Studio scheduled publishing is isolated from CRM/campaign queues and uses
+      // a tenant-specific lease so multiple app instances cannot publish the same scheduled post.
+      if (await hasFeature(tId, 'social_studio')) {
+        await runWithJobLease(tId, 'social_studio_publish_worker', 120_000, async () => {
+          await runSocialStudioPublishWorkerCycle(ctx, 2).catch((error: any) => {
+            console.warn('[Social Studio worker] Tenant cycle failed:', tId, error?.message || 'unknown error');
+          });
         }).catch(() => {});
       }
 
