@@ -342,6 +342,7 @@ async function completeAuthorization(provider: Exclude<Provider, 'instagram'>, c
     displayName: String(identity.displayName || provider),
     username: String(identity.username || ''),
     pages: Array.isArray(identity.pages) ? identity.pages : [],
+    organizations: Array.isArray(identity.organizations) ? identity.organizations : [],
     avatar: String(identity.avatar || identity.thumbnail || ''),
     scopes: String(tokens.scope || '').split(/[,\s]+/).filter(Boolean),
     connectedAt: now,
