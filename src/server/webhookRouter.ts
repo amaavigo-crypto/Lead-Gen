@@ -17,6 +17,174 @@ import type { TenantContext, WebhookRoute, ChannelRoute, DomainRoute } from '../
 
 const DEFAULT_TENANT_ID = 'umrah360';
 
+export async function routeMeetingIntelligenceWebhook(req: any, res: any): Promise<boolean> {
+  res.setHeader('Content-Type', 'application/json');
+  if (req.method !== 'POST') {
+    res.statusCode = 405;
+    res.setHeader('Allow', 'POST');
+    res.end(JSON.stringify({ error: 'POST only' }));
+    return true;
+  }
+  const secret = String(process.env.MEETING_INTELLIGENCE_WEBHOOK_SECRET || '').trim();
+  if (!secret) {
+    res.statusCode = 503;
+    res.end(JSON.stringify({ error: 'Meeting Intelligence webhook secret is not configured.' }));
+    return true;
+  }
+  const body = req.body || {};
+  const raw = Buffer.isBuffer(req.rawBody)
+    ? req.rawBody
+    : typeof req.rawBody === 'string'
+      ? Buffer.from(req.rawBody, 'utf8')
+      : Buffer.from(JSON.stringify(body), 'utf8');
+  const supplied = String(req.headers?.['x-amaavigo-signature'] || '').replace(/^sha256=/i, '').trim();
+  let provided = Buffer.alloc(0);
+  try { provided = Buffer.from(supplied, 'hex'); } catch {}
+  const expected = createHmac('sha256', secret).update(raw).digest();
+  if (!supplied || provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
+    res.statusCode = 401;
+    res.end(JSON.stringify({ error: 'Invalid webhook signature.' }));
+    return true;
+  }
+
+  const eventId = String(req.headers?.['x-amaavigo-event-id'] || body.event_id || '').trim();
+  const eventType = String(body.type || '').trim();
+  const tenantId = String(body.tenant_id || '').trim();
+  const meetingId = String(body.meeting_id || '').trim();
+  const bookingId = String(body.external_booking_id || '').trim();
+  if (!eventId || !eventType || !/^[A-Za-z0-9_-]+$/.test(tenantId) || !meetingId || !bookingId) {
+    res.statusCode = 400;
+    res.end(JSON.stringify({ error: 'Webhook event is missing its tenant, meeting or booking identity.' }));
+    return true;
+  }
+  if (!isFirebaseConfigured || !db) {
+    res.statusCode = 503;
+    res.end(JSON.stringify({ error: 'Tenant database is not available.' }));
+    return true;
+  }
+
+  const ctx: TenantContext = {
+    tenantId,
+    uid: 'meeting-intelligence-webhook',
+    email: 'meeting-intelligence@system',
+    role: 'admin',
+  };
+  try {
+    const bookingRef = tenantRepo(ctx).bookingDoc(bookingId);
+    const bookingSnap = await getDoc(bookingRef);
+    if (!bookingSnap.exists()) {
+      res.statusCode = 404;
+      res.end(JSON.stringify({ error: 'Tenant booking not found; retry this signed event.' }));
+      return true;
+    }
+    const booking = bookingSnap.data() as any;
+    if (String(booking.bookingId || '') !== bookingId) {
+      res.statusCode = 409;
+      res.end(JSON.stringify({ error: 'Booking identity mismatch.' }));
+      return true;
+    }
+    const seen: string[] = Array.isArray(booking.meetingAssistantEventIds) ? booking.meetingAssistantEventIds : [];
+    if (seen.includes(eventId)) {
+      res.statusCode = 200;
+      res.end(JSON.stringify({ received: true, duplicate: true }));
+      return true;
+    }
+
+    const data = body.data && typeof body.data === 'object' ? body.data : {};
+    const now = new Date().toISOString();
+    const statusByEvent: Record<string, string> = {
+      'meeting.scheduled': 'SCHEDULED',
+      'meeting.joined': 'JOINED',
+      'meeting.recording.started': 'RECORDING',
+      'meeting.recording.completed': 'RECORDED',
+      'meeting.transcript.completed': 'TRANSCRIPT_READY',
+      'meeting.analysis.completed': 'COMPLETED',
+      'meeting.needs_reauth': 'NEEDS_REAUTH',
+      'meeting.failed': 'FAILED',
+      'meeting.cancelled': 'CANCELLED',
+    };
+    const nextStatus = statusByEvent[eventType];
+    if (!nextStatus) {
+      res.statusCode = 200;
+      res.end(JSON.stringify({ received: true, ignored: true }));
+      return true;
+    }
+
+    let transcriptPayload: { text?: string; segments?: any[] } | undefined;
+    if (eventType === 'meeting.transcript.completed') {
+      const serviceKey = String(process.env.MEETING_INTELLIGENCE_SERVICE_KEY || '').trim();
+      if (serviceKey) {
+        const baseUrl = String(process.env.MEETING_INTELLIGENCE_API_URL || 'https://meetings.amaavigo.com').trim().replace(/\\/+$/, '');
+        const transcriptUrl = `${baseUrl}/v1/meetings/${encodeURIComponent(meetingId)}/transcript?tenant_id=${encodeURIComponent(tenantId)}`;
+        const transcriptRes = await fetch(transcriptUrl, { headers: { 'X-Service-Key': serviceKey } }).catch(() => null);
+        if (transcriptRes?.ok) {
+          const transcript = await transcriptRes.json().catch(() => ({}));
+          transcriptPayload = {
+            text: String(transcript.text || ''),
+            segments: Array.isArray(transcript.segments) ? transcript.segments : [],
+          };
+        } else {
+          throw new Error('Could not fetch the completed tenant transcript from Meeting Intelligence.');
+        }
+      } else {
+        throw new Error('MEETING_INTELLIGENCE_SERVICE_KEY is not configured for transcript retrieval.');
+      }
+    }
+
+    const report = eventType === 'meeting.analysis.completed' ? data.report : undefined;
+    const assistantPatch: Record<string, any> = {
+      meetingAssistantMeetingId: meetingId,
+      meetingAssistantStatus: nextStatus,
+      meetingAssistantLastEventId: eventId,
+      meetingAssistantLastEventType: eventType,
+      meetingAssistantUpdatedAt: now,
+      meetingAssistantEventIds: [...seen, eventId].slice(-100),
+    };
+    if (eventType === 'meeting.joined') assistantPatch.meetingAssistantJoinedAt = data.joined_at || now;
+    if (eventType === 'meeting.recording.started') assistantPatch.meetingAssistantRecordingStartedAt = now;
+    if (eventType === 'meeting.recording.completed') assistantPatch.meetingAssistantRecordingStorage = data.storage || '';
+    if (eventType === 'meeting.transcript.completed') {
+      assistantPatch.meetingAssistantTranscriptId = data.transcript_id || '';
+      assistantPatch.meetingAssistantTranscript = transcriptPayload;
+    }
+    if (eventType === 'meeting.analysis.completed' && report) assistantPatch.meetingAssistantReport = report;
+    if (eventType === 'meeting.failed' || eventType === 'meeting.needs_reauth') {
+      assistantPatch.meetingAssistantError = String(data.reason || 'The meeting assistant reported a failure.').slice(0, 1000);
+    }
+    if (eventType === 'meeting.cancelled') assistantPatch.meetingAssistantError = '';
+
+    // The lead id is read only from this tenant's saved booking, never from the webhook payload.
+    if (booking.leadId) {
+      const leadRef = tenantRepo(ctx).leadDoc(String(booking.leadId));
+      const leadSnap = await getDoc(leadRef);
+      if (leadSnap.exists()) {
+        const lead = leadSnap.data() as any;
+        const current = lead.meetingIntelligence && typeof lead.meetingIntelligence === 'object' ? lead.meetingIntelligence : {};
+        const next = {
+          ...current,
+          meetingId,
+          status: nextStatus,
+          lastEventType: eventType,
+          updatedAt: now,
+          ...(transcriptPayload ? { transcript: transcriptPayload } : {}),
+          ...(report ? { report } : {}),
+          ...((assistantPatch.meetingAssistantError) ? { error: assistantPatch.meetingAssistantError } : {}),
+        };
+        await updateDoc(leadRef, { meetingIntelligence: next, updatedAt: now });
+      }
+    }
+    await updateDoc(bookingRef, assistantPatch);
+    res.statusCode = 200;
+    res.end(JSON.stringify({ received: true, tenantId, bookingId, status: nextStatus }));
+    return true;
+  } catch (error: any) {
+    console.error('[Meeting Intelligence Webhook] CRM synchronization failed:', error?.message || error);
+    res.statusCode = 500;
+    res.end(JSON.stringify({ received: false, error: 'Could not persist meeting status, transcript or report; retry this event.' }));
+    return true;
+  }
+}
+
 export async function routeWebsiteLeadWebhook(
   req: any,
   res: any,

@@ -174,6 +174,7 @@ import {
   routeWebsiteLeadWebhook,
   routeWhatsAppWebhook,
   routeResendWebhook,
+  routeMeetingIntelligenceWebhook,
 } from './webhookRouter.js';
 import type { TenantContext, Tenant, GlobalUser, UserRole, WebhookRoute, ChannelRoute, DomainRoute } from '../types/tenant.js';
 import {
@@ -920,6 +921,9 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   if (url === '/api/webhooks/instagram') {
     const ig = await import('./instagramIntegrationService.js');
     return await ig.handleInstagramWebhook(req, res);
+  }
+  if (url === '/api/webhooks/meeting-intelligence') {
+    return await routeMeetingIntelligenceWebhook(req, res);
   }
   if (url === '/api/webhooks/email/resend') {
     return await routeResendWebhook(req, res);

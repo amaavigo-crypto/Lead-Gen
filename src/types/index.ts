@@ -798,6 +798,20 @@ export interface Booking {
   recordingConsentAt?: string;
   recordingConsentSource?: 'attendee_form' | 'attendee_chat' | 'attendee_email' | 'attendee_whatsapp';
   recordingConsentTextVersion?: string;
+  /** Tenant-scoped state synchronized with the self-hosted Meeting Intelligence service. */
+  meetingAssistantStatus?: string;
+  meetingAssistantMeetingId?: string;
+  meetingAssistantError?: string;
+  meetingAssistantLastEventId?: string;
+  meetingAssistantLastEventType?: string;
+  meetingAssistantUpdatedAt?: string;
+  meetingAssistantJoinedAt?: string;
+  meetingAssistantRecordingStartedAt?: string;
+  meetingAssistantRecordingStorage?: string;
+  meetingAssistantTranscriptId?: string;
+  meetingAssistantTranscript?: { text?: string; segments?: any[] };
+  meetingAssistantReport?: any;
+  meetingAssistantEventIds?: string[];
   notes?: string;
   createdAt: string;
   updatedAt: string;

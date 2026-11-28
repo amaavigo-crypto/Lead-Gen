@@ -148,6 +148,125 @@ export const VALID_SLOT_START_HOURS = [10, 11, 12, 13, 14, 15, 16, 17, 18]; // L
 
 const getMeetingAssistantEmail = () => String(process.env.MEETING_INTELLIGENCE_BOT_EMAIL || 'automation@amaavigo.com').trim().toLowerCase();
 
+type MeetingAssistantSync = Partial<Booking>;
+
+async function callMeetingIntelligence(
+  path: string,
+  method: 'POST' | 'PATCH',
+  payload?: Record<string, unknown>,
+): Promise<{ ok: boolean; data?: any; error?: string }> {
+  const serviceKey = String(process.env.MEETING_INTELLIGENCE_SERVICE_KEY || '').trim();
+  if (!serviceKey) return { ok: false, error: 'MEETING_INTELLIGENCE_SERVICE_KEY is not configured on Lead Gen.' };
+  const baseUrl = String(process.env.MEETING_INTELLIGENCE_API_URL || 'https://meetings.amaavigo.com').trim().replace(/\\/+$/, '');
+  try {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: {
+        'X-Service-Key': serviceKey,
+        ...(payload ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(payload ? { body: JSON.stringify(payload) } : {}),
+    });
+    const responseText = await response.text().catch(() => '');
+    let data: any = {};
+    try { data = responseText ? JSON.parse(responseText) : {}; }
+    catch { data = { detail: responseText.slice(0, 400) }; }
+    if (!response.ok) {
+      return {
+        ok: false,
+        data,
+        error: `Meeting Intelligence returned HTTP ${response.status}: ${String(data.detail || data.error || responseText).slice(0, 350)}`,
+      };
+    }
+    return { ok: true, data };
+  } catch (error: any) {
+    return { ok: false, error: error?.message || 'Could not reach Meeting Intelligence.' };
+  }
+}
+
+function meetingDurationMinutes(booking: Booking): number {
+  const start = Date.parse(booking.startDateTimeIso || '');
+  const end = Date.parse(booking.endDateTimeIso || '');
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 60;
+  return Math.max(5, Math.min(180, Math.round((end - start) / 60000)));
+}
+
+async function registerMeetingAssistant(booking: Booking, tenantId: string): Promise<MeetingAssistantSync> {
+  if (!booking.recordingConsent || !booking.recordingConsentAt || !booking.recordingConsentSource || !booking.recordingConsentTextVersion) {
+    return { meetingAssistantStatus: 'CONSENT_REQUIRED' };
+  }
+  if (booking.calendarProvider !== 'google' || !/^https:\/\/meet\.google\.com\//i.test(String(booking.googleMeetLink || ''))) {
+    return {
+      meetingAssistantStatus: 'UNSUPPORTED_MEETING_LINK',
+      meetingAssistantError: 'The meeting assistant currently supports consented Google Meet bookings only.',
+    };
+  }
+  const result = await callMeetingIntelligence('/v1/meetings', 'POST', {
+    tenant_id: tenantId,
+    external_booking_id: booking.bookingId,
+    ...(booking.leadId ? { lead_id: booking.leadId } : {}),
+    meeting_url: booking.googleMeetLink,
+    scheduled_start: booking.startDateTimeIso,
+    timezone: booking.timezone || tz(),
+    duration_minutes: meetingDurationMinutes(booking),
+    attendees: Array.from(new Set([booking.leadEmail, ...(booking.attendees || [])]
+      .map((email) => String(email || '').trim().toLowerCase())
+      .filter((email) => email.includes('@') && email !== getMeetingAssistantEmail()))),
+    recording_consent: true,
+    metadata: {
+      source: 'amaavigo-lead-generation',
+      calendar_event_id: booking.calendarEventId,
+      recording_consent_captured_at: booking.recordingConsentAt,
+      recording_consent_source: booking.recordingConsentSource,
+      recording_consent_text_version: booking.recordingConsentTextVersion,
+    },
+  });
+  if (!result.ok || !result.data?.id) {
+    return {
+      meetingAssistantStatus: 'REGISTRATION_FAILED',
+      meetingAssistantError: result.error || 'Meeting Intelligence did not return a meeting ID.',
+    };
+  }
+  return {
+    meetingAssistantStatus: 'SCHEDULED',
+    meetingAssistantMeetingId: String(result.data.id),
+    meetingAssistantError: undefined,
+  };
+}
+
+async function cancelMeetingAssistant(booking: Booking, tenantId: string): Promise<MeetingAssistantSync> {
+  if (!booking.meetingAssistantMeetingId) {
+    return { meetingAssistantStatus: 'NOT_REGISTERED' };
+  }
+  const path = `/v1/meetings/${encodeURIComponent(booking.meetingAssistantMeetingId)}/cancel?tenant_id=${encodeURIComponent(tenantId)}`;
+  const result = await callMeetingIntelligence(path, 'POST');
+  return result.ok
+    ? { meetingAssistantStatus: 'CANCELLED', meetingAssistantError: undefined }
+    : { meetingAssistantStatus: 'CANCEL_SYNC_FAILED', meetingAssistantError: result.error || 'Could not cancel the scheduled assistant job.' };
+}
+
+async function syncMeetingAssistantAfterReschedule(booking: Booking, tenantId: string): Promise<MeetingAssistantSync> {
+  if (sb().meetingAssistantEnabled === false || !booking.recordingConsent) {
+    return booking.meetingAssistantMeetingId
+      ? cancelMeetingAssistant(booking, tenantId)
+      : { meetingAssistantStatus: sb().meetingAssistantEnabled === false ? 'DISABLED' : 'CONSENT_REQUIRED' };
+  }
+  if (!booking.meetingAssistantMeetingId) return registerMeetingAssistant(booking, tenantId);
+  const result = await callMeetingIntelligence(
+    `/v1/meetings/${encodeURIComponent(booking.meetingAssistantMeetingId)}?tenant_id=${encodeURIComponent(tenantId)}`,
+    'PATCH',
+    {
+      meeting_url: booking.googleMeetLink,
+      scheduled_start: booking.startDateTimeIso,
+      timezone: booking.timezone || tz(),
+      duration_minutes: meetingDurationMinutes(booking),
+    },
+  );
+  return result.ok
+    ? { meetingAssistantStatus: 'SCHEDULED', meetingAssistantError: undefined }
+    : { meetingAssistantStatus: 'RESCHEDULE_SYNC_FAILED', meetingAssistantError: result.error || 'Could not update the assistant schedule.' };
+}
+
 // Server-side in-memory cache for OAuth access tokens, one entry per workspace (never shared between them).
 const serverCalendarTokens = new Map<string, { token: string; expiresAt: number }>();
 
@@ -1473,6 +1592,23 @@ async function createGoogleCalendarDemoBookingInner(
     }
   }
 
+  if (!params.replacingBookingId && isFirebaseConfigured && db) {
+    let assistantPatch: MeetingAssistantSync;
+    if (sb().meetingAssistantEnabled === false) {
+      assistantPatch = { meetingAssistantStatus: 'DISABLED' };
+    } else if (!hasRecordingConsent) {
+      assistantPatch = { meetingAssistantStatus: 'CONSENT_REQUIRED' };
+    } else if (!includeMeetingAssistant) {
+      assistantPatch = { meetingAssistantStatus: 'BOT_NOT_INVITED', meetingAssistantError: 'The assistant was not included in the Google Calendar invitation.' };
+    } else {
+      assistantPatch = await registerMeetingAssistant(persistedBooking, getSchedCtx().tenantId);
+    }
+    persistedBooking = { ...persistedBooking, ...assistantPatch };
+    await safeSetDoc(tenantRepo(getSchedCtx()).bookingDoc(bookingId), assistantPatch as any, { merge: true }).catch((err) => {
+      console.warn('[Meeting Assistant] Could not persist registration state:', (err as any)?.message || err);
+    });
+  }
+
   return {
     success: true,
     booking: persistedBooking,
@@ -1566,6 +1702,12 @@ export async function cancelDemoBooking(
         };
       }
     }
+
+    // Cancel a still-pending Meeting Intelligence job after the Calendar event has been released.
+    const assistantCancelPatch = await cancelMeetingAssistant(booking, getSchedCtx().tenantId);
+    await safeSetDoc(bookingRef, assistantCancelPatch as any, { merge: true }).catch((err) =>
+      console.warn('[Meeting Assistant] Cancellation sync failed:', (err as any)?.message || err)
+    );
 
     // The booking + calendar are now cancelled. CRM lead sync is best-effort and must not
     // turn a completed cancellation into a false failure message.
@@ -1786,6 +1928,14 @@ export async function rescheduleDemoBooking(
         };
       }
     }
+
+    const assistantSyncPatch = await syncMeetingAssistantAfterReschedule(
+      { ...updatedBooking, meetingAssistantMeetingId: booking.meetingAssistantMeetingId, meetingAssistantStatus: booking.meetingAssistantStatus, recordingConsent: booking.recordingConsent === true, recordingConsentAt: booking.recordingConsentAt, recordingConsentSource: booking.recordingConsentSource, recordingConsentTextVersion: booking.recordingConsentTextVersion },
+      getSchedCtx().tenantId,
+    );
+    await safeSetDoc(bookingRef, assistantSyncPatch as any, { merge: true }).catch((err) =>
+      console.warn('[Meeting Assistant] Reschedule sync status could not be saved:', (err as any)?.message || err)
+    );
 
     if (booking.leadId) {
       await safeSetDoc(
@@ -2090,6 +2240,7 @@ export interface SchedulingTurnResult {
     | 'ATTENDEE_ADDED'
     | 'ASKED_ATTENDEE_EMAIL'
     | 'ASKED_EMAIL'
+    | 'AWAITING_RECORDING_CONSENT'
     | 'ADD_ATTENDEE_FAILED'
     | 'AWAITING_CONFIRMATION'
     | 'SLOT_UNAVAILABLE'
@@ -2108,7 +2259,7 @@ const AVAILABILITY_STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CONFIRMATION_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 
 interface SchedulingState {
-  stage: 'AWAITING_AVAILABILITY' | 'AWAITING_CONFIRMATION' | 'AWAITING_EMAIL';
+  stage: 'AWAITING_AVAILABILITY' | 'AWAITING_CONFIRMATION' | 'AWAITING_EMAIL' | 'AWAITING_RECORDING_CONSENT';
   offeredSlots?: OfferedSlot[];
   proposedSlot?: OfferedSlot;
   mode?: 'NEW' | 'RESCHEDULE';
@@ -2367,7 +2518,7 @@ export async function processSchedulingConversationTurn(params: {
   let stateKey = stateKeys[0] || null;
   let schedState: SchedulingState | null = null;
   const containsEmail = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(fresh);
-  if (detectDemoSchedulingIntent(fresh) || looksLikeSchedulingFollowUp(fresh) || containsEmail) {
+  if (detectDemoSchedulingIntent(fresh) || looksLikeSchedulingFollowUp(fresh) || containsEmail || /\\b(yes|no|yeah|yep|nope|agree|consent)\\b/i.test(fresh)) {
     for (const candidateKey of stateKeys) {
       const candidateState = await loadSchedulingState(candidateKey);
       if (candidateState) {
@@ -2566,6 +2717,22 @@ export async function processSchedulingConversationTurn(params: {
       schedState.proposedSlot,
       schedState.mode === 'RESCHEDULE' ? 'RESCHEDULE' : 'NEW'
     );
+  }
+
+  if (schedState?.stage === 'AWAITING_RECORDING_CONSENT' && schedState.proposedSlot) {
+    const answerSource = params.bodyText != null ? stripQuotedEmailHistoryShared(String(params.bodyText)) || String(params.bodyText) : fresh;
+    const answer = leadReplyHead(answerSource) || answerSource.trim();
+    if (isAffirmative(answer)) {
+      return finalizeConfirmedSlot(schedState.proposedSlot, schedState.mode === 'RESCHEDULE' ? 'RESCHEDULE' : 'NEW', true);
+    }
+    if (isNegative(answer)) {
+      return finalizeConfirmedSlot(schedState.proposedSlot, schedState.mode === 'RESCHEDULE' ? 'RESCHEDULE' : 'NEW', false);
+    }
+    return {
+      handled: true,
+      action: 'AWAITING_RECORDING_CONSENT',
+      replyText: 'Please reply Yes to explicitly consent to recording and AI transcription, or No to continue with the demo without recording. Your demo booking will proceed either way.',
+    };
   }
 
   if (schedState?.stage === 'AWAITING_CONFIRMATION' && schedState.proposedSlot) {
@@ -2928,7 +3095,7 @@ Output JSON only: {"isDemoIntent": boolean, "requestedDate": string|null, "reque
   }
 
   /** The lead said yes to a proposed slot: re-validate, then book or reschedule. */
-  async function finalizeConfirmedSlot(slot: OfferedSlot, slotMode: 'NEW' | 'RESCHEDULE'): Promise<SchedulingTurnResult> {
+  async function finalizeConfirmedSlot(slot: OfferedSlot, slotMode: 'NEW' | 'RESCHEDULE', recordingConsentDecision?: boolean): Promise<SchedulingTurnResult> {
     const isEmailChannel = channel === 'EMAIL';
     const emailAddress = normalizeLeadEmail(leadEmail);
     const isValidLeadEmail = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(emailAddress);
@@ -2948,6 +3115,25 @@ Output JSON only: {"isDemoIntent": boolean, "requestedDate": string|null, "reque
         handled: true,
         action: 'ASKED_EMAIL',
         replyText: 'Perfect. Before I confirm your demo and send the Google Calendar invitation, please share the email address you would like the invitation sent to.',
+      };
+    }
+
+    if (sb().meetingAssistantEnabled !== false && slotMode === 'NEW' && recordingConsentDecision === undefined) {
+      await saveSchedulingState(stateKey, {
+        stage: 'AWAITING_RECORDING_CONSENT',
+        proposedSlot: {
+          date: slot.date,
+          startHour: slot.startHour,
+          startMinute: slot.startMinute || 0,
+          label: formatSlotLabel(slot.date, slot.startHour, slot.startMinute || 0),
+        },
+        offeredSlots: [],
+        mode: slotMode,
+      });
+      return {
+        handled: true,
+        action: 'AWAITING_RECORDING_CONSENT',
+        replyText: 'Before I finalize your demo, do you explicitly agree to have the meeting recorded and transcribed using AI so we can prepare a summary and action items? You may say No and still attend the demo. Please reply Yes or No.',
       };
     }
 
@@ -3015,6 +3201,12 @@ Output JSON only: {"isDemoIntent": boolean, "requestedDate": string|null, "reque
       startTime: startTimeStr,
       endTime: endTimeStr,
       accessToken,
+      recordingConsent: recordingConsentDecision === true,
+      recordingConsentAt: recordingConsentDecision === true ? new Date().toISOString() : undefined,
+      recordingConsentSource: recordingConsentDecision === true
+        ? (channel === 'EMAIL' ? 'attendee_email' : channel === 'WHATSAPP' ? 'attendee_whatsapp' : 'attendee_chat')
+        : undefined,
+      recordingConsentTextVersion: recordingConsentDecision === true ? 'recording-consent-v1' : undefined,
     });
 
     if (bookingResult.success && bookingResult.booking) {

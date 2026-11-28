@@ -653,7 +653,14 @@ export const DemoSchedulingView: React.FC<DemoSchedulingViewProps> = ({ leads = 
           : selectedLeadId
             ? ' The booking is confirmed, but CRM status sync could not be verified. Please refresh the lead in CRM.'
             : '';
-        setBookingSuccessMsg(`Demo booked.${crmSyncMessage} ${videoLabel} link: ${data.booking.googleMeetLink}`);
+        const assistantSyncMessage = data.booking.meetingAssistantStatus === 'SCHEDULED'
+          ? ' Amaavigo AI Meeting Assistant has been invited and scheduled.'
+          : data.booking.meetingAssistantStatus === 'CONSENT_REQUIRED'
+            ? ' The attendee did not consent to recording, so the assistant was not scheduled.'
+            : data.booking.meetingAssistantStatus && !['DISABLED', 'NOT_REGISTERED'].includes(data.booking.meetingAssistantStatus)
+              ? ` Meeting Assistant status: ${data.booking.meetingAssistantStatus}.`
+              : '';
+        setBookingSuccessMsg(`Demo booked.${crmSyncMessage}${assistantSyncMessage} ${videoLabel} link: ${data.booking.googleMeetLink}`);
         setSelectedSlot(null);
         setRecordingConsentConfirmed(false);
         setRecordingConsentSource('');
