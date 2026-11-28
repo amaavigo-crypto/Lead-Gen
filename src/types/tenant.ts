@@ -62,6 +62,8 @@ export interface TenantContext {
   email: string;
   role: UserRole;
   isPlatformAdmin?: boolean;
+  /** Server-resolved feature permissions for the authenticated tenant user. */
+  allowedModules?: string[];
 }
 
 export interface WebhookRoute {
