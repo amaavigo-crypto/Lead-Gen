@@ -148,6 +148,12 @@ export const VALID_SLOT_START_HOURS = [10, 11, 12, 13, 14, 15, 16, 17, 18]; // L
 
 const getMeetingAssistantEmail = () => String(process.env.MEETING_INTELLIGENCE_BOT_EMAIL || 'automation@amaavigo.com').trim().toLowerCase();
 
+function meetingIntelligenceBaseUrl(): string {
+  let value = String(process.env.MEETING_INTELLIGENCE_API_URL || 'https://meetings.amaavigo.com').trim();
+  while (value.endsWith('/')) value = value.slice(0, -1);
+  return value;
+}
+
 type MeetingAssistantSync = Partial<Booking>;
 
 async function callMeetingIntelligence(
@@ -157,7 +163,7 @@ async function callMeetingIntelligence(
 ): Promise<{ ok: boolean; data?: any; error?: string }> {
   const serviceKey = String(process.env.MEETING_INTELLIGENCE_SERVICE_KEY || '').trim();
   if (!serviceKey) return { ok: false, error: 'MEETING_INTELLIGENCE_SERVICE_KEY is not configured on Lead Gen.' };
-  const baseUrl = String(process.env.MEETING_INTELLIGENCE_API_URL || 'https://meetings.amaavigo.com').trim().replace(/\\/+$/, '');
+  const baseUrl = meetingIntelligenceBaseUrl();
   try {
     const response = await fetch(`${baseUrl}${path}`, {
       method,
@@ -2518,7 +2524,7 @@ export async function processSchedulingConversationTurn(params: {
   let stateKey = stateKeys[0] || null;
   let schedState: SchedulingState | null = null;
   const containsEmail = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(fresh);
-  if (detectDemoSchedulingIntent(fresh) || looksLikeSchedulingFollowUp(fresh) || containsEmail || /\\b(yes|no|yeah|yep|nope|agree|consent)\\b/i.test(fresh)) {
+  if (detectDemoSchedulingIntent(fresh) || looksLikeSchedulingFollowUp(fresh) || containsEmail || ['yes', 'no', 'yeah', 'yep', 'nope', 'agree', 'consent'].includes(fresh.trim().toLowerCase().replace(/[.!?]+$/, ''))) {
     for (const candidateKey of stateKeys) {
       const candidateState = await loadSchedulingState(candidateKey);
       if (candidateState) {

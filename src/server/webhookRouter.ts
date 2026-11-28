@@ -114,7 +114,8 @@ export async function routeMeetingIntelligenceWebhook(req: any, res: any): Promi
     if (eventType === 'meeting.transcript.completed') {
       const serviceKey = String(process.env.MEETING_INTELLIGENCE_SERVICE_KEY || '').trim();
       if (serviceKey) {
-        const baseUrl = String(process.env.MEETING_INTELLIGENCE_API_URL || 'https://meetings.amaavigo.com').trim().replace(/\\/+$/, '');
+        let baseUrl = String(process.env.MEETING_INTELLIGENCE_API_URL || 'https://meetings.amaavigo.com').trim();
+        while (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
         const transcriptUrl = `${baseUrl}/v1/meetings/${encodeURIComponent(meetingId)}/transcript?tenant_id=${encodeURIComponent(tenantId)}`;
         const transcriptRes = await fetch(transcriptUrl, { headers: { 'X-Service-Key': serviceKey } }).catch(() => null);
         if (transcriptRes?.ok) {
