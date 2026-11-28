@@ -325,7 +325,19 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
     if (!canAssignLeads) return;
     const target = leads.find((l) => l.leadId === leadId);
     if (!target) return;
-    const assignee = assigneeId === '__unassigned__' ? undefined : telecallers.find((member) => member.id === assigneeId);
+
+    const isUnassigned = assigneeId === '__unassigned__' || assigneeId === 'Unassigned';
+    const assignee = isUnassigned
+      ? undefined
+      : telecallers.find((member) => member.id === assigneeId);
+
+    // Never silently turn a failed member lookup into an unassignment.
+    // The dropdown must submit the member's Firebase UID, not their display name.
+    if (!isUnassigned && !assignee) {
+      console.warn('[CRM] Ignored lead assignment because the selected workspace member is unavailable.');
+      return;
+    }
+
     const updated: Lead = {
       ...target,
       assignedToUserId: assignee?.id || null,
@@ -1324,8 +1336,20 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                     const isSelected = selectedLeadIds.has(lead.leadId);
                     const dt = formatLeadDateTime(lead.createdAt || lead.lastActivityAt);
                     const currentStage = TELECRM_STAGES.find((stage) => stage.key === lead.status) || TELECRM_STAGES[1];
-                    const callerName = lead.assignedCaller || lead.ownerId || 'Unassigned';
-                    const callerObj = telecallers.find((caller) => caller.name === callerName);
+                    const storedCallerName = lead.assignedToName || lead.assignedCaller || '';
+                    const callerObj =
+                      telecallers.find((caller) => caller.id === lead.assignedToUserId) ||
+                      telecallers.find((caller) => caller.id === lead.ownerId) ||
+                      (storedCallerName
+                        ? telecallers.find((caller) => caller.name === storedCallerName)
+                        : undefined);
+                    const hasUnavailableAssignee = !callerObj && Boolean(
+                      lead.assignedToUserId ||
+                      lead.ownerId ||
+                      (storedCallerName && storedCallerName !== 'Unassigned')
+                    );
+                    const callerName = callerObj?.name || (hasUnavailableAssignee ? storedCallerName || 'Inactive member' : 'Unassigned');
+                    const callerSelectValue = callerObj?.id || (hasUnavailableAssignee ? '__inactive_assignee__' : '__unassigned__');
                     const followupDate = lead.aiAutoFollowUp?.status === 'scheduled'
                       ? parseLeadDate(lead.aiAutoFollowUp.scheduledAt)
                       : null;
@@ -1482,14 +1506,19 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
                               {callerName[0] || 'U'}
                             </span>
                             <select
-                              value={callerName}
+                              value={callerSelectValue}
                               onChange={(event) => handleAssignCaller(lead.leadId, event.target.value)}
                               className="crm-assignee-select"
                               aria-label={`Assigned to for ${leadName}`}
                             >
-                              <option value="Unassigned">Unassigned</option>
+                              <option value="__unassigned__">Unassigned</option>
+                              {hasUnavailableAssignee && (
+                                <option value="__inactive_assignee__" disabled>
+                                  {callerName} (inactive or unavailable)
+                                </option>
+                              )}
                               {telecallers.map((caller) => (
-                                <option key={caller.id} value={caller.name}>{caller.name}</option>
+                                <option key={caller.id} value={caller.id}>{caller.name}</option>
                               ))}
                             </select>
                           </div>
