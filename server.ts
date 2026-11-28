@@ -84,6 +84,30 @@ app.all(['/api/webhooks/resend', '/api/webhooks/email/resend'], express.raw({ ty
   }
 });
 
+// Meeting Intelligence webhook needs exact raw bytes for HMAC verification.
+app.all('/api/webhooks/meeting-intelligence', express.raw({ type: '*/*', limit: '2mb' }), async (req: any, res) => {
+  if (req.method !== 'POST') {
+    res.status(405).set('Allow', 'POST').json({ error: 'POST only' });
+    return;
+  }
+  try {
+    const raw: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    req.rawBody = raw;
+    try {
+      req.body = JSON.parse(raw.toString('utf8') || '{}');
+    } catch {
+      res.status(400).json({ error: 'Invalid JSON webhook payload.' });
+      return;
+    }
+    req.url = '/api/webhooks/meeting-intelligence';
+    const handled = await handleCoreApi(req, res);
+    if (!handled && !res.writableEnded) res.status(404).json({ error: 'Meeting Intelligence webhook route not found.' });
+  } catch (err: any) {
+    console.error('[Meeting Intelligence webhook error]:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Meeting Intelligence webhook processing failed.' });
+  }
+});
+
 // Body parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));

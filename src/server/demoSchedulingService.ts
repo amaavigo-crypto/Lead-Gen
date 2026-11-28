@@ -198,13 +198,10 @@ function meetingDurationMinutes(booking: Booking): number {
 }
 
 async function registerMeetingAssistant(booking: Booking, tenantId: string): Promise<MeetingAssistantSync> {
-  if (!booking.recordingConsent || !booking.recordingConsentAt || !booking.recordingConsentSource || !booking.recordingConsentTextVersion) {
-    return { meetingAssistantStatus: 'CONSENT_REQUIRED' };
-  }
   if (booking.calendarProvider !== 'google' || !/^https:\/\/meet\.google\.com\//i.test(String(booking.googleMeetLink || ''))) {
     return {
       meetingAssistantStatus: 'UNSUPPORTED_MEETING_LINK',
-      meetingAssistantError: 'The meeting assistant currently supports consented Google Meet bookings only.',
+      meetingAssistantError: 'The meeting assistant currently supports Google Meet bookings only.',
     };
   }
   const result = await callMeetingIntelligence('/v1/meetings', 'POST', {
@@ -218,13 +215,12 @@ async function registerMeetingAssistant(booking: Booking, tenantId: string): Pro
     attendees: Array.from(new Set([booking.leadEmail, ...(booking.attendees || [])]
       .map((email) => String(email || '').trim().toLowerCase())
       .filter((email) => email.includes('@') && email !== getMeetingAssistantEmail()))),
-    recording_consent: true,
+    recording_enabled: true,
     metadata: {
       source: 'amaavigo-lead-generation',
+      tenant_meeting_assistant_enabled: true,
       calendar_event_id: booking.calendarEventId,
-      recording_consent_captured_at: booking.recordingConsentAt,
-      recording_consent_source: booking.recordingConsentSource,
-      recording_consent_text_version: booking.recordingConsentTextVersion,
+      meeting_notice: 'Amaavigo AI Assistant joins visibly and records/transcribes this meeting.',
     },
   });
   if (!result.ok || !result.data?.id) {
@@ -252,10 +248,10 @@ async function cancelMeetingAssistant(booking: Booking, tenantId: string): Promi
 }
 
 async function syncMeetingAssistantAfterReschedule(booking: Booking, tenantId: string): Promise<MeetingAssistantSync> {
-  if (sb().meetingAssistantEnabled === false || !booking.recordingConsent) {
+  if (sb().meetingAssistantEnabled === false) {
     return booking.meetingAssistantMeetingId
       ? cancelMeetingAssistant(booking, tenantId)
-      : { meetingAssistantStatus: sb().meetingAssistantEnabled === false ? 'DISABLED' : 'CONSENT_REQUIRED' };
+      : { meetingAssistantStatus: 'DISABLED' };
   }
   if (!booking.meetingAssistantMeetingId) return registerMeetingAssistant(booking, tenantId);
   const result = await callMeetingIntelligence(
@@ -1341,10 +1337,10 @@ async function createGoogleCalendarDemoBookingInner(
   ].join('\n');
 
   const meetingAssistantEmail = getMeetingAssistantEmail();
-  const validConsentSources = ['attendee_form', 'attendee_chat', 'attendee_email', 'attendee_whatsapp'];
-  const hasRecordingConsent = params.recordingConsent === true && Boolean(params.recordingConsentAt && params.recordingConsentTextVersion)
-    && validConsentSources.includes(String(params.recordingConsentSource || ''));
-  const includeMeetingAssistant = sb().meetingAssistantEnabled !== false && hasRecordingConsent;
+  const includeMeetingAssistant = sb().meetingAssistantEnabled !== false;
+  const eventDescription = includeMeetingAssistant
+    ? `${description}\\n\\nAmaavigo AI Assistant (${meetingAssistantEmail}) will join this meeting as a visible participant. The meeting will be recorded and transcribed using AI, and the resulting transcript and summary will be stored in this workspace's CRM.`
+    : description;
 
   // 2. Create Event in Google Calendar with genuine Google Meet video conference
   // and send the calendar invitation ONCE to leadEmail
@@ -1360,7 +1356,7 @@ async function createGoogleCalendarDemoBookingInner(
 
       const eventPayload = {
         summary,
-        description,
+        description: eventDescription,
         start: {
           dateTime: startIso,
           timeZone: tz(),
@@ -1504,7 +1500,7 @@ async function createGoogleCalendarDemoBookingInner(
     timezone: tz(),
     status: 'BOOKED',
     summary,
-    description,
+    description: eventDescription,
     calendarProvider: 'google',
     attendees: Array.from(new Set([
       hostCalendarEmail(), leadEmail,
@@ -1602,10 +1598,6 @@ async function createGoogleCalendarDemoBookingInner(
     let assistantPatch: MeetingAssistantSync;
     if (sb().meetingAssistantEnabled === false) {
       assistantPatch = { meetingAssistantStatus: 'DISABLED' };
-    } else if (!hasRecordingConsent) {
-      assistantPatch = { meetingAssistantStatus: 'CONSENT_REQUIRED' };
-    } else if (!includeMeetingAssistant) {
-      assistantPatch = { meetingAssistantStatus: 'BOT_NOT_INVITED', meetingAssistantError: 'The assistant was not included in the Google Calendar invitation.' };
     } else {
       assistantPatch = await registerMeetingAssistant(persistedBooking, getSchedCtx().tenantId);
     }
@@ -1936,7 +1928,7 @@ export async function rescheduleDemoBooking(
     }
 
     const assistantSyncPatch = await syncMeetingAssistantAfterReschedule(
-      { ...updatedBooking, meetingAssistantMeetingId: booking.meetingAssistantMeetingId, meetingAssistantStatus: booking.meetingAssistantStatus, recordingConsent: booking.recordingConsent === true, recordingConsentAt: booking.recordingConsentAt, recordingConsentSource: booking.recordingConsentSource, recordingConsentTextVersion: booking.recordingConsentTextVersion },
+      { ...updatedBooking, meetingAssistantMeetingId: booking.meetingAssistantMeetingId, meetingAssistantStatus: booking.meetingAssistantStatus },
       getSchedCtx().tenantId,
     );
     await safeSetDoc(bookingRef, assistantSyncPatch as any, { merge: true }).catch((err) =>
@@ -2246,7 +2238,6 @@ export interface SchedulingTurnResult {
     | 'ATTENDEE_ADDED'
     | 'ASKED_ATTENDEE_EMAIL'
     | 'ASKED_EMAIL'
-    | 'AWAITING_RECORDING_CONSENT'
     | 'ADD_ATTENDEE_FAILED'
     | 'AWAITING_CONFIRMATION'
     | 'SLOT_UNAVAILABLE'
@@ -2265,7 +2256,7 @@ const AVAILABILITY_STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CONFIRMATION_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 
 interface SchedulingState {
-  stage: 'AWAITING_AVAILABILITY' | 'AWAITING_CONFIRMATION' | 'AWAITING_EMAIL' | 'AWAITING_RECORDING_CONSENT';
+  stage: 'AWAITING_AVAILABILITY' | 'AWAITING_CONFIRMATION' | 'AWAITING_EMAIL';
   offeredSlots?: OfferedSlot[];
   proposedSlot?: OfferedSlot;
   mode?: 'NEW' | 'RESCHEDULE';
@@ -2524,7 +2515,7 @@ export async function processSchedulingConversationTurn(params: {
   let stateKey = stateKeys[0] || null;
   let schedState: SchedulingState | null = null;
   const containsEmail = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(fresh);
-  if (detectDemoSchedulingIntent(fresh) || looksLikeSchedulingFollowUp(fresh) || containsEmail || ['yes', 'no', 'yeah', 'yep', 'nope', 'agree', 'consent'].includes(fresh.trim().toLowerCase().replace(/[.!?]+$/, ''))) {
+  if (detectDemoSchedulingIntent(fresh) || looksLikeSchedulingFollowUp(fresh) || containsEmail) {
     for (const candidateKey of stateKeys) {
       const candidateState = await loadSchedulingState(candidateKey);
       if (candidateState) {
@@ -2723,22 +2714,6 @@ export async function processSchedulingConversationTurn(params: {
       schedState.proposedSlot,
       schedState.mode === 'RESCHEDULE' ? 'RESCHEDULE' : 'NEW'
     );
-  }
-
-  if (schedState?.stage === 'AWAITING_RECORDING_CONSENT' && schedState.proposedSlot) {
-    const answerSource = params.bodyText != null ? stripQuotedEmailHistoryShared(String(params.bodyText)) || String(params.bodyText) : fresh;
-    const answer = leadReplyHead(answerSource) || answerSource.trim();
-    if (isAffirmative(answer)) {
-      return finalizeConfirmedSlot(schedState.proposedSlot, schedState.mode === 'RESCHEDULE' ? 'RESCHEDULE' : 'NEW', true);
-    }
-    if (isNegative(answer)) {
-      return finalizeConfirmedSlot(schedState.proposedSlot, schedState.mode === 'RESCHEDULE' ? 'RESCHEDULE' : 'NEW', false);
-    }
-    return {
-      handled: true,
-      action: 'AWAITING_RECORDING_CONSENT',
-      replyText: 'Please reply Yes to explicitly consent to recording and AI transcription, or No to continue with the demo without recording. Your demo booking will proceed either way.',
-    };
   }
 
   if (schedState?.stage === 'AWAITING_CONFIRMATION' && schedState.proposedSlot) {
@@ -3101,7 +3076,7 @@ Output JSON only: {"isDemoIntent": boolean, "requestedDate": string|null, "reque
   }
 
   /** The lead said yes to a proposed slot: re-validate, then book or reschedule. */
-  async function finalizeConfirmedSlot(slot: OfferedSlot, slotMode: 'NEW' | 'RESCHEDULE', recordingConsentDecision?: boolean): Promise<SchedulingTurnResult> {
+  async function finalizeConfirmedSlot(slot: OfferedSlot, slotMode: 'NEW' | 'RESCHEDULE'): Promise<SchedulingTurnResult> {
     const isEmailChannel = channel === 'EMAIL';
     const emailAddress = normalizeLeadEmail(leadEmail);
     const isValidLeadEmail = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(emailAddress);
@@ -3121,25 +3096,6 @@ Output JSON only: {"isDemoIntent": boolean, "requestedDate": string|null, "reque
         handled: true,
         action: 'ASKED_EMAIL',
         replyText: 'Perfect. Before I confirm your demo and send the Google Calendar invitation, please share the email address you would like the invitation sent to.',
-      };
-    }
-
-    if (sb().meetingAssistantEnabled !== false && slotMode === 'NEW' && recordingConsentDecision === undefined) {
-      await saveSchedulingState(stateKey, {
-        stage: 'AWAITING_RECORDING_CONSENT',
-        proposedSlot: {
-          date: slot.date,
-          startHour: slot.startHour,
-          startMinute: slot.startMinute || 0,
-          label: formatSlotLabel(slot.date, slot.startHour, slot.startMinute || 0),
-        },
-        offeredSlots: [],
-        mode: slotMode,
-      });
-      return {
-        handled: true,
-        action: 'AWAITING_RECORDING_CONSENT',
-        replyText: 'Before I finalize your demo, do you explicitly agree to have the meeting recorded and transcribed using AI so we can prepare a summary and action items? You may say No and still attend the demo. Please reply Yes or No.',
       };
     }
 
@@ -3207,12 +3163,6 @@ Output JSON only: {"isDemoIntent": boolean, "requestedDate": string|null, "reque
       startTime: startTimeStr,
       endTime: endTimeStr,
       accessToken,
-      recordingConsent: recordingConsentDecision === true,
-      recordingConsentAt: recordingConsentDecision === true ? new Date().toISOString() : undefined,
-      recordingConsentSource: recordingConsentDecision === true
-        ? (channel === 'EMAIL' ? 'attendee_email' : channel === 'WHATSAPP' ? 'attendee_whatsapp' : 'attendee_chat')
-        : undefined,
-      recordingConsentTextVersion: recordingConsentDecision === true ? 'recording-consent-v1' : undefined,
     });
 
     if (bookingResult.success && bookingResult.booking) {
