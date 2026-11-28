@@ -305,10 +305,16 @@ async function loadAccountIdentity(provider: Exclude<Provider, 'instagram'>, acc
     }
     return { accountId: String(data.sub || ''), displayName: String(data.name || data.given_name || 'LinkedIn member'), username: String(data.email || ''), avatar: String(data.picture || ''), organizations };
   }
+  // Reddit requires explicit API approval before any data endpoint is called. OAuth can
+  // capture the user's consent before approval, but identity lookup stays deferred until
+  // the server-side commercial approval flag has been enabled.
+  if (process.env.REDDIT_DATA_API_APPROVED !== 'true') {
+    return { accountId: 'reddit-oauth-connected', displayName: 'Reddit account (API approval pending)', username: '', avatar: '', identityPendingApproval: true };
+  }
   const data = await responseJson(await fetch('https://oauth.reddit.com/api/v1/me', {
-    headers: { Authorization: 'Bearer ' + accessToken, 'User-Agent': 'AmaavigoSocialStudio/1.0' },
+    headers: { Authorization: 'Bearer ' + accessToken, 'User-Agent': process.env.REDDIT_APP_USER_AGENT || 'web:com.amaavigo.socialstudio:v1.0 (Amaavigo Social Studio)' },
   }));
-  return { accountId: String(data.id || ''), displayName: String(data.name || 'Reddit user'), username: String(data.name || ''), avatar: String(data.icon_img || '') };
+  return { accountId: String(data.id || ''), displayName: String(data.name || 'Reddit user'), username: String(data.name || ''), avatar: String(data.icon_img || ''), identityPendingApproval: false };
 }
 
 async function completeAuthorization(provider: Exclude<Provider, 'instagram'>, code: string, state: OAuthState): Promise<void> {
