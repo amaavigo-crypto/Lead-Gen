@@ -99,16 +99,49 @@ function publicUrl(m:Media):string{
  const u=new URL(s);if(['localhost','127.0.0.1','0.0.0.0'].includes(u.hostname)||u.hostname.endsWith('.local'))throw new Error('Private media URLs cannot be sent to a social platform.');
  return u.toString();
 }
+async function waitInstagramMedia(base:string,creationId:string,accessToken:string):Promise<void>{
+ let finished=false;
+ for(let attempt=0;attempt<10;attempt++){
+  const status=await requestJson(base+'/'+creationId+'?fields=status_code&access_token='+encodeURIComponent(accessToken));
+  if(status.status_code==='FINISHED'){finished=true;break;}
+  if(status.status_code==='ERROR')throw new Error('Instagram could not process this video asset. Check the video format, duration and resolution.');
+  await new Promise(resolve=>setTimeout(resolve,2000));
+ }
+ if(!finished)throw new Error('Instagram is still processing this video. Wait a moment and retry publishing.');
+}
 async function publishInstagram(ctx:TenantContext,text:string,m:Media[],settings:any){
  const t=await token(ctx,'instagram');if(!m.length)throw new Error('Instagram publishing requires an image or video; text-only posts are not supported.');
- const url=publicUrl(m[0]),video=String(m[0].mimeType||'').startsWith('video/'),base='https://graph.instagram.com/'+(process.env.META_GRAPH_API_VERSION||'v23.0')+'/'+t.channel!.accountId;
- const body:any={caption:text,access_token:t.access};if(video){body.media_type=settings?.post_type==='story'?'STORIES':'REELS';body.video_url=url;}else{body.image_url=url;if(settings?.post_type==='story')body.media_type='STORIES';}
- const c=await requestJson(base+'/media',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(body).toString()});
- if(video){let finished=false;for(let i=0;i<8;i++){const status=await requestJson(base+'/'+c.id+'?fields=status_code&access_token='+encodeURIComponent(t.access));if(status.status_code==='FINISHED'){finished=true;break;}if(status.status_code==='ERROR')throw new Error('Instagram could not process this video asset.');await new Promise(r=>setTimeout(r,2500));}if(!finished)throw new Error('Instagram is still processing this video. Wait a moment and retry publishing.');}
- const p=await requestJson(base+'/media_publish',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({creation_id:String(c.id),access_token:t.access}).toString()});
- return{id:String(p.id||c.id),url:'https://www.instagram.com/p/'+String(p.id||c.id)+'/'};
+ const version=process.env.META_GRAPH_API_VERSION||'v23.0',account=String(t.channel!.accountId),base='https://graph.instagram.com/'+version+'/'+account;
+ const postType=String(settings?.post_type||'post');
+ if(postType==='story'&&m.length>1)throw new Error('Instagram Stories accept one media asset per post. Select one image or video.');
+ if(m.length>10)throw new Error('Instagram carousels support up to 10 media items.');
+ let creationId='';
+ if(m.length>1){
+  const children:string[]=[];
+  for(const asset of m){
+   const url=publicUrl(asset),video=String(asset.mimeType||'').startsWith('video/'),child:any={is_carousel_item:'true',access_token:t.access};
+   if(video){child.media_type='VIDEO';child.video_url=url;}else child.image_url=url;
+   const created=await requestJson(base+'/media',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(child).toString()});
+   const childId=String(created.id||'');if(!childId)throw new Error('Instagram did not return a carousel item ID.');
+   if(video)await waitInstagramMedia(base,childId,t.access);
+   children.push(childId);
+  }
+  const parent=await requestJson(base+'/media',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({media_type:'CAROUSEL',children:children.join(','),caption:text,access_token:t.access}).toString()});
+  creationId=String(parent.id||'');
+ }else{
+  const asset=m[0],url=publicUrl(asset),video=String(asset.mimeType||'').startsWith('video/'),body:any={caption:text,access_token:t.access};
+  if(video){body.media_type=postType==='story'?'STORIES':'REELS';body.video_url=url;}
+  else{body.image_url=url;if(postType==='story')body.media_type='STORIES';}
+  const created=await requestJson(base+'/media',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(body).toString()});
+  creationId=String(created.id||'');
+  if(video)await waitInstagramMedia(base,creationId,t.access);
+ }
+ if(!creationId)throw new Error('Instagram did not return a media container ID.');
+ const published=await requestJson(base+'/media_publish',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({creation_id:creationId,access_token:t.access}).toString()});
+ const id=String(published.id||creationId);return{id,url:'https://www.instagram.com/p/'+id+'/'};
 }
 async function publishFacebook(ctx:TenantContext,ch:Channel,text:string,m:Media[]){
+ if(m.length>1)throw new Error('Facebook Page publishing currently supports one media asset per post. Select one image or video.');
  const t=await token(ctx,'facebook',ch.id),pageToken=String(t.bundle.identity?.pageTokens?.[ch.id]||t.access),page=ch.accountId;
  if(m.length){const b=bytes(m[0]),video=String(m[0].mimeType||'').startsWith('video/');
   if(video){let p:any;if(b){const form=new FormData();form.append('description',text);form.append('source',new Blob([b.buffer as any],{type:b.type}),b.name);p=await requestJson('https://graph.facebook.com/'+META+'/'+page+'/videos?access_token='+encodeURIComponent(pageToken),{method:'POST',body:form});}
@@ -119,6 +152,7 @@ async function publishFacebook(ctx:TenantContext,ch:Channel,text:string,m:Media[
  const p=await requestJson('https://graph.facebook.com/'+META+'/'+page+'/feed',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({message:text,access_token:pageToken}).toString()});return{id:String(p.id),url:'https://www.facebook.com/'+String(p.id)};
 }
 async function publishYouTube(ctx:TenantContext,text:string,m:Media[],settings:any){
+ if(m.length>1)throw new Error('YouTube video uploads accept one video asset per post.');
  if(!m.length)throw new Error('YouTube publishing requires a video asset.');
  const t=await token(ctx,'youtube');let b=bytes(m[0]);
  if(!b){const r=await fetch(publicUrl(m[0]));if(!r.ok)throw new Error('Could not download the YouTube video asset.');b={buffer:Buffer.from(await r.arrayBuffer()),type:String(m[0].mimeType||r.headers.get('content-type')||'video/mp4'),name:String(m[0].name||'video.mp4')};}
@@ -160,6 +194,7 @@ async function uploadXMedia(accessToken:string,asset:Media):Promise<string>{
  return mediaId;
 }
 async function publishX(ctx:TenantContext,text:string,m:Media[]){
+ if(m.length>4)throw new Error('X supports up to four media items on a post.');
  const t=await token(ctx,'x'),mediaIds:string[]=[];
  for(const asset of m.slice(0,4))mediaIds.push(await uploadXMedia(t.access,asset));
  const body:any={text};if(mediaIds.length)body.media={media_ids:mediaIds};
@@ -167,6 +202,7 @@ async function publishX(ctx:TenantContext,text:string,m:Media[]){
  const id=String(p.data?.id||'');return{id,url:id?'https://x.com/i/web/status/'+id:''};
 }
 async function publishLinkedIn(ctx:TenantContext,ch:Channel,text:string,m:Media[]){
+ if(m.length>1)throw new Error('LinkedIn publishing currently supports one image asset per post.');
  const t=await token(ctx,'linkedin',ch.id),author=ch.organizationId?'urn:li:organization:'+ch.organizationId:'urn:li:person:'+String(t.bundle.identity?.accountId||ch.accountId);
  const body:any={author,commentary:text,visibility:'PUBLIC',distribution:{feedDistribution:'MAIN_FEED',targetEntities:[],thirdPartyDistributionChannels:[]},lifecycleState:'PUBLISHED',isReshareDisabledByAuthor:false};
  if(m.length){const b=bytes(m[0]);if(!b)throw new Error('LinkedIn image posting requires uploaded media bytes.');
@@ -180,6 +216,7 @@ async function publishLinkedIn(ctx:TenantContext,ch:Channel,text:string,m:Media[
  const id=String(response.headers.get('x-restli-id')||posted.id||'');return{id,url:id?'https://www.linkedin.com/feed/update/'+encodeURIComponent(id)+'/':''};
 }
 async function publishReddit(ctx:TenantContext,text:string,m:Media[],settings:any){
+ if(m.length>1)throw new Error('Reddit supports one link or media destination per post.');
  if(!REDDIT_APPROVED)throw new Error('Reddit publishing is disabled until Amaavigo receives Reddit commercial Data API approval.');
  const t=await token(ctx,'reddit'),sr=String(settings?.subreddit||'').replace(/^r\//,'').trim(),title=String(settings?.title||text.split('\n')[0]||'').slice(0,300);
  if(!sr||!title)throw new Error('Reddit requires a subreddit and post title. Add both in the Reddit publishing settings.');
