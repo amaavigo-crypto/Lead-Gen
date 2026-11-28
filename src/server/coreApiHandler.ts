@@ -211,6 +211,45 @@ function isQrPublicApiPath(method: string, url: string): boolean {
   return method === 'POST' && segments.length === 2 && (segments[1] === 'events' || segments[1] === 'leads');
 }
 
+/**
+ * Record scope helpers for API routes that bypass /api/db.
+ */
+async function getAssignmentScope(ctx: TenantContext, includeConversations = true) {
+  const access = await import('./clientDataApi.js');
+  return { access, scope: await access.loadMemberRecordScope(ctx, includeConversations) };
+}
+async function canAccessAssignedLead(ctx: TenantContext, leadId: string): Promise<boolean> {
+  if (ctx.role === 'admin' || ctx.role === 'platformAdmin' || ctx.isPlatformAdmin) return true;
+  const [assignment, snap] = await Promise.all([
+    getAssignmentScope(ctx, false),
+    getDoc(tenantRepo(ctx).leadDoc(leadId)).catch(() => null),
+  ]);
+  return Boolean(snap?.exists() && assignment.access.isVisibleAssignmentRecord(
+    ['tenants', ctx.tenantId, 'leads'], leadId, snap.data(), assignment.scope
+  ));
+}
+async function canAccessAssignedConversation(ctx: TenantContext, conversationId: string): Promise<boolean> {
+  if (ctx.role === 'admin' || ctx.role === 'platformAdmin' || ctx.isPlatformAdmin) return true;
+  const [assignment, snap] = await Promise.all([
+    getAssignmentScope(ctx, true),
+    getDoc(tenantRepo(ctx).conversationDoc(conversationId)).catch(() => null),
+  ]);
+  return Boolean(snap?.exists() && assignment.access.isVisibleAssignmentRecord(
+    ['tenants', ctx.tenantId, 'conversations'], conversationId, snap.data(), assignment.scope
+  ));
+}
+async function canAccessAssignedBooking(ctx: TenantContext, booking: any): Promise<boolean> {
+  if (ctx.role === 'admin' || ctx.role === 'platformAdmin' || ctx.isPlatformAdmin) return true;
+  if (!booking || typeof booking !== 'object') return false;
+  const assignment = await getAssignmentScope(ctx, true);
+  return assignment.access.isVisibleAssignmentRecord(
+    ['tenants', ctx.tenantId, 'bookings'],
+    String(booking.bookingId || booking.id || ''),
+    booking,
+    assignment.scope,
+  );
+}
+
 export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   // Normalize URL by parsing pathname and stripping query parameters & trailing slashes
   let rawUrl = req.url || '';
@@ -742,6 +781,9 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
 
   const leadScoringEvaluateMatch = url.match(/^\/api\/crm\/lead-scoring\/evaluate\/([a-zA-Z0-9_-]+)$/);
   if (leadScoringEvaluateMatch && req.method === 'POST') {
+    if (!(await canAccessAssignedLead(activeTenantCtx, leadScoringEvaluateMatch[1]))) {
+      res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Lead not found.' })); return true;
+    }
     try {
       const result = await evaluateLeadForScoring(activeTenantCtx, leadScoringEvaluateMatch[1], undefined, 'MANUAL');
       res.statusCode = result.success ? 200 : result.skipped ? 409 : 500;
@@ -755,6 +797,9 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
 
   const leadScoringQueueMatch = url.match(/^\/api\/crm\/lead-scoring\/queue\/([a-zA-Z0-9_-]+)$/);
   if (leadScoringQueueMatch && req.method === 'POST') {
+    if (!(await canAccessAssignedLead(activeTenantCtx, leadScoringQueueMatch[1]))) {
+      res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Lead not found.' })); return true;
+    }
     try {
       const result = await enqueueLeadScoringEvaluation(
         activeTenantCtx,
@@ -773,6 +818,9 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
 
   const leadScoringHistoryMatch = url.match(/^\/api\/crm\/lead-scoring\/history\/([a-zA-Z0-9_-]+)$/);
   if (leadScoringHistoryMatch && req.method === 'GET') {
+    if (!(await canAccessAssignedLead(activeTenantCtx, leadScoringHistoryMatch[1]))) {
+      res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Lead not found.' })); return true;
+    }
     try {
       const history = await getLeadScoringHistory(activeTenantCtx, leadScoringHistoryMatch[1]);
       res.statusCode = 200;
@@ -2328,6 +2376,9 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
         res.end(JSON.stringify({ success: false, error: 'conversationId and submissionId are required.' }));
         return true;
       }
+      if (!(await canAccessAssignedConversation(activeTenantCtx, conversationId))) {
+        res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Conversation not found.' })); return true;
+      }
       const result = await svc.approveWebsiteFormConfirmation(activeTenantCtx, conversationId, submissionId);
       res.statusCode = 200;
       res.end(JSON.stringify({ success: true, ...result }));
@@ -2573,6 +2624,9 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
         return true;
       }
       callerCtx = a.ctx!;
+      if (callerCtx.role !== 'admin' && !callerCtx.isPlatformAdmin) {
+        res.statusCode = 403; res.end(JSON.stringify({ error: 'Only workspace admins can run the follow-up worker manually.' })); return true;
+      }
       runAll = Boolean(callerCtx.isPlatformAdmin);
     }
     try {
@@ -3267,7 +3321,14 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   }
 
   if (url === '/api/calendar/bookings' && req.method === 'GET') {
-    const bookings = await getAllBookings();
+    let bookings = await getAllBookings();
+    if (userRole !== 'admin' && !isPlatformAdmin) {
+      const { scope, access } = await getAssignmentScope(activeTenantCtx, true);
+      bookings = bookings.filter((booking: any) => access.isVisibleAssignmentRecord(
+        ['tenants', activeTenantCtx.tenantId, 'bookings'],
+        String(booking.bookingId || booking.id || ''), booking, scope,
+      ));
+    }
     res.statusCode = 200;
     res.end(JSON.stringify({ success: true, bookings, count: bookings.length }));
     return true;
@@ -3275,6 +3336,16 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
 
   if (url === '/api/calendar/book' && req.method === 'POST') {
     try {
+      if (userRole !== 'admin' && !isPlatformAdmin) {
+        const { scope } = await getAssignmentScope(activeTenantCtx, true);
+        const leadId = String(body?.leadId || ''), conversationId = String(body?.conversationId || ''), contactId = String(body?.contactId || '');
+        const allowed = leadId ? scope.leadIds.has(leadId)
+          : conversationId ? scope.conversationIds.has(conversationId)
+          : Boolean(contactId && scope.contactIds.has(contactId));
+        if (!allowed) {
+          res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Assigned lead or conversation not found.' })); return true;
+        }
+      }
       const bookingPayload = {
         ...body,
         accessToken: body.accessToken || requestBearerToken || undefined,
@@ -3297,6 +3368,12 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       res.end(JSON.stringify({ success: false, error: 'bookingId is required' }));
       return true;
     }
+    if (userRole !== 'admin' && !isPlatformAdmin) {
+      const booking = (await getAllBookings()).find((item: any) => String(item.bookingId || item.id || '') === String(bookingId));
+      if (!booking || !(await canAccessAssignedBooking(activeTenantCtx, booking))) {
+        res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Booking not found.' })); return true;
+      }
+    }
     const result = await cancelDemoBooking(bookingId, reason);
     res.statusCode = result.success ? 200 : 400;
     res.end(JSON.stringify(result));
@@ -3309,6 +3386,12 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       res.statusCode = 400;
       res.end(JSON.stringify({ success: false, error: 'bookingId, newStartIso, and newEndIso are required' }));
       return true;
+    }
+    if (userRole !== 'admin' && !isPlatformAdmin) {
+      const booking = (await getAllBookings()).find((item: any) => String(item.bookingId || item.id || '') === String(bookingId));
+      if (!booking || !(await canAccessAssignedBooking(activeTenantCtx, booking))) {
+        res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Booking not found.' })); return true;
+      }
     }
     const result = await rescheduleDemoBooking(
       bookingId,
@@ -3326,6 +3409,16 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
 
   if (url === '/api/calendar/schedule-turn' && req.method === 'POST') {
     try {
+      if (userRole !== 'admin' && !isPlatformAdmin) {
+        const leadId = String(body?.leadId || body?.lead?.leadId || '').trim();
+        const conversationId = String(body?.conversationId || body?.conversation?.conversationId || '').trim();
+        if (leadId && !(await canAccessAssignedLead(activeTenantCtx, leadId))) {
+          res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Lead not found.' })); return true;
+        }
+        if (conversationId && !(await canAccessAssignedConversation(activeTenantCtx, conversationId))) {
+          res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Conversation not found.' })); return true;
+        }
+      }
       const turnPayload = {
         ...body,
         accessToken: body.accessToken || requestBearerToken || undefined,
@@ -3413,6 +3506,19 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   // 2. AI Respond endpoint (/api/ai/respond)
   if ((url === '/api/ai/respond' || url.startsWith('/api/ai/respond?')) && req.method === 'POST') {
     const { incomingMessage, contact, lead, conversation, recentMessages, knowledgeChunks, handoffCheck, signature } = body;
+    if (userRole !== 'admin' && !isPlatformAdmin) {
+      const leadId = String(lead?.leadId || '').trim();
+      const conversationId = String(conversation?.conversationId || '').trim();
+      if (!leadId && !conversationId) {
+        res.statusCode = 403; res.end(JSON.stringify({ success: false, error: 'AI replies must be linked to an assigned lead or conversation.' })); return true;
+      }
+      if (leadId && !(await canAccessAssignedLead(activeTenantCtx, leadId))) {
+        res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Lead not found.' })); return true;
+      }
+      if (conversationId && !(await canAccessAssignedConversation(activeTenantCtx, conversationId))) {
+        res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Conversation not found.' })); return true;
+      }
+    }
     const brand = await getTenantBrand(resolvedTenantId);
     const isUmrah = brand.playbook === 'umrah360';
     const defSig = brandSignature(brand);
@@ -4054,6 +4160,17 @@ ${signature || defSig}`;
 
   if ((url === '/api/smtp/send' || url === '/api/email/send') && req.method === 'POST') {
     const { to, subject, html, text, inReplyTo, conversationId, leadId, senderName } = body;
+    if (userRole !== 'admin' && !isPlatformAdmin) {
+      if (conversationId && !(await canAccessAssignedConversation(activeTenantCtx, String(conversationId)))) {
+        res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Conversation not found.' })); return true;
+      }
+      if (leadId && !(await canAccessAssignedLead(activeTenantCtx, String(leadId)))) {
+        res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Lead not found.' })); return true;
+      }
+      if ((body?.aiGeneratedReply || body?.aiDraftApproval || body?.editedAiDraft) && !conversationId && !leadId) {
+        res.statusCode = 403; res.end(JSON.stringify({ success: false, error: 'AI replies must be linked to an assigned lead or conversation.' })); return true;
+      }
+    }
     if (body?.aiGeneratedReply === true) {
       const channel = String(body?.channel || 'EMAIL').toUpperCase() as Channel;
       const mode = await getTenantChannelMode(activeTenantCtx, channel);
@@ -5283,6 +5400,9 @@ ${signature || defSig}`;
         res.end(JSON.stringify({ success: false, error: 'Valid conversationId is required' }));
         return true;
       }
+      if (!(await canAccessAssignedConversation(activeTenantCtx, conversationId))) {
+        res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Conversation not found.' })); return true;
+      }
       const aiEnabled = body?.aiEnabled === true;
       const humanHandoff = !aiEnabled || body?.humanHandoff === true;
       const now = new Date().toISOString();
@@ -5347,32 +5467,53 @@ ${signature || defSig}`;
     }
     try {
       const actor = userEmail || userName || 'Team Member';
+      const scopedRepo = tenantRepo(activeTenantCtx);
+      const persistedLeadSnap = await getDoc(scopedRepo.leadDoc(String(lead.leadId)));
+      if (!persistedLeadSnap.exists() || !(await canAccessAssignedLead(activeTenantCtx, String(lead.leadId)))) {
+        res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Lead not found.' })); return true;
+      }
+      const persistedLead = { ...(persistedLeadSnap.data() as any), leadId: String(lead.leadId) };
+      let persistedConversation: any = null;
+      let trustedMessages: any[] = [];
+      if (conversation?.conversationId) {
+        const convId = String(conversation.conversationId);
+        const conversationSnap = await getDoc(scopedRepo.conversationDoc(convId));
+        if (!conversationSnap.exists() || !(await canAccessAssignedConversation(activeTenantCtx, convId))) {
+          res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Conversation not found.' })); return true;
+        }
+        persistedConversation = { ...(conversationSnap.data() as any), conversationId: convId };
+        const linkedToLead = persistedConversation.leadId
+          ? String(persistedConversation.leadId) === String(lead.leadId)
+          : String(persistedConversation.contactId || '') === String(persistedLead.contactId || '');
+        if (!linkedToLead) {
+          res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Conversation is not linked to this lead.' })); return true;
+        }
+        let messageDocs = (await getDocs(fsQuery(
+          scopedRepo.messages(), fsWhere('conversationId', '==', convId), fsLimit(50),
+        ))).docs;
+        if (!messageDocs.length) messageDocs = (await getDocs(scopedRepo.messages(convId))).docs;
+        trustedMessages = messageDocs.map((d: any) => ({
+          ...(d.data() as any), messageId: (d.data() as any)?.messageId || d.id, conversationId: convId,
+        }));
+      }
       let result: any;
       if (enabled) {
-        if (!conversation || !conversation.conversationId) {
-          res.statusCode = 400;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ success: false, error: 'conversation is required to enable follow-up' }));
-          return true;
+        if (!persistedConversation) {
+          res.statusCode = 400; res.end(JSON.stringify({ success: false, error: 'conversation is required to enable follow-up' })); return true;
         }
         result = await handleEnableAutoFollowUp(activeTenantCtx, {
-          lead,
-          conversation,
-          messages: Array.isArray(messages) ? messages.slice(-50) : [],
-          userName: actor,
-          delayOverride: delayOverride || null,
+          lead: persistedLead, conversation: persistedConversation,
+          messages: trustedMessages, userName: actor, delayOverride: delayOverride || null,
         });
       } else {
         result = await handleDisableAutoFollowUp(activeTenantCtx, {
-          lead,
-          conversationId: conversation?.conversationId,
-          userName: actor,
-          reason: reason || 'manual',
+          lead: persistedLead, conversationId: persistedConversation?.conversationId,
+          userName: actor, reason: reason || 'manual',
         });
       }
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ success: true, lead, ...result }));
+      res.end(JSON.stringify({ success: true, lead: persistedLead, ...result }));
     } catch (err: any) {
       res.statusCode = 500;
       res.setHeader('Content-Type', 'application/json');
@@ -5391,6 +5532,9 @@ ${signature || defSig}`;
       return true;
     }
     try {
+      if (!(await canAccessAssignedLead(activeTenantCtx, leadId))) {
+        res.statusCode = 404; res.end(JSON.stringify({ success: false, error: 'Lead not found.' })); return true;
+      }
       const followups = await import('./autoFollowUpService.js');
       const result = await followups.scheduleOneTimeAiFollowUp(activeTenantCtx, {
         leadId, scheduledAt, user: userEmail || 'Team Member',
@@ -5409,9 +5553,29 @@ ${signature || defSig}`;
   if (url === '/api/auto-followup/dashboard' && req.method === 'GET') {
     try {
       const data = await getAutoFollowUpDashboardData(activeTenantCtx);
+      let visibleData: typeof data = data;
+      if (userRole !== 'admin' && !isPlatformAdmin) {
+        const { scope } = await getAssignmentScope(activeTenantCtx, true);
+        const jobs = data.jobs.filter((job: any) => scope.leadIds.has(String(job.leadId || '')));
+        const logs = data.logs.filter((log: any) =>
+          scope.leadIds.has(String(log.leadId || '')) ||
+          (log.conversationId && scope.conversationIds.has(String(log.conversationId)))
+        );
+        const today = new Date().toISOString().slice(0, 10);
+        const count = (status: string) => jobs.filter((job: any) => job.status === status).length;
+        visibleData = {
+          ...data, jobs, logs,
+          metrics: {
+            scheduled: count('scheduled'),
+            sentToday: jobs.filter((job: any) => job.status === 'sent' && job.processedAt && String(job.processedAt).slice(0, 10) === today).length,
+            cancelled: count('cancelled'), skipped: count('skipped'),
+            humanReview: count('human_review'), failed: count('failed'), completed: count('completed'),
+          },
+        };
+      }
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ success: true, ...data }));
+      res.end(JSON.stringify({ success: true, ...visibleData }));
     } catch (err: any) {
       res.statusCode = 500;
       res.setHeader('Content-Type', 'application/json');
@@ -5451,6 +5615,9 @@ ${signature || defSig}`;
   }
 
   if (url === '/api/auto-followup/trigger-now' && req.method === 'POST') {
+    if (userRole !== 'admin' && !isPlatformAdmin) {
+      res.statusCode = 403; res.end(JSON.stringify({ success: false, error: 'Only workspace admins can run the follow-up worker manually.' })); return true;
+    }
     try {
       const result = await runAutoFollowUpWorkerCycle(activeTenantCtx, { force: true });
       res.statusCode = 200;

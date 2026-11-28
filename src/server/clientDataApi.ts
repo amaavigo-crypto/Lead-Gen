@@ -86,6 +86,113 @@ function accessFor(ctx: TenantContext, parts: string[]): Access {
   return 'none';
 }
 
+/**
+ * Record-level scope for CRM data. Firebase UID is the only security principal.
+ * Legacy ownerId / assignedCaller values are display labels, never authorization principals.
+ * Name-only legacy assignments remain admin-only until an admin reassigns them.
+ */
+const ASSIGNMENT_SCOPED = new Set([
+  'leads', 'contacts', 'conversations', 'messages', 'lead_activities',
+  'bookings', 'website_lead_thankyou_history', 'processed_inbound_emails',
+]);
+
+export interface MemberRecordScope {
+  uid: string;
+  leadIds: Set<string>;
+  contactIds: Set<string>;
+  conversationIds: Set<string>;
+}
+
+function scopedCollectionName(parts: string[]): string {
+  if (parts[0] === 'tenants' && parts[2] === 'conversations' && parts[4] === 'messages') return 'messages';
+  return parts[2] || '';
+}
+
+export async function loadMemberRecordScope(ctx: TenantContext, includeConversations: boolean): Promise<MemberRecordScope> {
+  const leadSnap = await getDocs(query(
+    collection(db, 'tenants', ctx.tenantId, 'leads'),
+    where('assignedToUserId', '==', ctx.uid),
+    limit(MAX_LIST_LIMIT),
+  ));
+  const leadIds = new Set<string>();
+  const contactIds = new Set<string>();
+  for (const row of leadSnap.docs) {
+    const data: any = row.data() || {};
+    leadIds.add(String(data.leadId || row.id));
+    if (data.contactId) contactIds.add(String(data.contactId));
+  }
+
+  const conversationIds = new Set<string>();
+  if (includeConversations) {
+    const conversationSnap = await getDocs(query(
+      collection(db, 'tenants', ctx.tenantId, 'conversations'),
+      limit(MAX_LIST_LIMIT),
+    ));
+    for (const row of conversationSnap.docs) {
+      const data: any = row.data() || {};
+      const visible = data.leadId
+        ? leadIds.has(String(data.leadId))
+        : Boolean(data.contactId && contactIds.has(String(data.contactId)));
+      if (visible) conversationIds.add(String(data.conversationId || row.id));
+    }
+  }
+  return { uid: ctx.uid, leadIds, contactIds, conversationIds };
+}
+
+export function isVisibleAssignmentRecord(parts: string[], rowId: string, data: any, scope: MemberRecordScope): boolean {
+  const sub = scopedCollectionName(parts);
+  if (parts[0] === 'tenants' && parts[2] === 'conversations' && parts[4] === 'messages') {
+    return scope.conversationIds.has(String(parts[3] || ''));
+  }
+  switch (sub) {
+    case 'leads':
+      return String(data?.assignedToUserId || '') === scope.uid;
+    case 'contacts':
+      return scope.contactIds.has(String(data?.contactId || rowId));
+    case 'conversations':
+      return data?.leadId
+        ? scope.leadIds.has(String(data.leadId))
+        : Boolean(data?.contactId && scope.contactIds.has(String(data.contactId)));
+    case 'messages':
+      return Boolean(data?.conversationId && scope.conversationIds.has(String(data.conversationId)));
+    case 'lead_activities':
+      return Boolean(data?.leadId && scope.leadIds.has(String(data.leadId)));
+    case 'bookings':
+      if (data?.leadId) return scope.leadIds.has(String(data.leadId));
+      if (data?.conversationId) return scope.conversationIds.has(String(data.conversationId));
+      return Boolean(data?.contactId && scope.contactIds.has(String(data.contactId)));
+    case 'website_lead_thankyou_history':
+    case 'processed_inbound_emails':
+      if (data?.leadId) return scope.leadIds.has(String(data.leadId));
+      if (data?.conversationId) return scope.conversationIds.has(String(data.conversationId));
+      return Boolean(data?.contactId && scope.contactIds.has(String(data.contactId)));
+    default:
+      return true;
+  }
+}
+
+function needsConversationScope(parts: string[]): boolean {
+  return ['conversations', 'messages', 'bookings', 'website_lead_thankyou_history', 'processed_inbound_emails']
+    .includes(scopedCollectionName(parts));
+}
+
+async function activeSameTenantAssignee(ctx: TenantContext, targetTenantId: string, uid: string): Promise<boolean> {
+  if (!uid) return true;
+  const candidates = await Promise.all([
+    getDoc(doc(db, 'users', uid)).catch(() => null),
+    getDoc(doc(db, 'app_users', uid)).catch(() => null),
+  ]);
+  return candidates.some((snap: any) => {
+    if (!snap?.exists()) return false;
+    const data: any = snap.data() || {};
+    const role = String(data.role || data.appRole || '').toLowerCase();
+    return String(data.tenantId || data.workspaceId || '') === targetTenantId
+      && data.isActive !== false && data.active !== false
+      && String(data.status || '').toLowerCase() !== 'disabled'
+      && role !== 'admin' && role !== 'platformadmin';
+  });
+}
+
 /** users/{uid}: writes by tenant admins are limited to their own workspace's profiles. */
 async function userWriteAllowed(ctx: TenantContext, uid: string, data: any, deleting: boolean): Promise<boolean> {
   if (ctx.isPlatformAdmin) return true;
@@ -123,9 +230,15 @@ export async function handleClientDataRequest(ctx: TenantContext, body: any): Pr
   if (access === 'none') return denied();
 
   try {
+    const scopedSub = scopedCollectionName(parts);
+    const memberScope = !isAdmin(ctx) && parts[0] === 'tenants' && ASSIGNMENT_SCOPED.has(scopedSub)
+      ? await loadMemberRecordScope(ctx, needsConversationScope(parts))
+      : null;
+
     if (opName === 'get') {
       if (parts.length % 2 !== 0) return bad('get needs a document path.');
       const snap = await getDoc(doc(db, ...(parts as [string, ...string[]])));
+      if (snap.exists() && memberScope && !isVisibleAssignmentRecord(parts, parts[parts.length - 1], snap.data(), memberScope)) return denied();
       const payload = { exists: snap.exists(), data: snap.exists() ? snap.data() : null };
       const etag = etagOf(payload);
       if (body?.ifNoneMatch && body.ifNoneMatch === etag) return { status: 200, payload: { notModified: true, etag } };
@@ -146,11 +259,18 @@ export async function handleClientDataRequest(ctx: TenantContext, body: any): Pr
 
       const constraints: any[] = [
         ...wheres.map((w) => where(w.field, w.op, w.value)),
+        ...(memberScope && scopedSub === 'leads' ? [where('assignedToUserId', '==', ctx.uid)] : []),
         ...orders.map((o) => orderBy(o.field, o.dir)),
-        limit(cap),
+        limit(memberScope ? MAX_LIST_LIMIT : cap),
       ];
+      if (memberScope && parts[0] === 'tenants' && parts[2] === 'conversations' && parts[4] === 'messages'
+        && !memberScope.conversationIds.has(String(parts[3] || ''))) return denied();
       const snap = await getDocs(query(collection(db, ...(parts as [string, ...string[]])), ...constraints));
-      const payload = { docs: snap.docs.map((d) => ({ id: d.id, data: d.data() })) };
+      const rows = snap.docs
+        .map((d) => ({ id: d.id, data: d.data() }))
+        .filter((row) => !memberScope || isVisibleAssignmentRecord(parts, row.id, row.data, memberScope))
+        .slice(0, cap);
+      const payload = { docs: rows };
       const etag = etagOf(payload);
       if (body?.ifNoneMatch && body.ifNoneMatch === etag) return { status: 200, payload: { notModified: true, etag } };
       return { status: 200, payload: { ...payload, etag } };
@@ -159,12 +279,54 @@ export async function handleClientDataRequest(ctx: TenantContext, body: any): Pr
     if (opName === 'set' || opName === 'update' || opName === 'delete') {
       if (parts.length % 2 !== 0) return bad(`${opName} needs a document path.`);
       if (access !== 'write') return denied();
-      const data = body?.data;
+      let data = body?.data;
+      if (opName === 'delete') data = {};
       if (opName !== 'delete' && (data === null || typeof data !== 'object' || Array.isArray(data))) {
         return bad('data must be an object.');
       }
       if (parts[0] === 'users' && !(await userWriteAllowed(ctx, parts[1], data, opName === 'delete'))) return denied();
       const ref = doc(db, ...(parts as [string, ...string[]]));
+      if (memberScope && ASSIGNMENT_SCOPED.has(scopedSub)) {
+        const existing = await getDoc(ref);
+        const existingData: any = existing.exists() ? existing.data() : null;
+        if (existingData && !isVisibleAssignmentRecord(parts, parts[parts.length - 1], existingData, memberScope)) return denied();
+        if (scopedSub === 'leads') {
+          if (existingData) {
+            const protectedFields = ['assignedToUserId', 'assignedToName', 'assignedCaller', 'ownerId'];
+            for (const field of protectedFields) {
+              if (Object.prototype.hasOwnProperty.call(data, field)
+                && String(data[field] ?? '') !== String(existingData[field] ?? '')) {
+                return denied('Only a workspace admin can assign or reassign leads.');
+              }
+            }
+            const preserved = { ...data };
+            for (const field of protectedFields) {
+              if (existingData[field] !== undefined) preserved[field] = existingData[field];
+              else delete preserved[field];
+            }
+            data = preserved;
+          } else if (opName === 'set') {
+            data = {
+              ...data,
+              assignedToUserId: ctx.uid,
+              assignedToName: ctx.email || 'Team member',
+              assignedCaller: ctx.email ? ctx.email.split('@')[0] : 'Team member',
+              ownerId: ctx.uid,
+            };
+          }
+        } else if (!existingData) {
+          const incomingVisible = isVisibleAssignmentRecord(parts, parts[parts.length - 1], data, memberScope);
+          if (scopedSub !== 'contacts' && !incomingVisible) return denied();
+          if (scopedSub === 'contacts' && opName !== 'set') return denied();
+        }
+      } else if (parts[0] === 'tenants' && parts[2] === 'leads' && isAdmin(ctx)
+        && Object.prototype.hasOwnProperty.call(data, 'assignedToUserId')) {
+        const assigneeId = String(data.assignedToUserId || '').trim();
+        if (assigneeId && !(await activeSameTenantAssignee(ctx, parts[1], assigneeId))) {
+          return denied('The selected assignee must be an active user in this workspace.');
+        }
+        if (!assigneeId) data = { ...data, assignedToUserId: null, assignedToName: 'Unassigned' };
+      }
       if (opName === 'set') await setDoc(ref, data, body?.merge ? { merge: true } : undefined);
       else if (opName === 'update') await updateDoc(ref, data);
       else await deleteDoc(ref);

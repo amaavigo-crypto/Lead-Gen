@@ -106,19 +106,19 @@ service cloud.firestore {
 
     // Standard Tenant Operational Collections
     match /tenants/{tenantId}/contacts/{contactId=**} {
-      allow read, write: if isTenantUser(tenantId);
+      allow read, write: if isTenantAdmin(tenantId);
     }
 
     match /tenants/{tenantId}/leads/{leadId=**} {
-      allow read, write: if isTenantUser(tenantId);
+      allow read, write: if isTenantAdmin(tenantId);
     }
 
     match /tenants/{tenantId}/conversations/{conversationId=**} {
-      allow read, write: if isTenantUser(tenantId);
+      allow read, write: if isTenantAdmin(tenantId);
     }
 
     match /tenants/{tenantId}/messages/{messageId=**} {
-      allow read, write: if isTenantUser(tenantId);
+      allow read, write: if isTenantAdmin(tenantId);
     }
 
     match /tenants/{tenantId}/campaigns/{campaignId=**} {
@@ -165,11 +165,11 @@ service cloud.firestore {
     }
 
     match /tenants/{tenantId}/bookings/{bookingId=**} {
-      allow read, write: if isTenantUser(tenantId);
+      allow read, write: if isTenantAdmin(tenantId);
     }
 
     match /tenants/{tenantId}/lead_activities/{activityId=**} {
-      allow read, write: if isTenantUser(tenantId);
+      allow read, write: if isTenantAdmin(tenantId);
     }
 
     match /tenants/{tenantId}/outbound_prospects/{prospectId=**} {
@@ -181,11 +181,11 @@ service cloud.firestore {
     }
 
     match /tenants/{tenantId}/processed_inbound_emails/{emailId=**} {
-      allow read, write: if isTenantUser(tenantId);
+      allow read, write: if isTenantAdmin(tenantId);
     }
 
     match /tenants/{tenantId}/website_lead_thankyou_history/{historyId=**} {
-      allow read, write: if isTenantUser(tenantId);
+      allow read, write: if isTenantAdmin(tenantId);
     }
 
     match /tenants/{tenantId}/suppressions/{suppressionId=**} {

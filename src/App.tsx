@@ -2862,7 +2862,8 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
                 onDismissSelectedLead={() => setSelectedLeadIdForCrm(null)}
                 teamMembers={users
                   .filter((u) => u.isActive !== false)
-                  .map((u) => ({ id: u.userId, name: u.name }))}
+                  .map((u) => ({ id: u.userId, name: u.name, role: u.role }))}
+                canAssignLeads={Boolean(session?.isTenantAdmin || currentUser?.role === 'ADMIN')}
                 onOpenConversation={(convId, leadId) => {
                   setActiveTab('inbox');
                 }}
@@ -2900,7 +2901,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
                   setLeads((prev) => prev.map((l) => (l.leadId === leadToSave.leadId ? leadToSave : l)));
                   let auditAction = 'CRM_LEAD_UPDATED';
                   let auditDescription = 'Lead details were updated.';
-                  if (previousLead && previousLead.assignedCaller !== leadToSave.assignedCaller) { auditAction = 'CRM_LEAD_ASSIGNED'; auditDescription = 'Lead assignment changed to ' + (leadToSave.assignedCaller || 'Unassigned') + '.'; }
+                  if (previousLead && (previousLead.assignedToUserId !== leadToSave.assignedToUserId || previousLead.assignedCaller !== leadToSave.assignedCaller)) { auditAction = 'CRM_LEAD_ASSIGNED'; auditDescription = 'Lead assignment changed to ' + (leadToSave.assignedToName || leadToSave.assignedCaller || 'Unassigned') + '.'; }
                   else if (previousLead && previousLead.nextFollowUpAt !== leadToSave.nextFollowUpAt) { auditAction = 'CRM_CALLBACK_SCHEDULED'; auditDescription = 'A callback was scheduled or changed for the lead.'; }
                   else if ((leadToSave.callLogs || []).length > (previousLead?.callLogs || []).length) { auditAction = 'CRM_CALL_LOG_RECORDED'; auditDescription = 'A telecalling outcome was recorded for the lead.'; }
                   else if (previousLead && previousLead.status !== leadToSave.status) { auditAction = 'CRM_LEAD_STATUS_UPDATED'; auditDescription = 'Lead status changed to ' + leadToSave.status + '.'; }

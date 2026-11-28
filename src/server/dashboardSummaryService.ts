@@ -181,9 +181,42 @@ export async function buildDashboardSummary(ctx: TenantContext, now: number = Da
   ]);
 
   // ---- Leads (same visibility and definitions as the CRM screen) ----
+  const isScopedMember = !(ctx.role === 'admin' || ctx.role === 'platformAdmin' || ctx.isPlatformAdmin === true);
+  const assignment = isScopedMember ? await import('./clientDataApi.js') : null;
+  const memberScope = assignment ? await assignment.loadMemberRecordScope(ctx, true) : null;
   const leads = leadsSnap.docs
     .map((d: any) => ({ ...(d.data() || {}), leadId: d.data()?.leadId || d.id }))
-    .filter(isVisibleCrmLead);
+    .filter(isVisibleCrmLead)
+    .filter((lead: any) => !memberScope || assignment!.isVisibleAssignmentRecord(
+      ['tenants', ctx.tenantId, 'leads'], String(lead.leadId), lead, memberScope
+    ));
+
+  const visibleConversationDocs = memberScope
+    ? (await getDocs(conversations)).docs.filter((d: any) => assignment!.isVisibleAssignmentRecord(
+        ['tenants', ctx.tenantId, 'conversations'], d.id, d.data(), memberScope
+      ))
+    : null;
+  const visibleBookingDocs = memberScope
+    ? bookingsSnap.docs.filter((d: any) => assignment!.isVisibleAssignmentRecord(
+        ['tenants', ctx.tenantId, 'bookings'], d.id, d.data(), memberScope
+      ))
+    : bookingsSnap.docs;
+  const visibleTotalConversations = visibleConversationDocs ? visibleConversationDocs.length : totalConversations;
+  const visibleActiveConversations = visibleConversationDocs
+    ? visibleConversationDocs.filter((d: any) => ['ACTIVE', 'REVIEW'].includes(String(d.data()?.status || ''))).length
+    : activeConversations;
+  const visibleUnreadMessages = visibleConversationDocs
+    ? visibleConversationDocs.reduce((sum: number, d: any) => sum + Math.max(0, Number(d.data()?.unreadCount || 0)), 0)
+    : Math.max(0, Math.round(unreadTotals.unreadCount || 0));
+  const visibleLegacyUnread = visibleConversationDocs
+    ? visibleConversationDocs.filter((d: any) => d.data()?.unread === true && typeof d.data()?.unreadCount !== 'number').length
+    : unreadFlagged.docs.filter((d: any) => typeof d.data()?.unreadCount !== 'number').length;
+  const visibleHandoffs = visibleConversationDocs
+    ? visibleConversationDocs.filter((d: any) => {
+        const c: any = d.data() || {};
+        return c.status !== 'RESOLVED' && c.status !== 'ARCHIVED' && (c.humanHandoff === true || c.managementMode === 'HUMAN');
+      }).length
+    : undefined;
 
   const statusCounts = new Map<string, number>();
   for (const lead of leads) {
@@ -212,7 +245,7 @@ export async function buildDashboardSummary(ctx: TenantContext, now: number = Da
   });
 
   // ---- Calendar: upcoming booked / rescheduled demos ----
-  const upcomingBookings = bookingsSnap.docs.filter((d: any) => {
+  const upcomingBookings = visibleBookingDocs.filter((d: any) => {
     const b = d.data() || {};
     const start = b.startDateTimeIso
       ? toMs(b.startDateTimeIso)
@@ -234,10 +267,10 @@ export async function buildDashboardSummary(ctx: TenantContext, now: number = Da
     monthlyNewLeads: monthlyBuckets(leads, now, timeZone),
     recentLeads,
     upcomingBookings,
-    totalConversations,
-    activeConversations,
-    unreadMessages: Math.max(0, Math.round(unreadTotals.unreadCount || 0)) + legacyUnreadCount,
-    humanHandoffs,
+    totalConversations: visibleTotalConversations,
+    activeConversations: visibleActiveConversations,
+    unreadMessages: visibleUnreadMessages + visibleLegacyUnread,
+    humanHandoffs: visibleHandoffs ?? humanHandoffs,
     totalCampaigns,
     runningCampaigns,
     campaignLeads: campaignLeadCount,

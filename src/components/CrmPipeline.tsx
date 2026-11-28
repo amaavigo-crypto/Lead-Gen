@@ -78,15 +78,10 @@ export interface CrmPipelineProps {
   teamMembers?: { id: string; name: string; role?: string }[];
   users?: AppUser[];
   tenantId: string;
+  canAssignLeads?: boolean;
 }
 
-// Umrah360's default telecallers. Other workspaces use their own team members (see `teamMembers` prop).
-const UMRAH360_TELECALLERS = [
-  { id: 'caller-1', name: 'Zeeshan Khan', role: 'Senior Sales Telecaller', avatarColor: 'bg-emerald-500' },
-  { id: 'caller-2', name: 'Aisha Rahman', role: 'Umrah Package Specialist', avatarColor: 'bg-blue-500' },
-  { id: 'caller-3', name: 'Tariq Malik', role: 'B2B & Group Lead Closer', avatarColor: 'bg-purple-500' },
-  { id: 'caller-4', name: 'Sarah Ahmed', role: 'Inbound Verification Agent', avatarColor: 'bg-amber-500' },
-];
+// Assignment choices come from active tenant users, not synthetic caller labels.
 
 const AVATAR_COLORS = ['bg-emerald-500', 'bg-blue-500', 'bg-purple-500', 'bg-amber-500', 'bg-rose-500', 'bg-cyan-500'];
 
@@ -125,36 +120,28 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
   teamMembers,
   users,
   tenantId,
+  canAssignLeads = false,
 }) => {
   const { brand } = useBrand();
   const isUmrah = brand.playbook === 'umrah360';
   const telecallers = useMemo(() => {
-    const salesUsers = (users || [])
-      .filter((u) => (u.role === 'SALES' || (u as any).appRole === 'SALES') && u.isActive !== false)
-      .map((u, i) => ({
-        id: u.userId,
-        name: u.name,
-        role: 'Sales Representative',
+    const members = (teamMembers || [])
+      .filter((member) => Boolean(member.id) && member.role !== 'ADMIN')
+      .map((member, i) => ({
+        id: member.id, name: member.name,
+        role: member.role || 'Sales Team',
         avatarColor: AVATAR_COLORS[i % AVATAR_COLORS.length],
       }));
-
-    const base = isUmrah
-      ? UMRAH360_TELECALLERS
-      : (teamMembers || []).map((m, i) => ({
-          id: m.id,
-          name: m.name,
-          role: m.role || 'Sales Team',
-          avatarColor: AVATAR_COLORS[i % AVATAR_COLORS.length],
-        }));
-
-    const combined = [...base];
-    for (const su of salesUsers) {
-      if (!combined.some((c) => c.name.toLowerCase() === su.name.toLowerCase())) {
-        combined.push(su);
-      }
+    const byId = new Map<string, typeof members[number]>();
+    for (const member of members) byId.set(member.id, member);
+    for (const user of (users || []).filter((u) => u.isActive !== false && u.role !== 'ADMIN')) {
+      if (!byId.has(user.userId)) byId.set(user.userId, {
+        id: user.userId, name: user.name, role: 'Workspace Member',
+        avatarColor: AVATAR_COLORS[byId.size % AVATAR_COLORS.length],
+      });
     }
-    return combined;
-  }, [isUmrah, teamMembers, users]);
+    return [...byId.values()];
+  }, [teamMembers, users]);
   const defaultCaller = telecallers[0]?.name || 'Unassigned';
   const defaultService = isUmrah ? 'Umrah Custom Package' : 'General Enquiry';
   const greet = (name: string) => (isUmrah ? `Assalamu Alaikum ${name}!` : `Hi ${name}!`);
@@ -334,19 +321,21 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
     }
   };
 
-  const handleAssignCaller = (leadId: string, callerName: string) => {
+  const handleAssignCaller = (leadId: string, assigneeId: string) => {
+    if (!canAssignLeads) return;
     const target = leads.find((l) => l.leadId === leadId);
     if (!target) return;
+    const assignee = assigneeId === '__unassigned__' ? undefined : telecallers.find((member) => member.id === assigneeId);
     const updated: Lead = {
       ...target,
-      assignedCaller: callerName,
-      ownerId: callerName,
+      assignedToUserId: assignee?.id || null,
+      assignedToName: assignee?.name || 'Unassigned',
+      assignedCaller: assignee?.name || 'Unassigned',
+      ownerId: assignee?.id || '',
       updatedAt: new Date().toISOString(),
       lastActivityAt: new Date().toISOString(),
     };
-    if (onUpdateLead) {
-      onUpdateLead(updated);
-    }
+    if (onUpdateLead) onUpdateLead(updated);
   };
 
   const handleSetFollowUp = async (leadId: string, followUpIso: string) => {
@@ -715,9 +704,9 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
       // Caller filter
       if (callerFilter !== 'ALL') {
         if (callerFilter === 'UNASSIGNED') {
-          if (lead.assignedCaller && lead.assignedCaller !== 'Unassigned') return false;
+          if (lead.assignedToUserId) return false;
         } else {
-          if (lead.assignedCaller !== callerFilter && lead.ownerId !== callerFilter) return false;
+          if (lead.assignedCaller !== callerFilter && lead.assignedToName !== callerFilter && lead.assignedToUserId !== callerFilter) return false;
         }
       }
 
@@ -863,9 +852,10 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
     setSelectedLeadIds(new Set());
   };
 
-  const handleBulkAssignCaller = (callerName: string) => {
+  const handleBulkAssignCaller = (assigneeId: string) => {
+    if (!canAssignLeads) return;
     selectedLeadIds.forEach((id) => {
-      handleAssignCaller(id, callerName);
+      handleAssignCaller(id, assigneeId);
     });
     setSelectedLeadIds(new Set());
   };
@@ -1024,24 +1014,23 @@ export const CrmPipeline: React.FC<CrmPipelineProps> = ({
               <span className="text-xs text-slate-300 font-medium">Apply bulk action to selected leads:</span>
             </div>
             <div className="flex items-center space-x-2">
-              <div className="relative">
-                <select
-                  onChange={(e) => {
-                    if (e.target.value) handleBulkAssignCaller(e.target.value);
-                  }}
-                  className="bg-slate-800 border border-slate-700 text-white text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
-                  defaultValue=""
-                >
-                  <option value="" disabled>
-                    Assign Telecaller...
-                  </option>
-                  {telecallers.map((c) => (
-                    <option key={c.id} value={c.name}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {canAssignLeads && (
+                <div className="relative">
+                  <select
+                    onChange={(e) => {
+                      if (e.target.value) handleBulkAssignCaller(e.target.value);
+                    }}
+                    className="bg-slate-800 border border-slate-700 text-white text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
+                    defaultValue=""
+                  >
+                    <option value="" disabled>Assign Team Member...</option>
+                    <option value="__unassigned__">Unassign selected leads</option>
+                    {telecallers.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="relative">
                 <select

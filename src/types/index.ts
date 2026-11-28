@@ -438,6 +438,10 @@ export interface Lead {
   timeline?: string | null;
   aiSummary?: string;
   aiRecommendation?: string;
+  /** Firebase UID of the assigned team member; the only authorization principal. */
+  assignedToUserId?: string | null;
+  /** Human-readable assignee label for display only. */
+  assignedToName?: string;
   ownerId?: string;
   campaignId?: string;
   campaignName?: string;

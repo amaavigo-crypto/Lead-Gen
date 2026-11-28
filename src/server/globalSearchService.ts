@@ -117,6 +117,8 @@ export async function searchTenantWorkspace(
   ];
 
   const visibleSpecs = specs.filter((spec) => canSearchModule(spec.module, allowed, isAdmin));
+  const assignment = isAdmin ? null : await import('./clientDataApi.js');
+  const memberScope = assignment ? await assignment.loadMemberRecordScope(ctx, true) : null;
   const categoryCounts = new Map<string, number>();
   const results: GlobalSearchResult[] = [];
   const batches = await Promise.all(visibleSpecs.map(async (spec) => {
@@ -131,6 +133,15 @@ export async function searchTenantWorkspace(
   for (const batch of batches) {
     const { spec, rows } = batch;
     for (const row of rows) {
+      if (memberScope) {
+        const parts = String(spec.ref.path || '').split('/').filter(Boolean);
+        const scopedCollections = new Set([
+          'leads', 'contacts', 'conversations', 'messages', 'lead_activities',
+          'bookings', 'website_lead_thankyou_history', 'processed_inbound_emails',
+        ]);
+        if (scopedCollections.has(parts[2] || '')
+          && !assignment!.isVisibleAssignmentRecord(parts, row.id, row.data, memberScope)) continue;
+      }
       const categoryCount = categoryCounts.get(spec.category) || 0;
       if (categoryCount >= MAX_RESULTS_PER_CATEGORY) continue;
       const blob = searchBlob(row.data, spec.content).toLowerCase();

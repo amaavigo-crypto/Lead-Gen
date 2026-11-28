@@ -30,12 +30,36 @@ const platform: TenantContext = { tenantId: 'platform', uid: 'uP', email: 'p@x.c
 
 const call = (ctx: TenantContext, body: any) => handleClientDataRequest(ctx, body);
 
-await t('member can write/read a tenant lead; other tenant cannot', async () => {
+await t('lead assignment uses UID; unassigned and other-member leads remain private', async () => {
   assert.equal((await call(member, { op: 'set', path: 'tenants/tA/leads/L1', data: { name: 'Ann', score: 3 } })).status, 200);
   const got = await call(member, { op: 'get', path: 'tenants/tA/leads/L1' });
-  assert.deepEqual([got.status, got.payload.exists, got.payload.data], [200, true, { name: 'Ann', score: 3 }]);
+  assert.equal(got.status, 200);
+  assert.equal(got.payload.exists, true);
+  assert.equal(got.payload.data.assignedToUserId, 'uMember');
+  assert.equal(got.payload.data.ownerId, 'uMember');
+
+  await sSetDoc(sDoc(serverDb, 'users', 'uOther'), { tenantId: 'tA', name: 'Other member', role: 'SALES', isActive: true });
+  const otherMember: TenantContext = { tenantId: 'tA', uid: 'uOther', email: 'other@a.com', role: 'member' };
+  assert.equal((await call(admin, {
+    op: 'set', path: 'tenants/tA/leads/L2', data: { name: 'Bob', assignedToUserId: 'uOther', assignedToName: 'Other member' },
+  })).status, 200);
+  assert.equal((await call(admin, {
+    op: 'set', path: 'tenants/tA/leads/L0', data: { name: 'Unassigned', assignedToUserId: null },
+  })).status, 200);
+  assert.equal((await call(member, { op: 'get', path: 'tenants/tA/leads/L2' })).status, 403);
+  assert.equal((await call(member, { op: 'get', path: 'tenants/tA/leads/L0' })).status, 403);
+  assert.deepEqual((await call(member, { op: 'list', path: 'tenants/tA/leads' })).payload.docs.map((d: any) => d.id), ['L1']);
+  assert.equal((await call(otherMember, { op: 'get', path: 'tenants/tA/leads/L2' })).status, 200);
+  assert.equal((await call(otherMember, { op: 'get', path: 'tenants/tA/leads/L1' })).status, 403);
+  assert.equal((await call(member, { op: 'update', path: 'tenants/tA/leads/L1', data: { assignedToUserId: 'uOther' } })).status, 403);
+  assert.equal((await call(admin, {
+    op: 'update', path: 'tenants/tA/leads/L1',
+    data: { assignedToUserId: 'uOther', assignedToName: 'Other member', assignedCaller: 'Other member', ownerId: 'uOther' },
+  })).status, 200);
+  assert.equal((await call(member, { op: 'get', path: 'tenants/tA/leads/L1' })).status, 403);
+  assert.equal((await call(otherMember, { op: 'get', path: 'tenants/tA/leads/L1' })).status, 200);
   assert.equal((await call(otherAdmin, { op: 'get', path: 'tenants/tA/leads/L1' })).status, 403);
-  assert.equal((await call(otherAdmin, { op: 'set', path: 'tenants/tA/leads/L2', data: { x: 1 } })).status, 403);
+  assert.equal((await call(otherAdmin, { op: 'set', path: 'tenants/tA/leads/L3', data: { x: 1 } })).status, 403);
   assert.equal((await call(platform, { op: 'get', path: 'tenants/tA/leads/L1' })).status, 200);
 });
 
@@ -112,6 +136,8 @@ await t('update on a missing doc is 404', async () => {
 const c = await import('../src/services/clientDb.js');
 
 await t('shim: set/get/update/delete/query round trip', async () => {
+  const leadRef = c.doc(c.db, 'tenants', 'tA', 'leads', 'contact-lead');
+  await c.setDoc(leadRef, { leadId: 'contact-lead', contactId: 'c1', name: 'Contact lead' });
   const ref = c.doc(c.db, 'tenants', 'tA', 'contacts', 'c1');
   await c.setDoc(ref, { name: 'Zed', n: 1 });
   await c.setDoc(ref, { extra: true }, { merge: true });
