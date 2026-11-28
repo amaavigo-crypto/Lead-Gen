@@ -44,7 +44,27 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  const handleDeleteMember = async (user: AppUser) => {
+    if (user.role === 'ADMIN' || deletingUserId) return;
+    const confirmed = window.confirm(
+      `Permanently delete ${user.name} (${user.email})? Their Firebase sign-in account and workspace access will be removed.`
+    );
+    if (!confirmed) return;
+    setDeletingUserId(user.userId);
+    try {
+      await onDeleteUser(user.userId);
+      setToast(`Deleted ${user.name}. Their sign-in access has been removed.`);
+      setTimeout(() => setToast(null), 4000);
+    } catch (error: any) {
+      setToast(error?.message || 'Could not delete this member.');
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setDeletingUserId(null);
+    }
+  };
 
   const handleToggleModule = (moduleId: string) => {
     const current = editingUser.allowedModules || [];
@@ -118,7 +138,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
             <h3 className="font-extrabold text-slate-900 text-base">Platform Users & Module Access Control</h3>
           </div>
           <p className="text-xs text-slate-500 font-medium mt-0.5">
-            Manage user logins and module permissions stored directly in Firestore collection <code className="text-orange-600 font-mono font-bold">app_users</code>.
+            Manage workspace members and module permissions. Sign-in identities are managed in Firebase Authentication.
           </p>
         </div>
 
@@ -227,11 +247,13 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                       >
                         Edit
                       </button>
-                      {users.length > 1 && (
+                      {u.role !== 'ADMIN' && (
                         <button
-                          onClick={() => onDeleteUser(u.userId)}
-                          className="p-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition"
-                          title="Delete user from database"
+                          onClick={() => void handleDeleteMember(u)}
+                          disabled={deletingUserId === u.userId || Boolean(deletingUserId)}
+                          className="p-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Permanently delete member and Firebase sign-in"
+                          aria-label={`Delete ${u.name}`}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

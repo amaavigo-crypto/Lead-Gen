@@ -1863,6 +1863,141 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
       }
       return true;
     }
+
+    if (req.method === 'DELETE') {
+      const targetUserId = String(body?.userId || body?.uid || '').trim();
+      if (!targetUserId || targetUserId.includes('/') || targetUserId.length > 128) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ success: false, error: 'A valid member ID is required.' }));
+        return true;
+      }
+      if (targetUserId === userUid) {
+        res.statusCode = 403;
+        res.end(JSON.stringify({ success: false, error: 'You cannot delete the account you are currently using.' }));
+        return true;
+      }
+      if (!isFirebaseConfigured || !db) {
+        res.statusCode = 503;
+        res.end(JSON.stringify({ success: false, error: 'Workspace user storage is not configured.' }));
+        return true;
+      }
+
+      try {
+        // Member profiles are stored in the Mongo-backed users and app_users collections.
+        const [workspaceProfiles, appProfiles] = await Promise.all([
+          getDocs(fsQuery(globalUsersCol(), fsWhere('tenantId', '==', tId))),
+          getDocs(fsQuery(collection(db, 'app_users'), fsWhere('tenantId', '==', tId))),
+        ]);
+        const profileDocs = [...workspaceProfiles.docs, ...appProfiles.docs];
+        const targetProfiles = profileDocs.filter((profileDoc: any) => {
+          const profile: any = profileDoc.data() || {};
+          return [profileDoc.id, profile.uid, profile.userId].filter(Boolean).map(String).includes(targetUserId);
+        });
+        if (!targetProfiles.length) {
+          res.statusCode = 404;
+          res.end(JSON.stringify({ success: false, error: 'Workspace member was not found.' }));
+          return true;
+        }
+
+        const normalizeRole = (value: any) => String(value || '').trim().toLowerCase();
+        const isAdminRole = (value: any) => ['admin', 'platformadmin'].includes(normalizeRole(value));
+        if (targetProfiles.some((profileDoc: any) => {
+          const profile: any = profileDoc.data() || {};
+          return isAdminRole(profile.role) || isAdminRole(profile.appRole);
+        })) {
+          res.statusCode = 403;
+          res.end(JSON.stringify({ success: false, error: 'Workspace admin accounts are protected and cannot be deleted.' }));
+          return true;
+        }
+
+        const targetEmail = String((targetProfiles[0].data() as any)?.email || '').trim().toLowerCase();
+        const adminAuth = getAdminAuth();
+        let authUser: any = null;
+        try {
+          authUser = await adminAuth.getUser(targetUserId);
+        } catch (authError: any) {
+          if (!['auth/user-not-found', 'auth/invalid-uid'].includes(String(authError?.code || ''))) throw authError;
+        }
+        // Resolve legacy profile-only IDs to their Firebase Auth account by same-tenant email.
+        if (!authUser && targetEmail) {
+          try {
+            authUser = await adminAuth.getUserByEmail(targetEmail);
+          } catch (authError: any) {
+            if (authError?.code !== 'auth/user-not-found') throw authError;
+          }
+        }
+
+        if (authUser) {
+          const claims: any = authUser.customClaims || {};
+          if (claims.platformAdmin === true || isAdminRole(claims.role)) {
+            res.statusCode = 403;
+            res.end(JSON.stringify({ success: false, error: 'Admin accounts are protected and cannot be deleted.' }));
+            return true;
+          }
+          if (claims.tenantId && String(claims.tenantId) !== tId) {
+            res.statusCode = 403;
+            res.end(JSON.stringify({ success: false, error: 'This Firebase account belongs to another workspace.' }));
+            return true;
+          }
+          if (authUser.uid === userUid) {
+            res.statusCode = 403;
+            res.end(JSON.stringify({ success: false, error: 'You cannot delete the account you are currently using.' }));
+            return true;
+          }
+        }
+
+        const authUids = Array.from(new Set([targetUserId, authUser?.uid].filter(Boolean).map(String)));
+        const workspaceRepo = tenantRepo({ ...activeTenantCtx, tenantId: tId });
+        let affectedLeadCount = 0;
+        // Unassign this member's leads so they return to the admin-only queue.
+        for (const assignedUid of authUids) {
+          const assignedLeads = await getDocs(fsQuery(
+            workspaceRepo.leads(),
+            fsWhere('assignedToUserId', '==', assignedUid),
+          ));
+          await Promise.all(assignedLeads.docs.map((leadDoc: any) => updateDoc(leadDoc.ref, {
+            assignedToUserId: null,
+            assignedToName: 'Unassigned',
+            assignedCaller: 'Unassigned',
+            ownerId: '',
+            updatedAt: new Date().toISOString(),
+          })));
+          affectedLeadCount += assignedLeads.size;
+        }
+
+        // Disable, revoke active refresh tokens, and delete the Firebase Authentication identity.
+        if (authUser) {
+          await adminAuth.updateUser(authUser.uid, { disabled: true });
+          await adminAuth.revokeRefreshTokens(authUser.uid);
+          await adminAuth.deleteUser(authUser.uid);
+        }
+
+        // Remove all same-tenant profile duplicates matching the UID or its stored email.
+        const authEmail = String(authUser?.email || targetEmail).trim().toLowerCase();
+        const documentsToDelete = profileDocs.filter((profileDoc: any) => {
+          const profile: any = profileDoc.data() || {};
+          const ids = [profileDoc.id, profile.uid, profile.userId].filter(Boolean).map(String);
+          const matchesUid = ids.includes(targetUserId) || (authUser && ids.includes(String(authUser.uid)));
+          const matchesEmail = Boolean(authEmail && String(profile.email || '').trim().toLowerCase() === authEmail);
+          return matchesUid || matchesEmail;
+        });
+        await Promise.all(documentsToDelete.map((profileDoc: any) => deleteDoc(profileDoc.ref)));
+
+        res.statusCode = 200;
+        res.end(JSON.stringify({
+          success: true,
+          deletedUserId: targetUserId,
+          deletedAuthAccount: Boolean(authUser),
+          deletedProfileCount: documentsToDelete.length,
+          unassignedLeadCount: affectedLeadCount,
+        }));
+      } catch (err: any) {
+        console.error('[Workspace Users] Failed to delete member:', err?.message || err);
+        res.statusCode = 500;
+        res.end(JSON.stringify({ success: false, error: err?.message || 'Could not delete workspace member.' }));
+      }
+      return true;
+    }
   }
 
 

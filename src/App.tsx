@@ -2609,19 +2609,28 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (db && isFirebaseConfigured) {
-      try {
-        await deleteDoc(doc(db, 'users', userId));
-        await deleteDoc(doc(db, 'app_users', userId));
-        setUsers((prev) => prev.filter((u) => u.userId !== userId));
-        recordAuditAction({ action: 'WORKSPACE_USER_DELETED', module: 'SETTINGS', description: 'A workspace user account was deleted.', target: { type: 'User', id: userId } });
-      } catch (err) {
-        console.warn('Firestore user delete error:', err);
-      }
-    } else {
-      setUsers((prev) => prev.filter((u) => u.userId !== userId));
-      recordAuditAction({ action: 'WORKSPACE_USER_DELETED', module: 'SETTINGS', description: 'A workspace user account was deleted.', target: { type: 'User', id: userId } });
+    if (!currentTenantId) throw new Error('No active workspace is selected.');
+    const response = await fetch(`/api/tenants/${encodeURIComponent(currentTenantId)}/users`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result?.success !== true) {
+      throw new Error(result?.error || 'Could not permanently delete this workspace member.');
     }
+
+    setUsers((prev) => prev.filter((user) => user.userId !== userId));
+    recordAuditAction({
+      action: 'WORKSPACE_USER_DELETED',
+      module: 'SETTINGS',
+      description: 'A workspace member and their Firebase sign-in account were permanently deleted.',
+      target: { type: 'User', id: userId },
+      metadata: {
+        deletedAuthAccount: Boolean(result.deletedAuthAccount),
+        unassignedLeadCount: Number(result.unassignedLeadCount || 0),
+      },
+    });
   };
 
   // Public legal pages (/privacy, /terms, /dpa, /aup) render for everyone, signed in or not.
