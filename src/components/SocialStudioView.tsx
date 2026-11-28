@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import type { AppUser } from '../types';
 
-type StudioTab = 'overview' | 'channels' | 'compose' | 'calendar' | 'posts' | 'media' | 'analytics';
+type StudioTab = 'overview' | 'channels' | 'compose' | 'calendar' | 'posts' | 'media' | 'analytics' | 'competitors';
 type PostType = 'draft' | 'now' | 'schedule';
 
 interface Props {
@@ -100,6 +100,7 @@ const TAB_ITEMS: Array<{ id: StudioTab; label: string; icon: React.ElementType }
   { id: 'posts', label: 'Posts', icon: Send },
   { id: 'media', label: 'Media library', icon: FileImage },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'competitors', label: 'Competitors', icon: Share2 },
 ];
 
 const panel = 'rounded-2xl border border-slate-200 bg-white shadow-sm';
@@ -214,6 +215,15 @@ export const SocialStudioView: React.FC<Props> = ({ tenantId, tenantName, curren
   const [selectedAnalyticsChannel, setSelectedAnalyticsChannel] = useState('');
   const [analyticsDays, setAnalyticsDays] = useState('30');
   const [analytics, setAnalytics] = useState<any>(null);
+  const [competitors, setCompetitors] = useState<any[]>([]);
+  const [competitorProvider, setCompetitorProvider] = useState('youtube');
+  const [competitorHandle, setCompetitorHandle] = useState('');
+  const [competitorBusy, setCompetitorBusy] = useState(false);
+  const [competitorAnalysis, setCompetitorAnalysis] = useState<any>(null);
+  const [youtubeTitle, setYoutubeTitle] = useState('');
+  const [youtubePrivacy, setYoutubePrivacy] = useState('private');
+  const [redditSubreddit, setRedditSubreddit] = useState('');
+  const [redditTitle, setRedditTitle] = useState('');
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -245,22 +255,26 @@ export const SocialStudioView: React.FC<Props> = ({ tenantId, tenantName, curren
         setChannels([]);
         setPosts([]);
         setMedia([]);
+        setCompetitors([]);
         return;
       }
       const start = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
       const end = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1);
       const query = new URLSearchParams({ startDate: start.toISOString(), endDate: end.toISOString() });
-      const [channelResult, postResult, mediaResult] = await Promise.all([
+      const [channelResult, postResult, mediaResult, competitorResult] = await Promise.all([
         api<any>('/api/social-studio/channels'),
         api<any>('/api/social-studio/posts?' + query.toString()),
         api<any>('/api/social-studio/media'),
+        api<any>('/api/social-studio/competitors'),
       ]);
       const nextChannels = Array.isArray(channelResult.channels) ? channelResult.channels : [];
       const nextPosts = Array.isArray(postResult.posts) ? postResult.posts : Array.isArray(postResult) ? postResult : [];
       const nextMedia = Array.isArray(mediaResult.media) ? mediaResult.media : [];
+      const nextCompetitors = Array.isArray(competitorResult.competitors) ? competitorResult.competitors : [];
       setChannels(nextChannels);
       setPosts(nextPosts);
       setMedia(nextMedia);
+      setCompetitors(nextCompetitors);
       setSelectedChannelIds((previous) => previous.filter((id) => nextChannels.some((channel: Channel) => channel.id === id && !channel.disabled)));
       setSelectedAnalyticsChannel((previous) => nextChannels.some((channel: Channel) => channel.id === previous) ? previous : (nextChannels[0]?.id || ''));
     } catch (requestError: any) {
@@ -478,9 +492,13 @@ export const SocialStudioView: React.FC<Props> = ({ tenantId, tenantName, curren
           integrationIds: selectedChannelIds,
           mediaIds: selectedMediaIds,
           providerSettings: Object.fromEntries(
-            selectedChannelIds
-              .filter((id) => channels.find((channel) => channel.id === id)?.identifier.startsWith('instagram'))
-              .map((id) => [id, { post_type: instagramPostType }])
+            selectedChannelIds.map((id) => {
+              const channel = channels.find((item) => item.id === id);
+              if (channel?.identifier === 'instagram') return [id, { post_type: instagramPostType }];
+              if (channel?.identifier === 'youtube') return [id, { title: youtubeTitle.trim(), privacyStatus: youtubePrivacy }];
+              if (channel?.identifier === 'reddit') return [id, { subreddit: redditSubreddit.trim(), title: redditTitle.trim() }];
+              return [id, {}];
+            })
           ),
         }),
       });
@@ -528,6 +546,43 @@ export const SocialStudioView: React.FC<Props> = ({ tenantId, tenantName, curren
     } finally {
       setAnalyticsLoading(false);
     }
+  };
+
+  const addCompetitor = async () => {
+    if (!competitorHandle.trim()) { setError('Enter a competitor username, channel ID or subreddit.'); return; }
+    setCompetitorBusy(true); setError(''); setNotice('');
+    try {
+      const result = await api<any>('/api/social-studio/competitors', {
+        method: 'POST',
+        body: JSON.stringify({ provider: competitorProvider, handle: competitorHandle.trim() }),
+      });
+      setCompetitors((previous) => [result.competitor, ...previous.filter((item) => item.id !== result.competitor.id)]);
+      setCompetitorHandle('');
+      setNotice('Competitor saved. Select Analyze to retrieve provider-supported public information.');
+    } catch (e: any) { setError(e?.message || 'Could not save this competitor.'); }
+    finally { setCompetitorBusy(false); }
+  };
+
+  const analyzeCompetitor = async (competitorId: string) => {
+    setCompetitorBusy(true); setError(''); setNotice(''); setCompetitorAnalysis(null);
+    try {
+      const result = await api<any>('/api/social-studio/competitors/analyze', {
+        method: 'POST', body: JSON.stringify({ competitorId }),
+      });
+      setCompetitorAnalysis(result.analysis);
+      setCompetitors((previous) => previous.map((item) => item.id === competitorId ? { ...item, lastAnalysis: result.analysis, lastAnalyzedAt: new Date().toISOString() } : item));
+    } catch (e: any) { setError(e?.message || 'Could not analyze this competitor with the connected provider permissions.'); }
+    finally { setCompetitorBusy(false); }
+  };
+
+  const deleteCompetitor = async (competitorId: string) => {
+    setCompetitorBusy(true); setError('');
+    try {
+      await api('/api/social-studio/competitors/' + encodeURIComponent(competitorId), { method: 'DELETE' });
+      setCompetitors((previous) => previous.filter((item) => item.id !== competitorId));
+      if (competitorAnalysis?.id === competitorId) setCompetitorAnalysis(null);
+    } catch (e: any) { setError(e?.message || 'Could not remove this competitor.'); }
+    finally { setCompetitorBusy(false); }
   };
 
   const filteredProviders = useMemo(() => {
@@ -920,6 +975,30 @@ export const SocialStudioView: React.FC<Props> = ({ tenantId, tenantName, curren
                     {!media.length && <span className="text-xs text-slate-400">No media uploaded yet.</span>}
                   </div>
                 </div>
+                {selectedChannelIds.some((id) => channels.find((channel) => channel.id === id)?.identifier === 'youtube') && (
+                  <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2">
+                    <label className="text-xs font-semibold text-slate-700">YouTube title
+                      <input className={inputClass + ' mt-1'} value={youtubeTitle} onChange={(event) => setYoutubeTitle(event.target.value)} maxLength={100} placeholder="Video title (defaults to first caption line)" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-700">YouTube visibility
+                      <select className={inputClass + ' mt-1'} value={youtubePrivacy} onChange={(event) => setYoutubePrivacy(event.target.value)}>
+                        <option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option>
+                      </select>
+                    </label>
+                    <p className="text-[11px] leading-5 text-slate-500 sm:col-span-2">YouTube requires a video file. New uploads default to Private until you explicitly choose another visibility setting.</p>
+                  </div>
+                )}
+                {selectedChannelIds.some((id) => channels.find((channel) => channel.id === id)?.identifier === 'reddit') && (
+                  <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2">
+                    <label className="text-xs font-semibold text-slate-700">Subreddit
+                      <input className={inputClass + ' mt-1'} value={redditSubreddit} onChange={(event) => setRedditSubreddit(event.target.value)} placeholder="e.g. smallbusiness" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-700">Reddit post title
+                      <input className={inputClass + ' mt-1'} value={redditTitle} onChange={(event) => setRedditTitle(event.target.value)} maxLength={300} placeholder="A clear, community-appropriate title" />
+                    </label>
+                    <p className="text-[11px] leading-5 text-slate-500 sm:col-span-2">Reddit publishing stays disabled until Amaavigo receives commercial Data API approval. Follow each subreddit’s rules and self-promotion policy.</p>
+                  </div>
+                )}
                 <div className="mt-5">
                   <label className="mb-2 block text-xs font-semibold text-slate-700">When should it publish?</label>
                   <div className="grid gap-2 sm:grid-cols-3">
@@ -1119,6 +1198,45 @@ export const SocialStudioView: React.FC<Props> = ({ tenantId, tenantName, curren
                 </div>
               )}
               <p className="mt-3 text-[11px] leading-5 text-slate-400">Analytics availability and refresh frequency depend on each social platform and the permissions granted to the connected account.</p>
+            </section>
+          )}
+
+          {activeTab === 'competitors' && (
+            <section className={panel + ' p-5'}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div><h2 className="text-lg font-bold text-slate-900">Competitor intelligence</h2><p className="mt-1 max-w-2xl text-sm leading-5 text-slate-500">Track public profiles and recent public content. Private reach, impressions, audience demographics and private account analytics are not available through competitor APIs.</p></div>
+              </div>
+              <div className="mt-5 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-[180px_minmax(0,1fr)_auto]">
+                <label className="text-xs font-semibold text-slate-700">Platform
+                  <select className={inputClass + ' mt-1'} value={competitorProvider} onChange={(event) => setCompetitorProvider(event.target.value)}>
+                    {PROVIDERS.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Competitor handle / ID
+                  <input className={inputClass + ' mt-1'} value={competitorHandle} onChange={(event) => setCompetitorHandle(event.target.value)} placeholder={competitorProvider === 'reddit' ? 'subreddit name' : 'username, channel ID or Page ID'} />
+                </label>
+                <div className="flex items-end"><button type="button" className={buttonPrimary} onClick={() => void addCompetitor()} disabled={competitorBusy || !competitorHandle.trim()}>{competitorBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Track competitor</button></div>
+              </div>
+              <div className="mt-5 space-y-3">
+                {competitors.map((competitor) => (
+                  <article key={competitor.id} className="rounded-xl border border-slate-200 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-slate-900">{providerName(competitor.provider)} · {competitor.handle}</p><p className="mt-1 text-[11px] text-slate-400">{competitor.lastAnalyzedAt ? 'Last analyzed ' + formatDate(competitor.lastAnalyzedAt) : 'Not analyzed yet'}</p></div>
+                      <button type="button" className={buttonSecondary} disabled={competitorBusy} onClick={() => void analyzeCompetitor(competitor.id)}><BarChart3 className="h-3.5 w-3.5" /> Analyze</button>
+                      <button type="button" className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" disabled={competitorBusy} onClick={() => void deleteCompetitor(competitor.id)} title="Remove competitor"><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                    {competitor.lastAnalysis && <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 text-[11px] leading-5 text-slate-700">{JSON.stringify(competitor.lastAnalysis, null, 2)}</pre>}
+                  </article>
+                ))}
+                {!competitors.length && <EmptyState title="No competitors tracked" description="Add a public profile, channel or subreddit to begin collecting API-supported competitor information." />}
+              </div>
+              {competitorAnalysis && (
+                <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50/40 p-4">
+                  <h3 className="text-sm font-bold text-slate-900">Latest competitor analysis</h3>
+                  <pre className="mt-2 max-h-[480px] overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-slate-700">{JSON.stringify(competitorAnalysis, null, 2)}</pre>
+                </div>
+              )}
+              <p className="mt-4 text-[11px] leading-5 text-slate-400">Instagram Business Discovery and Facebook public Page content require Meta permissions and app review. LinkedIn competitor data is restricted by its Community Management program. Reddit competitor requests are disabled pending commercial Data API approval.</p>
             </section>
           )}
         </>
