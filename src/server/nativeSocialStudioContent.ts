@@ -152,7 +152,7 @@ async function publishReddit(ctx:TenantContext,text:string,m:Media[],settings:an
  if(!sr||!title)throw new Error('Reddit requires a subreddit and post title. Add both in the Reddit publishing settings.');
  const f=new URLSearchParams({sr,kind:'self',title,text,api_type:'json',resubmit:'true'});if(m.length){f.set('kind','link');f.set('url',publicUrl(m[0]));}
  const p=await requestJson('https://oauth.reddit.com/api/submit',{method:'POST',headers:{Authorization:'Bearer '+t.access,'Content-Type':'application/x-www-form-urlencoded','User-Agent':REDDIT_AGENT},body:f.toString()});
- const d=p.json?.data||{},id=String(d.name||d.id||'');return{id,url:String(d.url||(d.id?'https://www.reddit.com/comments/'+d.id+'/':''))};
+ const errors=Array.isArray(p.json?.errors)?p.json.errors:[];if(errors.length)throw new Error(errors.map((x:any)=>Array.isArray(x)?x.join(': '):String(x)).join('; '));const d=p.json?.data||{},id=String(d.name||d.id||'');if(!id)throw new Error('Reddit did not confirm the post submission.');return{id,url:String(d.url||(d.id?'https://www.reddit.com/comments/'+d.id+'/':''))};
 }
 async function publish(ctx:TenantContext,ch:Channel,text:string,m:Media,settings:any):Promise<any>{
  switch(ch.identifier){case'instagram':return publishInstagram(ctx,text,m,settings);case'facebook':return publishFacebook(ctx,ch,text,m);case'youtube':return publishYouTube(ctx,text,m,settings);case'x':return publishX(ctx,text,m);case'linkedin':return publishLinkedIn(ctx,ch,text,m);case'reddit':return publishReddit(ctx,text,m,settings);}
