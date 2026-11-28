@@ -289,14 +289,14 @@ async function loadAccountIdentity(provider: Exclude<Provider, 'instagram'>, acc
     // Organization discovery is best-effort. LinkedIn only returns this when the app has
     // the Community Management organization-admin permission and the member has Page access.
     try {
-      const aclUrl = new URL('https://api.linkedin.com/rest/organizationalEntityAcls');
+      const aclUrl = new URL('https://api.linkedin.com/rest/organizationAcls');
       aclUrl.searchParams.set('q', 'roleAssignee');
       aclUrl.searchParams.set('state', 'APPROVED');
       const acl = await responseJson(await fetch(aclUrl, {
         headers: { Authorization: 'Bearer ' + accessToken, 'LinkedIn-Version': process.env.LINKEDIN_VERSION || '202611', 'X-Restli-Protocol-Version': '2.0.0' },
       }));
       organizations = (acl.elements || []).map((entry: any) => ({
-        id: String(entry.organizationalTarget || '').replace(/^urn:li:organization:/, ''),
+        id: String(entry.organizationTarget || entry.organization || '').replace(/^urn:li:organization:/, ''),
         name: String(entry.organizationalTarget || '').replace(/^urn:li:organization:/, ''),
         role: String(entry.role || ''),
       })).filter((entry: any) => entry.id);
