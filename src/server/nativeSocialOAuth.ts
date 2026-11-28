@@ -446,14 +446,37 @@ export async function handleNativeSocialStudioApi(req: any, res: any, ctx: Tenan
         if (!snapshot.exists()) continue;
         const value = snapshot.data() as any;
         if (value?.status !== 'connected') continue;
-        results.push({
-          id: String(value.accountId || provider),
-          identifier: provider,
-          name: String(value.displayName || provider),
-          username: String(value.username || ''),
-          picture: String(value.avatar || ''),
-          status: 'connected',
-        });
+        if (provider === 'facebook') {
+          // Only managed Pages can publish. Never expose the member's personal profile as a channel.
+          for (const page of Array.isArray(value.pages) ? value.pages : []) {
+            results.push({
+              id: String(page.id), identifier: provider, name: String(page.name || 'Facebook Page'),
+              username: String(page.name || ''), status: 'connected',
+            });
+          }
+        } else if (provider === 'linkedin') {
+          results.push({
+            id: String(value.accountId || provider), identifier: provider,
+            name: String(value.displayName || 'LinkedIn member'), username: String(value.username || ''),
+            picture: String(value.avatar || ''), status: 'connected',
+          });
+          for (const organization of Array.isArray(value.organizations) ? value.organizations : []) {
+            results.push({
+              id: String(organization.id), identifier: provider,
+              name: String(organization.name || 'LinkedIn organization'), username: String(organization.name || ''),
+              status: 'connected',
+            });
+          }
+        } else {
+          results.push({
+            id: String(value.accountId || provider),
+            identifier: provider,
+            name: String(value.displayName || provider),
+            username: String(value.username || ''),
+            picture: String(value.avatar || ''),
+            status: 'connected',
+          });
+        }
       }
       json(res, 200, { success: true, channels: results });
     } catch (error: any) {
