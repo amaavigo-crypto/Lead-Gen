@@ -2251,7 +2251,8 @@ export interface SchedulingTurnResult {
 // no memory. Path: tenants/{tenantId}/scheduling_state/{key} (server-only; client rules deny it).
 // -----------------------------------------------------------------------------
 const MAX_DAYS_AHEAD = 60;
-const MIN_LEAD_TIME_MS = 30 * 60 * 1000;
+// Keep a short safety buffer for calendar/Meet setup without rejecting ordinary same-hour requests.
+const MIN_LEAD_TIME_MS = 10 * 60 * 1000;
 const AVAILABILITY_STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CONFIRMATION_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 
