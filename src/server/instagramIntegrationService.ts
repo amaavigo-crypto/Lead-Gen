@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { doc, collection, getDoc, setDoc, deleteDoc, createDoc, updateDoc, getDocs, query, where } from './adminFirestore.js';
+import { doc, collection, getDoc, setDoc, deleteDoc, createDoc, updateDoc, getDocs, query, where, limit } from './adminFirestore.js';
 import OpenAI from 'openai';
 import { db } from './adminFirestore.js';
 import { tenantRepo } from './tenantRepo.js';
@@ -413,8 +413,44 @@ async function processInstagramMessageEvent(tenantId: string, accountId: string,
   const senderDisplayName = socialProfileName || 'Instagram user';
   const conversationSnap = await getDoc(repo.conversationDoc(conversationId));
   const previous = conversationSnap.exists() ? conversationSnap.data() as any : null;
+
+  // Match the WhatsApp/Messenger CRM flow: reuse a conversation-linked lead first,
+  // then an existing lead for this contact, otherwise create one stable inbound lead.
+  let linkedLead: any = null;
+  if (previous?.leadId) {
+    const linkedLeadSnap = await getDoc(repo.leadDoc(String(previous.leadId)));
+    if (linkedLeadSnap.exists()) linkedLead = linkedLeadSnap.data();
+  }
+  if (!linkedLead) {
+    const leadMatches = await getDocs(query(repo.leads(), where('contactId', '==', contactId), limit(1)));
+    if (!leadMatches.empty) linkedLead = leadMatches.docs[0].data();
+  }
+  const leadId = String(linkedLead?.leadId || previous?.leadId || `iglead_${stableHash(accountId + ':' + senderId)}`);
+  const leadRecord: any = linkedLead || {
+    leadId,
+    contactId,
+    source: 'INSTAGRAM',
+    leadType: 'INBOUND',
+    status: 'NEW',
+    leadScore: 50,
+    intent: 'MEDIUM',
+    buyingStage: 'AWARENESS',
+    serviceInterest: '',
+    requirements: [],
+    aiSummary: 'New inbound Instagram conversation.',
+    createdAt: now,
+  };
+  // Merge preserves existing CRM status, ownership, assignments, and qualification data.
+  await setDoc(repo.leadDoc(leadId), {
+    ...leadRecord,
+    leadId,
+    contactId,
+    updatedAt: now,
+    lastActivityAt: timestamp,
+  }, { merge: true });
+
   const conversation = {
-    conversationId, contactId, channel: 'INSTAGRAM', direction: 'INBOUND', externalConversationId: senderId,
+    conversationId, contactId, leadId, channel: 'INSTAGRAM', direction: 'INBOUND', externalConversationId: senderId,
     status: previous?.status || 'ACTIVE', aiEnabled: previous?.aiEnabled !== false,
     humanHandoff: previous?.humanHandoff === true, managementMode: previous?.managementMode || 'AI',
     conversationSummary: previous?.conversationSummary || 'Instagram direct-message conversation',
@@ -431,15 +467,21 @@ async function processInstagramMessageEvent(tenantId: string, accountId: string,
   if (event?.__test !== true) {
     try {
       const { handleLeadReplyEvent } = await import('./autoFollowUpService.js');
-      await handleLeadReplyEvent(ctx, { conversationId });
+      await handleLeadReplyEvent(ctx, { leadId, conversationId });
     } catch (followUpError) {
       console.warn('[Instagram] AI follow-up cancellation notice:', followUpError);
     }
   }
   // Synthetic test message from Settings: stop after saving it (no AI call, nothing sent to Instagram).
   if (event?.__test === true) {
-    await updateDoc(eventRef, { status: 'test_processed', processedAt: now, conversationId });
+    await updateDoc(eventRef, { status: 'test_processed', processedAt: now, conversationId, leadId });
     return;
+  }
+  try {
+    const { enqueueLeadScoringEvaluation } = await import('./leadScoringService.js');
+    await enqueueLeadScoringEvaluation(ctx, leadId, conversationId, 'CONVERSATION');
+  } catch (scoringError: any) {
+    console.warn('[Instagram] AI lead scoring notice:', scoringError?.message || scoringError);
   }
   const mode = await getTenantChannelMode(ctx, 'INSTAGRAM', 'AUTO');
   if (!conversation.aiEnabled || conversation.humanHandoff || conversation.managementMode === 'HUMAN' || mode === 'OFF') {
