@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import OpenAI from 'openai';
-import { getDoc, getDocs, setDoc, deleteDoc } from './adminFirestore.js';
+import { getDoc, getDocs, setDoc, deleteDoc, query, where, orderBy, limit as queryLimit } from './adminFirestore.js';
 import { tenantRepo } from './tenantRepo.js';
 import { encryptSecret } from './cryptoUtils.js';
 import { getInstagramAccessToken } from './instagramIntegrationService.js';
@@ -249,8 +249,16 @@ async function submitPost(req:any,res:any,ctx:TenantContext){
  if(record.state==='failed')return send(res,502,{success:false,error:outcomes.map(x=>x.error).filter(Boolean).join(' · ')||'No platform accepted the post.',post:record});
  return send(res,200,{success:true,post:record,posts:outcomes});
 }
-export async function runSocialStudioPublishWorkerCycle(ctx:TenantContext,limit=5):Promise<number>{
- const docs=await getDocs(tenantRepo(ctx).collection('social_studio_posts')),now=Date.now(),due=docs.docs.map(d=>({id:d.id,...d.data() as any})).filter(p=>p.state==='scheduled'&&Date.parse(String(p.publishDate||''))<=now).sort((a,b)=>Date.parse(a.publishDate)-Date.parse(b.publishDate)).slice(0,limit);
+export async function runSocialStudioPublishWorkerCycle(ctx:TenantContext,batchSize=5):Promise<number>{
+ const dueBefore=new Date().toISOString();
+ const dueQuery=query(
+  tenantRepo(ctx).collection('social_studio_posts'),
+  where('state','==','scheduled'),
+  where('publishDate','<=',dueBefore),
+  orderBy('publishDate','asc'),
+  queryLimit(Math.max(1,Math.min(20,batchSize))),
+ );
+ const docs=await getDocs(dueQuery),due=docs.docs.map(d=>({id:d.id,...d.data() as any}));
  let count=0;for(const post of due){const ref=tenantRepo(ctx).doc('social_studio_posts',post.id),s=await getDoc(ref);if(!s.exists()||(s.data() as any).state!=='scheduled')continue;await setDoc(ref,{state:'publishing',attempts:Number(post.attempts||0)+1,updatedAt:iso()},{merge:true});
  try{const results=await publishDestinations(ctx,post),ok=results.some(x=>x.state==='published');await setDoc(ref,{posts:results,state:ok?(results.every(x=>x.state==='published')?'published':'partial'):'failed',publishedAt:ok?iso():null,updatedAt:iso()},{merge:true});}
  catch(e:any){await setDoc(ref,{state:'failed',lastError:String(e?.message||'Publish worker failed').slice(0,500),updatedAt:iso()},{merge:true});}count++;}return count;
