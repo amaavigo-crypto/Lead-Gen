@@ -1308,5 +1308,15 @@ export async function processLiveInboundWhatsApp(
     }
   }
 
+  try {
+    const { publishAutomationEvent } = await import('./automationService.js');
+    await publishAutomationEvent(getWACtx(), 'inbox.message_received', {
+      leadId, contactId, conversationId, phone: senderPhone, channel: 'WHATSAPP',
+      messageId: incomingMsgId, from: senderPhone, receivedAt: nowIso, text: payload.body.slice(0, 1200),
+    }, incomingMsgId);
+  } catch (automationError: any) {
+    console.warn('[Inbound WhatsApp] Automation event notice:', automationError?.message || automationError);
+  }
+
   return result;
 }

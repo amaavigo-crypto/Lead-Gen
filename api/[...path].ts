@@ -2,6 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import fs from 'node:fs';
 import path from 'node:path';
 
+export const config = { api: { bodyParser: false } };
+
 type SeoPageModule = {
   renderSeoPage: (template: string, rawPath: string, origin: string) => Promise<string>;
   robotsTxt: (origin: string) => string;
@@ -52,6 +54,35 @@ function writeSeoResponse(res: ServerResponse, statusCode: number, contentType: 
   res.end(body);
 }
 
+function readRawApiBody(req: IncomingMessage, maxBytes = 10 * 1024 * 1024): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    req.on('data', (chunk: Buffer | string) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buffer.length;
+      if (total > maxBytes) { reject(Object.assign(new Error('Request body is too large.'), { statusCode: 413 })); req.destroy(); return; }
+      chunks.push(buffer);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+function parseRawApiBody(raw: Buffer, contentType: string): any {
+  if (!raw.length) return {};
+  const bodyText = raw.toString('utf8');
+  if (contentType.toLowerCase().includes('application/json') || bodyText.trimStart().startsWith('{') || bodyText.trimStart().startsWith('[')) {
+    try { return JSON.parse(bodyText); } catch { return bodyText; }
+  }
+  if (contentType.toLowerCase().includes('application/x-www-form-urlencoded')) {
+    const params = new URLSearchParams(bodyText);
+    const values: Record<string, any> = {};
+    params.forEach((value, key) => { values[key] = value; });
+    return values;
+  }
+  return bodyText;
+}
+
 async function handleSeoPageRequest(req: IncomingMessage, res: ServerResponse) {
   try {
     const url = new URL(req.url || '/', 'http://localhost');
@@ -99,7 +130,7 @@ async function handleSeoPageRequest(req: IncomingMessage, res: ServerResponse) {
 export default async function handler(req: IncomingMessage & { body?: any }, res: ServerResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Google-Access-Token');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Google-Access-Token, X-Amaavigo-Signature, X-Amaavigo-Timestamp, X-Event-Id, Stripe-Signature');
 
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
@@ -169,6 +200,18 @@ export default async function handler(req: IncomingMessage & { body?: any }, res
         timestamp: new Date().toISOString(),
       })
     );
+  }
+
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(req.method || '').toUpperCase())) {
+    try {
+      const rawBody = await readRawApiBody(req);
+      (req as any).rawBody = rawBody;
+      (req as any).body = parseRawApiBody(rawBody, String(req.headers['content-type'] || ''));
+    } catch (error: any) {
+      res.statusCode = Number(error?.statusCode) || 400;
+      res.setHeader('Content-Type', 'application/json');
+      return res.end(JSON.stringify({ error: error?.message || 'Could not read request body.' }));
+    }
   }
 
   let handleCoreApi: any;

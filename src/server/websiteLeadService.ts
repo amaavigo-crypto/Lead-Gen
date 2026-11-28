@@ -1022,6 +1022,7 @@ export async function processWebsiteLeadSubmission(
   // 12. Persist lead and inbound conversation. Confirmation dispatch runs
   // independently for each selected channel using a tenant-scoped ledger.
   // -----------------------------------------------------------------
+  let leadPersisted = false;
   if (isFirebaseConfigured && db) {
     try {
       const repo = tenantRepo(ctx);
@@ -1031,6 +1032,7 @@ export async function processWebsiteLeadSubmission(
         safeSetDoc(repo.conversationDoc(conversation.conversationId), conversation, { merge: true }),
         safeSetDoc(repo.messageDoc(initialMessage.messageId), initialMessage, { merge: true }),
       ]);
+      leadPersisted = true;
       try {
         const { enqueueLeadScoringEvaluation } = await import('./leadScoringService.js');
         await enqueueLeadScoringEvaluation(ctx, lead.leadId, conversation.conversationId, 'NEW_LEAD');
@@ -1096,6 +1098,19 @@ export async function processWebsiteLeadSubmission(
       }, { merge: true });
     }
   }
+  if (leadPersisted) {
+    try {
+      const { publishAutomationEvent } = await import('./automationService.js');
+      await publishAutomationEvent(ctx, reusableLead ? 'lead.updated' : 'lead.created', {
+        leadId: lead.leadId, contactId: contact.contactId, conversationId: conversation.conversationId,
+        email: cleanEmail, phone: fullPhone, name: rawFullName, companyName, source: 'WEBSITE',
+        createdAt: new Date().toISOString(),
+      }, submissionId || messageId);
+    } catch (automationError: any) {
+      console.warn('[Website Lead] Automation event notice:', automationError?.message || automationError);
+    }
+  }
+
   const sentChannels = confirmationStatuses.filter((item) => item.status === 'SENT').map((item) => item.channel);
   const confirmationSummary = confirmationStatuses.map((item) => item.channel + ': ' + item.status.toLowerCase().replace(/_/g, ' ')).join(', ');
   return {

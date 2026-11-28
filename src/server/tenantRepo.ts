@@ -194,6 +194,11 @@ export function globalWebhookRouteDoc(webhookId: string): DocumentReference<Docu
   return doc(db, 'webhook_routes', webhookId);
 }
 
+/** Public endpoint lookup only; secrets and workflow data remain tenant-scoped. */
+export function globalAutomationWebhookRouteDoc(endpointId: string): DocumentReference<DocumentData> {
+  return doc(db, 'automation_webhook_routes', endpointId);
+}
+
 export function globalChannelRoutesCol(): CollectionReference<DocumentData> {
   return collection(db, 'channel_routes');
 }

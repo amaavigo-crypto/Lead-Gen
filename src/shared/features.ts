@@ -17,6 +17,7 @@ export interface FeatureDef {
 
 export const FEATURES: FeatureDef[] = [
   { key: 'ai_agent', label: 'AI Agent Workspace', description: 'Context-aware AI workspace and registered agent tools', tab: 'agent', defaultEnabled: true },
+  { key: 'automations', label: 'AI Automation Studio', description: 'AI-created event, webhook and scheduled workflows with approvals and execution history', tab: 'automations', defaultEnabled: true },
   { key: 'campaigns', label: 'Outbound campaigns', description: 'Cold outreach campaigns and batch sending', tab: 'campaigns', defaultEnabled: true },
   { key: 'qr_studio', label: 'QR Studio', description: 'Dynamic QR codes, branded landing experiences and QR analytics', tab: 'qr-studio', defaultEnabled: true },
   { key: 'campaign_reports', label: 'AI Campaign Reporting', description: 'Campaign performance reports, comparisons, AI recommendations and branded PDF exports', tab: 'campaign-reports', defaultEnabled: true },
@@ -40,6 +41,8 @@ export const LIMITS: LimitDef[] = [
   { key: 'dailyOutboundSends', label: 'Emails per day', unit: 'emails', fallback: 3_000 },
   { key: 'hourlyOutboundSends', label: 'Emails per hour', unit: 'emails', fallback: 500 },
   { key: 'monthlyAiTokens', label: 'AI tokens per month', unit: 'tokens', fallback: 2_000_000 },
+  { key: 'activeAutomations', label: 'Active automations', unit: 'automations', fallback: 10 },
+  { key: 'monthlyAutomationRuns', label: 'Automation runs per month', unit: 'runs', fallback: 10_000 },
 ];
 
 export type FeatureKey = (typeof FEATURES)[number]['key'];

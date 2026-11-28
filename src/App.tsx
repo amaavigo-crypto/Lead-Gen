@@ -70,6 +70,7 @@ const AiTestingPlayground = lazyNamed(() => import('./components/AiTestingPlaygr
 const WorkspaceView = lazyNamed(() => import('./components/SettingsView'), 'WorkspaceView');
 const DemoSchedulingView = lazyNamed(() => import('./components/DemoSchedulingView'), 'DemoSchedulingView');
 const AutoFollowUpDashboard = lazyNamed(() => import('./components/AutoFollowUpDashboard'), 'AutoFollowUpDashboard');
+const AutomationStudio = lazyNamed(() => import('./components/AutomationStudio'), 'AutomationStudio');
 const LeadDatabase = lazyNamed(() => import('./components/LeadDatabase'), 'LeadDatabase');
 const PlatformConsole = lazyNamed(() => import('./components/PlatformConsole'), 'PlatformConsole');
 const MarketingWebsite = lazyNamed(() => import('./components/MarketingWebsite'), 'MarketingWebsite');
@@ -237,6 +238,7 @@ const ALL_TABS: readonly ActiveTab[] = [
   'audit-logs',
   'settings',
   'auto-followup',
+  'automations',
   'database',
   'campaign-reports',
   'qr-studio',
@@ -2788,6 +2790,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
             )}
 
             {activeTab === 'agent' && <AgentWorkspace currentUser={currentUser} onOpenEmailTemplate={openAgentEmailTemplate} />}
+            {activeTab === 'automations' && <AutomationStudio />}
 
             {activeTab === 'inbox' && (
               <UnifiedInbox

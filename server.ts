@@ -5,6 +5,7 @@ import { handleCoreApi } from './src/server/coreApiHandler.js';
 import { checkAndDispatchPendingWebsiteLeadEmails } from './src/server/websiteLeadAutoResponder.js';
 import { processActiveRunningCampaignsBatch } from './src/server/campaignService.js';
 import { runAutoFollowUpWorkerCycle, isFollowUpWorkerDue } from './src/server/autoFollowUpService.js';
+import { runAutomationWorkerCycle, handleAutomationWebhook } from './src/server/automationService.js';
 import { hasFeature } from './src/server/entitlements.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -12,6 +13,18 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT: number = Number(process.env.PORT) || 3000;
+
+// User-created automation webhooks need exact raw bytes for HMAC / Stripe signature verification.
+app.post('/api/webhooks/automations/:endpointId', express.raw({ type: '*/*', limit: '1mb' }), async (req: any, res) => {
+  try {
+    const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const result = await handleAutomationWebhook(String(req.params.endpointId || ''), raw, req.headers || {});
+    res.status(result.status).json(result.body);
+  } catch (error: any) {
+    console.error('[Automation webhook error]:', error?.message || error);
+    if (!res.headersSent) res.status(500).json({ error: 'Automation webhook processing failed.' });
+  }
+});
 
 // Stripe webhook needs the raw body for signature verification, so it is registered BEFORE the JSON parser.
 app.post('/api/webhooks/stripe', express.raw({ type: '*/*', limit: '2mb' }), async (req, res) => {
@@ -143,6 +156,13 @@ const safeBackgroundPoll = async () => {
       if (isFollowUpWorkerDue(tId) && (await hasFeature(tId, 'auto_followup'))) {
         await runWithJobLease(tId, 'auto_followup_worker', 30_000, async () => {
           await runAutoFollowUpWorkerCycle(ctx).catch(() => {});
+        }).catch(() => {});
+      }
+
+      // Durable Automation Studio runner. Timed waits are stored in MongoDB, never held in a sleeping process.
+      if (await hasFeature(tId, 'automations')) {
+        await runWithJobLease(tId, 'automation_dispatch_worker', 25_000, async () => {
+          await runAutomationWorkerCycle(ctx, 8).catch((error) => console.warn('[Automation Worker]', error?.message || error));
         }).catch(() => {});
       }
     }

@@ -31,6 +31,7 @@ export type ActiveTab =
   | 'workspace'
   | 'settings'
   | 'auto-followup'
+  | 'automations'
   | 'audit-logs'
   | 'database'
   | 'campaign-reports'
@@ -97,7 +98,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const primaryItems: PrimaryNavItem[] = [
     { id: 'dashboard', label: 'Home', icon: <LayoutDashboard className="h-4 w-4 shrink-0" />, route: 'dashboard', tabs: ['dashboard', 'agent'] },
     { id: 'conversation', label: 'Conversation', icon: <MessageSquare className="h-4 w-4 shrink-0" />, route: 'inbox', tabs: ['inbox'] },
-    { id: 'ai', label: 'AI', icon: <Bot className="h-4 w-4 shrink-0" />, route: 'auto-followup', tabs: ['auto-followup', 'scheduling', 'playground'] },
+    { id: 'ai', label: 'AI', icon: <Bot className="h-4 w-4 shrink-0" />, route: 'automations', tabs: ['automations', 'auto-followup', 'scheduling', 'playground'] },
     { id: 'sales', label: 'Sales', icon: <Users className="h-4 w-4 shrink-0" />, route: 'crm', tabs: ['crm', 'lead-scoring'] },
     { id: 'marketing', label: 'Marketing', icon: <Send className="h-4 w-4 shrink-0" />, route: 'campaigns', tabs: ['campaigns', 'email-design-studio', 'campaign-reports', 'qr-studio'] },
     { id: 'database', label: 'Database', icon: <Database className="h-4 w-4 shrink-0" />, route: 'database', tabs: ['database'] },

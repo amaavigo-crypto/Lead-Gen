@@ -2008,6 +2008,16 @@ export async function processLiveInboundEmail(payload: {
     // Persist CRM entities to Firestore once at arrival time
     await persistInboundCrmEntities(getInboundCtx(), crmEntities);
 
+    try {
+      const { publishAutomationEvent } = await import('./automationService.js');
+      await publishAutomationEvent(getInboundCtx(), 'inbox.message_received', {
+        leadId, contactId, conversationId, email: senderEmail, channel: 'EMAIL',
+        messageId: incomingMsgId, from: senderEmail, receivedAt: nowIso, text: payload.body.slice(0, 1200),
+      }, incomingMsgId);
+    } catch (automationError: any) {
+      console.warn('[Inbound Email] Automation event notice:', automationError?.message || automationError);
+    }
+
     return record;
   } finally {
     // Release in-flight concurrency lock

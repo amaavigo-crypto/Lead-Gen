@@ -168,6 +168,7 @@ import {
 } from './autoFollowUpService.js';
 import { encryptSecret, decryptSecret } from './cryptoUtils.js';
 import { handleAgentApi } from './agentService.js';
+import { handleAutomationApi, handleAutomationWebhook } from './automationService.js';
 import { getTenantCurrentUsage, getTenantCurrentDailyEmailCount, getTenantUsageForDateRange, recordTenantUsage, recordAiCompletionUsage, checkTenantQuota, repriceTenantAiUsageEvents } from './usageService.js';
 import {
   routeWebsiteLeadWebhook,
@@ -228,7 +229,7 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Google-Access-Token');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Google-Access-Token, X-Amaavigo-Signature, X-Amaavigo-Timestamp, X-Event-Id, Stripe-Signature');
 
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
@@ -752,6 +753,11 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     return true;
   }
 
+  // Automation Studio APIs are authenticated, entitlement-gated and tenant-scoped.
+  if (url === '/api/automations' || url.startsWith('/api/automations/')) {
+    return await handleAutomationApi(req, res, activeTenantCtx, body, url);
+  }
+
   // AI Agent routes are authenticated, entitlement-gated and tenant-scoped.
   if (url === '/api/agent' || url.startsWith('/api/agent/')) {
     return await handleAgentApi(req, res, activeTenantCtx, body, url);
@@ -877,6 +883,14 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
   // =========================================================================
   // MULTI-TENANT INBOUND WEBHOOK ROUTING (Phase P3)
   // =========================================================================
+  if (url.startsWith('/api/webhooks/automations/')) {
+    const endpointId = url.replace('/api/webhooks/automations/', '').split(/[/?]/)[0];
+    const rawBody = Buffer.isBuffer((req as any).rawBody) ? (req as any).rawBody : Buffer.alloc(0);
+    const result = await handleAutomationWebhook(endpointId, rawBody, req.headers || {});
+    res.statusCode = result.status;
+    res.end(JSON.stringify(result.body));
+    return true;
+  }
   if (url.startsWith('/api/webhooks/chatbot/')) {
     const webhookId = url.split('?')[0].split('/').pop() || '';
     const chatbot = await import('./chatbotWebhookService.js');
