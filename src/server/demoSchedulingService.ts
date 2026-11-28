@@ -1339,7 +1339,7 @@ async function createGoogleCalendarDemoBookingInner(
   const meetingAssistantEmail = getMeetingAssistantEmail();
   const includeMeetingAssistant = sb().meetingAssistantEnabled !== false;
   const eventDescription = includeMeetingAssistant
-    ? `${description}\\n\\nAmaavigo AI Assistant (${meetingAssistantEmail}) will join this meeting as a visible participant. The meeting will be recorded and transcribed using AI, and the resulting transcript and summary will be stored in this workspace's CRM.`
+    ? `${description}\n\nAmaavigo AI Assistant (${meetingAssistantEmail}) will join this meeting as a visible participant. The meeting will be recorded and transcribed using AI, and the resulting transcript and summary will be stored in this workspace's CRM.`
     : description;
 
   // 2. Create Event in Google Calendar with genuine Google Meet video conference
@@ -1507,7 +1507,7 @@ async function createGoogleCalendarDemoBookingInner(
       ...(params.attendees || []).filter((email) => String(email || '').trim().toLowerCase() !== meetingAssistantEmail),
       ...(includeMeetingAssistant && meetingAssistantEmail !== hostCalendarEmail().toLowerCase().trim() ? [meetingAssistantEmail] : []),
     ].map((email) => String(email || '').toLowerCase().trim()).filter(Boolean))),
-    ...(hasRecordingConsent ? { recordingConsent: true, recordingConsentAt: params.recordingConsentAt, recordingConsentSource: params.recordingConsentSource, recordingConsentTextVersion: params.recordingConsentTextVersion } : {}),
+
     createdAt: nowIso,
     updatedAt: nowIso,
   };
