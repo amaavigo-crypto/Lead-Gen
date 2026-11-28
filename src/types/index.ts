@@ -172,6 +172,9 @@ export interface CampaignLead {
   whatsappLastError?: string;
   sourceDatabaseId?: string;
   sourceDatabaseEntryId?: string;
+  replyIntent?: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
+  lifecycleStage?: 'MARKETING' | 'NURTURE' | 'LEAD' | 'CUSTOMER' | 'SUPPRESSED';
+  lifecycleMovedAt?: string;
   customFields?: Record<string, string>;
   /** Last 10 digits of `phone`, for equality lookups of inbound replies. */
   phoneLast10?: string;
@@ -447,6 +450,13 @@ export interface Lead {
   campaignName?: string;
   campaignLeadId?: string;
   replyStatus?: CampaignReplyStatus;
+  replyIntent?: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
+  lifecycleStage?: 'MARKETING' | 'NURTURE' | 'LEAD' | 'CUSTOMER' | 'SUPPRESSED';
+  lifecycleMovedAt?: string;
+  customerId?: string;
+  sourceDatabaseId?: string;
+  sourceDatabaseEntryId?: string;
+  lifecycleHistory?: Array<{ eventKey: string; from: string; to: string; at: string; reason?: string; leadId?: string; campaignId?: string; campaignName?: string }>;
   repliedAt?: string;
   demoStatus?: DemoStatus;
   demoSource?: DemoSource;

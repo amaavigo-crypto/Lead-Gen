@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { getDoc, getDocs, limit, orderByDocumentId, query, setDoc, where } from './adminFirestore.js';
 import { tenantRepo } from './tenantRepo.js';
+import { transitionMarketingEntries } from './leadDatabaseService.js';
 import type { TenantContext } from '../types/tenant.js';
 
 const MAX_IMPORT_ROWS = 2000;
@@ -24,6 +25,7 @@ export interface ConsumerProfile {
   lastPurchaseAt?: string;
   source?: string;
   sourceLeadIds: string[];
+  lifecycleHistory?: Array<{ eventKey: string; from: string; to: string; at: string; reason?: string; leadId?: string; campaignId?: string; campaignName?: string }>;
   purchaseHistory: Array<{
     leadId: string;
     product?: string;
@@ -96,6 +98,12 @@ export async function upsertConsumerProfile(ctx: TenantContext, input: Record<st
   if (sourceLeadId && !sourceLeadIds.includes(sourceLeadId)) sourceLeadIds.push(sourceLeadId);
 
   const purchaseHistory = Array.isArray(previous.purchaseHistory) ? previous.purchaseHistory.slice(-99) : [];
+  const lifecycleEvents = new Map<string, any>();
+  [...(Array.isArray(previous.lifecycleHistory) ? previous.lifecycleHistory : []), ...(Array.isArray(input.lifecycleHistory) ? input.lifecycleHistory : [])].forEach((event: any) => {
+    const eventKey = clean(event?.eventKey, 200);
+    if (eventKey) lifecycleEvents.set(eventKey, event);
+  });
+  const lifecycleHistory = Array.from(lifecycleEvents.values()).slice(-50);
   const purchasedAt = clean(input.purchasedAt || input.customerSince || now, 80);
   if (sourceLeadId && !purchaseHistory.some((item: any) => String(item?.leadId || '') === sourceLeadId)) {
     purchaseHistory.push({
@@ -124,6 +132,7 @@ export async function upsertConsumerProfile(ctx: TenantContext, input: Record<st
     ...(sourceLeadId ? { lastPurchaseAt: purchasedAt } : previous.lastPurchaseAt ? { lastPurchaseAt: previous.lastPurchaseAt } : {}),
     source: clean(input.source || previous.source || (sourceLeadId ? 'CRM_WON' : 'MANUAL_IMPORT'), 80),
     sourceLeadIds,
+    lifecycleHistory,
     purchaseHistory,
     createdAt: String(previous.createdAt || now),
     updatedAt: now,
@@ -180,7 +189,22 @@ export async function promoteWonLeadToConsumer(ctx: TenantContext, leadIdValue: 
   if (!contactSnap.exists()) throw new Error('The CRM contact linked to this Won lead was not found.');
   const contact = contactSnap.data() as Record<string, any>;
   const now = new Date().toISOString();
-  const profileResult = await upsertConsumerProfile(ctx, {
+  const previousHistory = Array.isArray(lead.lifecycleHistory) ? lead.lifecycleHistory : [];
+  const eventKey = 'LEAD_TO_CUSTOMER:' + leadId;
+  const lifecycleHistory = previousHistory.some((event: any) => String(event?.eventKey || '') === eventKey)
+    ? previousHistory.slice(-50)
+    : [...previousHistory.slice(-49), {
+        eventKey,
+        from: String(lead.lifecycleStage || 'LEAD').toUpperCase(),
+        to: 'CUSTOMER',
+        at: now,
+        reason: 'CRM opportunity was marked Closed Won.',
+        leadId,
+        ...(clean(lead.campaignId, 160) ? { campaignId: clean(lead.campaignId, 160) } : {}),
+        ...(clean(lead.campaignName, 180) ? { campaignName: clean(lead.campaignName, 180) } : {}),
+      }];
+
+  const result = await upsertConsumerProfile(ctx, {
     contactId,
     name: displayName(contact),
     email: contact.email,
@@ -194,6 +218,27 @@ export async function promoteWonLeadToConsumer(ctx: TenantContext, leadIdValue: 
     source: 'CRM_WON',
     sourceLeadId: leadId,
     purchasedAt: lead.updatedAt || now,
+    lifecycleHistory,
   });
-  return profileResult.profile;
+
+  await transitionMarketingEntries(ctx, {
+    stage: 'CUSTOMER',
+    email: contact.email,
+    phone: contact.phone,
+    sourceDatabaseId: clean(lead.sourceDatabaseId, 180),
+    sourceDatabaseEntryId: clean(lead.sourceDatabaseEntryId, 180),
+    leadId,
+    campaignId: clean(lead.campaignId, 160),
+    campaignName: clean(lead.campaignName, 180),
+    reason: 'CRM opportunity was marked Closed Won and converted to a customer.',
+    at: now,
+  });
+  await setDoc(repo.leadDoc(leadId), {
+    lifecycleStage: 'CUSTOMER',
+    lifecycleMovedAt: now,
+    customerId: result.profile.customerId,
+    lifecycleHistory: result.profile.lifecycleHistory || lifecycleHistory,
+    updatedAt: now,
+  }, { merge: true });
+  return result.profile;
 }

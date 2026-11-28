@@ -48,6 +48,7 @@ type NormalizedEntry = {
   city: string;
   country: string;
   customFields: Record<string, string>;
+  lifecycleStage: 'MARKETING';
   sourceFileName: string;
   sourceRowNumber: number;
   createdAt: string;
@@ -137,6 +138,7 @@ function normalizeRows(
       city,
       country,
       customFields,
+      lifecycleStage: 'MARKETING',
       sourceFileName: cleanString(sourceFileName, 240),
       sourceRowNumber: rowNumber,
       createdAt: now,
@@ -182,6 +184,8 @@ export async function listLeadDatabaseEntries(
     if (!snap.docs.length) { reachedEnd = true; break; }
     for (const doc of snap.docs) {
       const data = doc.data() as Record<string, unknown>;
+      const lifecycleStage = String(data.lifecycleStage || 'MARKETING').toUpperCase();
+      if (['LEAD', 'CUSTOMER', 'SUPPRESSED'].includes(lifecycleStage)) continue;
       if (!term || [
         data.name, data.email, data.phone, data.companyName, data.designation,
         data.city, data.country, data.website, data.sourceFileName,
@@ -205,6 +209,107 @@ export async function listLeadDatabaseEntries(
     leads,
     nextCursor: matches.length > size ? String(pageDocs[pageDocs.length - 1]?.entryId || '') || null : null,
   };
+}
+
+
+export type MarketingLifecycleStage = 'LEAD' | 'CUSTOMER' | 'SUPPRESSED' | 'NURTURE';
+
+/**
+ * Updates matching marketing source rows without deleting them.
+ * Lead, Customer and Suppressed records leave active marketing views; Nurture remains visible
+ * for nurture work but is excluded from new campaign audience snapshots.
+ */
+export async function transitionMarketingEntries(
+  ctx: TenantContext,
+  input: {
+    stage: MarketingLifecycleStage;
+    email?: string;
+    phone?: string;
+    sourceDatabaseId?: string;
+    sourceDatabaseEntryId?: string;
+    leadId?: string;
+    campaignId?: string;
+    campaignName?: string;
+    reason?: string;
+    at?: string;
+  },
+): Promise<{ updated: number; databaseIds: string[] }> {
+  const repo = tenantRepo(ctx);
+  const email = normalizeEmail(input.email);
+  const phone = normalizePhone(input.phone);
+  const now = cleanString(input.at, 80) || new Date().toISOString();
+  const candidates = new Map<string, Record<string, any>>();
+
+  if (input.sourceDatabaseEntryId && input.sourceDatabaseId) {
+    const source = await getDoc(repo.leadDatabaseEntryDoc(cleanString(input.sourceDatabaseEntryId, 180)));
+    if (source.exists()) {
+      const entry = source.data() as Record<string, any>;
+      if (String(entry.databaseId || '') === input.sourceDatabaseId) candidates.set(source.id, entry);
+    }
+  }
+  if (email) {
+    const byEmail = await getDocs(query(repo.leadDatabaseEntries(), where('normalizedEmail', '==', email)));
+    byEmail.forEach((snapshot) => candidates.set(snapshot.id, snapshot.data() as Record<string, any>));
+  }
+  if (phone.length >= 7) {
+    const byPhone = await getDocs(query(repo.leadDatabaseEntries(), where('normalizedPhone', '==', phone)));
+    byPhone.forEach((snapshot) => candidates.set(snapshot.id, snapshot.data() as Record<string, any>));
+  }
+
+  const countChanges = new Map<string, { total: number; email: number }>();
+  let updated = 0;
+  for (const [entryId, entry] of candidates) {
+    const current = String(entry.lifecycleStage || 'MARKETING').toUpperCase();
+    let next = input.stage;
+    if (current === 'CUSTOMER') next = 'CUSTOMER';
+    else if (current === 'LEAD' && input.stage !== 'CUSTOMER') next = 'LEAD';
+    if (current === next) continue;
+
+    const databaseId = cleanString(entry.databaseId, 180);
+    const wasVisible = !['LEAD', 'CUSTOMER', 'SUPPRESSED'].includes(current);
+    const becomesHidden = ['LEAD', 'CUSTOMER', 'SUPPRESSED'].includes(next);
+    if (databaseId && wasVisible && becomesHidden) {
+      const count = countChanges.get(databaseId) || { total: 0, email: 0 };
+      count.total += 1;
+      if (EMAIL_RE.test(normalizeEmail(entry.email))) count.email += 1;
+      countChanges.set(databaseId, count);
+    }
+
+    const previous = Array.isArray(entry.lifecycleHistory) ? entry.lifecycleHistory : [];
+    const eventKey = next + ':' + cleanString(input.leadId || input.campaignId || 'reply', 180);
+    const history = previous.some((event: any) => String(event?.eventKey || '') === eventKey)
+      ? previous.slice(-50)
+      : [...previous.slice(-49), {
+          eventKey,
+          from: current,
+          to: next,
+          at: now,
+          reason: cleanString(input.reason, 300) || undefined,
+          ...(cleanString(input.leadId, 180) ? { leadId: cleanString(input.leadId, 180) } : {}),
+          ...(cleanString(input.campaignId, 180) ? { campaignId: cleanString(input.campaignId, 180) } : {}),
+          ...(cleanString(input.campaignName, 180) ? { campaignName: cleanString(input.campaignName, 180) } : {}),
+        }];
+    await updateDoc(repo.leadDatabaseEntryDoc(entryId), {
+      lifecycleStage: next,
+      lifecycleMovedAt: now,
+      ...(cleanString(input.leadId, 180) ? { lifecycleLeadId: cleanString(input.leadId, 180) } : {}),
+      lifecycleHistory: history,
+      updatedAt: now,
+    });
+    updated += 1;
+  }
+
+  for (const [databaseId, count] of countChanges) {
+    const snap = await getDoc(repo.leadDatabaseDoc(databaseId));
+    if (!snap.exists()) continue;
+    const summary = snap.data() as Record<string, any>;
+    await updateDoc(repo.leadDatabaseDoc(databaseId), {
+      totalLeads: Math.max(0, Number(summary.totalLeads || 0) - count.total),
+      emailEligibleCount: Math.max(0, Number(summary.emailEligibleCount || 0) - count.email),
+      updatedAt: now,
+    });
+  }
+  return { updated, databaseIds: Array.from(countChanges.keys()) };
 }
 
 export async function listLeadDatabaseImports(
@@ -525,9 +630,10 @@ export async function getCampaignDatabaseSnapshot(
     tenantRepo(ctx).leadDatabaseEntries(),
     where('databaseId', '==', databaseId),
   ));
-  const entries = snap.docs
+  const allEntries = snap.docs
     .map((doc) => ({ ...(doc.data() as Record<string, unknown>), databaseEntryId: doc.id }))
     .sort((a: any, b: any) => Number(a.sourceRowNumber || 0) - Number(b.sourceRowNumber || 0));
+  const entries = allEntries.filter((entry: any) => String(entry.lifecycleStage || 'MARKETING').toUpperCase() === 'MARKETING');
   const leads = entries
     .filter((entry: any) => EMAIL_RE.test(normalizeEmail(entry.email)))
     .map((entry: any, index) => ({

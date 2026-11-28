@@ -24,6 +24,7 @@ type ConsumerProfile = {
   companyName?: string; country?: string; city?: string; productInterest?: string;
   serviceInterest?: string; customerStatus?: 'ACTIVE' | 'INACTIVE'; customerSince?: string;
   lastPurchaseAt?: string; source?: string; sourceLeadIds?: string[]; createdAt?: string; updatedAt?: string;
+  lifecycleHistory?: Array<{ eventKey?: string; from?: string; to?: string; at?: string; reason?: string; leadId?: string; campaignId?: string; campaignName?: string }>;
 };
 
 async function readSpreadsheet(file: File): Promise<Array<Record<string, unknown>>> {
@@ -82,6 +83,7 @@ export const DatabaseModule: React.FC<Props> = ({
   const leadFileRef = useRef<HTMLInputElement>(null);
 
   const [consumers, setConsumers] = useState<ConsumerProfile[]>([]);
+  const [selectedJourney, setSelectedJourney] = useState<ConsumerProfile | null>(null);
   const [consumerSearch, setConsumerSearch] = useState('');
   const [consumerLoading, setConsumerLoading] = useState(false);
   const [consumerError, setConsumerError] = useState('');
@@ -109,7 +111,8 @@ export const DatabaseModule: React.FC<Props> = ({
     const term = leadSearch.trim().toLowerCase();
     return leads
       .map((lead) => ({ lead, contact: contactById.get(lead.contactId) }))
-      .filter(({ lead }) => leadScope === 'ALL' || (lead.status !== 'CLOSED_WON' && lead.status !== 'CLOSED_LOST'))
+      .filter(({ lead }) => lead.status !== 'CLOSED_WON' && !['CUSTOMER', 'SUPPRESSED', 'NURTURE'].includes(String(lead.lifecycleStage || '').toUpperCase()))
+      .filter(({ lead }) => leadScope === 'ALL' || lead.status !== 'CLOSED_LOST')
       .filter(({ lead, contact }) => !term || [
         lead.leadId, lead.status, lead.source, lead.assignedToName, lead.assignedCaller,
         lead.productInterest, lead.serviceInterest, contact?.firstName, contact?.lastName,
@@ -311,8 +314,8 @@ export const DatabaseModule: React.FC<Props> = ({
   };
 
   const activeCustomers = consumers.filter((profile) => profile.customerStatus !== 'INACTIVE').length;
-  const leadHotCount = leads.filter((lead) => lead.status !== 'CLOSED_WON' && lead.aiScoring?.category === 'HOT').length;
-  const openLeadCount = leads.filter((lead) => lead.status !== 'CLOSED_WON' && lead.status !== 'CLOSED_LOST').length;
+  const leadHotCount = leads.filter((lead) => lead.status !== 'CLOSED_WON' && !['CUSTOMER', 'SUPPRESSED', 'NURTURE'].includes(String(lead.lifecycleStage || '').toUpperCase()) && lead.aiScoring?.category === 'HOT').length;
+  const openLeadCount = leads.filter((lead) => lead.status !== 'CLOSED_WON' && lead.status !== 'CLOSED_LOST' && !['CUSTOMER', 'SUPPRESSED', 'NURTURE'].includes(String(lead.lifecycleStage || '').toUpperCase())).length;
   const wonLeadCount = leads.filter((lead) => lead.status === 'CLOSED_WON').length;
 
   return (
@@ -427,8 +430,8 @@ export const DatabaseModule: React.FC<Props> = ({
             </div>
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[850px] text-left text-xs">
-                  <thead className="bg-slate-50 text-[10px] font-semibold uppercase tracking-wider text-slate-500"><tr><th className="px-4 py-3">Customer</th><th className="px-4 py-3">Company</th><th className="px-4 py-3">Product / Service</th><th className="px-4 py-3">Customer since</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Record source</th><th className="px-4 py-3">Last updated</th></tr></thead>
+                <table className="w-full min-w-[990px] text-left text-xs">
+                  <thead className="bg-slate-50 text-[10px] font-semibold uppercase tracking-wider text-slate-500"><tr><th className="px-4 py-3">Customer</th><th className="px-4 py-3">Company</th><th className="px-4 py-3">Product / Service</th><th className="px-4 py-3">Customer since</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Record source</th><th className="px-4 py-3">Lifecycle</th><th className="px-4 py-3">Last updated</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {consumers.map((profile) => <tr key={profile.customerId} className="hover:bg-slate-50/70">
                       <td className="px-4 py-3"><div className="font-semibold text-slate-900">{profile.name}</div><div className="mt-1 text-slate-500">{profile.email || 'No email'}{profile.phone ? ' · ' + profile.phone : ''}</div></td>
@@ -437,9 +440,10 @@ export const DatabaseModule: React.FC<Props> = ({
                       <td className="px-4 py-3 text-slate-500">{dateLabel(profile.customerSince)}</td>
                       <td className="px-4 py-3"><span className={'rounded-md px-2 py-1 text-[10px] font-semibold ' + (profile.customerStatus === 'INACTIVE' ? 'bg-slate-100 text-slate-600' : 'bg-emerald-50 text-emerald-700')}>{profile.customerStatus || 'ACTIVE'}</span></td>
                       <td className="px-4 py-3 text-slate-600">{profile.source === 'CRM_WON' ? 'CRM · Won' : 'Manual / Import'}</td>
+                      <td className="px-4 py-3"><button type="button" className="font-semibold text-blue-700 hover:text-blue-900" onClick={() => setSelectedJourney(profile)}>View journey ({(profile.lifecycleHistory || []).length})</button></td>
                       <td className="px-4 py-3 text-slate-500">{dateLabel(profile.updatedAt)}</td>
                     </tr>)}
-                    {!consumers.length && <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">{consumerLoading ? 'Loading customer profiles…' : 'No customers yet. Import existing customers or mark a CRM opportunity Won to create the first profile.'}</td></tr>}
+                    {!consumers.length && <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-400">{consumerLoading ? 'Loading customer profiles…' : 'No customers yet. Import existing customers or mark a CRM opportunity Won to create the first profile.'}</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -467,6 +471,36 @@ export const DatabaseModule: React.FC<Props> = ({
             <div className="flex items-start justify-between gap-3"><div><div className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Customer import preview</div><h3 className="mt-1 text-lg font-bold text-slate-950">Import {consumerImportFile}</h3><p className="mt-1 text-xs text-slate-500">{consumerImportRows.length} rows are ready. Existing customers will be matched and updated.</p></div><button type="button" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100" onClick={() => setConsumerImportOpen(false)} disabled={consumerImporting}><X size={18} /></button></div>
             <div className="my-4 max-h-48 overflow-auto rounded-xl border border-slate-200"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">Customer</th><th className="px-3 py-2">Email</th><th className="px-3 py-2">Phone</th></tr></thead><tbody className="divide-y divide-slate-100">{consumerImportRows.slice(0, 15).map((row, index) => <tr key={index}><td className="px-3 py-2">{String(row.name || '—')}</td><td className="px-3 py-2">{String(row.email || '—')}</td><td className="px-3 py-2">{String(row.phone || '—')}</td></tr>)}</tbody></table></div>
             <div className="mt-5 flex justify-end gap-2"><button type="button" className={buttonSecondary} onClick={() => setConsumerImportOpen(false)} disabled={consumerImporting}>Cancel</button><button type="button" className={buttonPrimary} onClick={() => void confirmConsumerImport()} disabled={consumerImporting}>{consumerImporting ? 'Importing…' : 'Import customers'}</button></div>
+          </div>
+        </div>
+      )}
+
+
+      {selectedJourney && (
+        <div className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-label="Customer lifecycle history">
+          <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Customer journey</div>
+                <h3 className="mt-1 text-lg font-bold text-slate-950">{selectedJourney.name}</h3>
+                <p className="mt-1 text-xs text-slate-500">{selectedJourney.email || selectedJourney.phone || 'Customer profile'}</p>
+              </div>
+              <button type="button" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100" onClick={() => setSelectedJourney(null)}><X size={18} /></button>
+            </div>
+            <div className="mt-5 space-y-3">
+              {(selectedJourney.lifecycleHistory || []).length ? [...(selectedJourney.lifecycleHistory || [])].sort((a, b) => String(a.at || '').localeCompare(String(b.at || ''))).map((event, index) => (
+                <div key={event.eventKey || index} className="rounded-xl border border-slate-200 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm font-semibold text-slate-900">{event.from || 'Unknown'} <span className="px-1 text-slate-400">→</span> {event.to || 'Updated'}</div>
+                    <div className="text-[11px] text-slate-500">{dateLabel(event.at)}</div>
+                  </div>
+                  {event.reason && <p className="mt-1 text-xs text-slate-600">{event.reason}</p>}
+                  {event.campaignName && <p className="mt-1 text-[11px] text-slate-500">Campaign: {event.campaignName}</p>}
+                  {event.leadId && <p className="mt-1 text-[11px] text-slate-400">CRM lead: {event.leadId}</p>}
+                </div>
+              )) : <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">No lifecycle events recorded. This customer was added manually or imported as an existing customer.</div>}
+            </div>
+            <div className="mt-5 flex justify-end"><button type="button" className={buttonSecondary} onClick={() => setSelectedJourney(null)}>Close</button></div>
           </div>
         </div>
       )}

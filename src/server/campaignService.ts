@@ -3,6 +3,7 @@ import { waitUntil } from '@vercel/functions';
 import { stripQuotedEmailHistory } from './quotedText.js';
 import { hasFeature } from './entitlements.js';
 import { tenantRepo } from './tenantRepo.js';
+import { transitionMarketingEntries } from './leadDatabaseService.js';
 import { writeTenantAuditEvent } from './auditLogger.js';
 import type { TenantContext } from '../types/tenant.js';
 import crypto from 'crypto';
@@ -84,6 +85,78 @@ function campaignNeedsWhatsApp(campaign: Pick<Campaign, 'type'>): boolean { retu
 /** A lead is considered replied when any channel used by its campaign has received a reply. */
 export function hasCampaignLeadReplied(lead: Pick<CampaignLead, 'replyStatus' | 'emailReplied' | 'whatsappReplied'>): boolean {
   return lead.replyStatus === 'REPLIED' || lead.emailReplied === true || lead.whatsappReplied === true;
+}
+
+
+export type CampaignReplyIntent = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
+
+export function classifyCampaignReplyIntent(replyBody: string, demoIntentDetected = false): CampaignReplyIntent {
+  const text = stripQuotedEmailHistory(replyBody || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!text) return 'NEUTRAL';
+  if (/\b(unsubscribe|opt[\s-]?out|remove me|take me off (the|your) list|stop (emailing|messaging|contacting)|do not contact|don't contact|not interested|no interest|not looking|no thanks|no thank you|not relevant|please stop|wrong person|no longer interested)\b/i.test(text)) return 'NEGATIVE';
+  if (/\b(out of office|automatic reply|auto[- ]?reply|autoreply|on leave|out sick|away from the office|mail delivery subsystem|undeliverable|delivery status notification)\b/i.test(text)) return 'NEUTRAL';
+  if (demoIntentDetected || /\b(interested|tell me more|more details|more information|send (me )?(details|information|pricing|a quote)|share (the )?(details|pricing|proposal)|pricing|quote|quotation|proposal|book a (demo|call|meeting)|schedule (a )?(demo|call|meeting)|set up a (call|meeting|demo)|call me|contact me|let's talk|lets talk|connect|sounds good|looks good|that works|happy to|would love|please do|go ahead|can we (talk|schedule|connect)|could you (send|share|call)|yes|yeah|yep|sure)\b/i.test(text)) return 'POSITIVE';
+  return 'NEUTRAL';
+}
+
+function hasExplicitOptOut(textValue: string): boolean {
+  const text = stripQuotedEmailHistory(textValue || '').toLowerCase();
+  return /\b(unsubscribe|opt[\s-]?out|remove me|take me off (the|your) list|stop (emailing|messaging|contacting)|do not contact|don't contact|please stop|wrong person)\b/i.test(text);
+}
+
+async function findRecipientSuppression(ctx: TenantContext, emailValue?: string, phoneValue?: string): Promise<string | null> {
+  const repo = tenantRepo(ctx);
+  const email = normalizeEmail(emailValue || '');
+  if (email) {
+    const snapshot = await getDoc(repo.suppressionDoc(email));
+    if (snapshot.exists()) return String((snapshot.data() as any)?.reason || 'The recipient is suppressed.');
+  }
+  const digits = String(phoneValue || '').replace(/[^\d]/g, '');
+  if (digits.length >= 7) {
+    const snapshot = await getDoc(repo.doc('suppressions', 'phone_' + digits.slice(-10)));
+    if (snapshot.exists()) return String((snapshot.data() as any)?.reason || 'The recipient is suppressed.');
+  }
+  return null;
+}
+
+async function suppressRecipientAcrossCampaigns(
+  ctx: TenantContext,
+  input: { email?: string; phone?: string; reason: string; explicitOptOut: boolean; at: string },
+): Promise<void> {
+  const repo = tenantRepo(ctx);
+  const email = normalizeEmail(input.email || '');
+  const digits = String(input.phone || '').replace(/[^\d]/g, '');
+  const writes: Promise<any>[] = [];
+  if (email) writes.push(safeSetDoc(repo.suppressionDoc(email), {
+    email, status: 'SUPPRESSED', reason: input.reason, explicitOptOut: input.explicitOptOut,
+    source: 'CAMPAIGN_REPLY', updatedAt: input.at,
+  }, { merge: true }));
+  if (digits.length >= 7) writes.push(safeSetDoc(repo.doc('suppressions', 'phone_' + digits.slice(-10)), {
+    phoneLast10: digits.slice(-10), status: 'SUPPRESSED', reason: input.reason,
+    explicitOptOut: input.explicitOptOut, source: 'CAMPAIGN_REPLY', updatedAt: input.at,
+  }, { merge: true }));
+  await Promise.all(writes);
+
+  const matches = new Map<string, CampaignLead>();
+  const lookups: Promise<any>[] = [];
+  if (email) lookups.push(getDocs(query(repo.campaignLeads(), where('email', '==', email))));
+  if (digits.length >= 7) lookups.push(getDocs(query(repo.campaignLeads(), where('phoneLast10', '==', digits.slice(-10)))));
+  const snapshots = await Promise.all(lookups);
+  snapshots.forEach((snapshot) => snapshot.forEach((doc: any) => matches.set(doc.id, doc.data() as CampaignLead)));
+  await Promise.all(Array.from(matches.values()).map(async (lead) => {
+    const patch: Record<string, any> = {
+      optedOut: true,
+      optedOutAt: input.at,
+      optOutReason: input.reason,
+      updatedAt: input.at,
+    };
+    if (lead.sendStatus === 'PENDING') patch.sendStatus = 'FAILED';
+    if (lead.emailSendStatus === 'PENDING') patch.emailSendStatus = 'FAILED';
+    if (lead.whatsappSendStatus === 'PENDING') patch.whatsappSendStatus = 'FAILED';
+    await updateDoc(repo.campaignLeadDoc(lead.campaignLeadId), patch);
+    const inMemory = campaignLeadsMap.get(lead.campaignLeadId);
+    if (inMemory) Object.assign(inMemory, patch);
+  }));
 }
 
 const companyResearchCache = new Map<string, any>();
@@ -2084,7 +2157,12 @@ export async function createCampaign(params: {
   const firstRowByEmail = new Map<string, number>();
   const firstRowByPhone = new Map<string, number>();
   const duplicates: DuplicateInfo[] = [];
+  const lifecycleCtx = getCampaignActiveCtx();
+  const isSuppressedRow = isFirebaseConfigured && db
+    ? await Promise.all(params.leads.map(async (lead) => Boolean(await findRecipientSuppression(lifecycleCtx, lead.email, lead.phone))))
+    : params.leads.map(() => false);
   params.leads.forEach((l, idx) => {
+    if (isSuppressedRow[idx]) return;
     const cleanEmail = normalizeEmail(l.email);
     const rawPhone = String(l.phone || '').trim();
     const phoneDigits = rawPhone.replace(/[^\d]/g, '');
@@ -2960,6 +3038,18 @@ export async function processNextCampaignSendBatch(
         await markLeadAlreadySent(lead);
         continue;
       }
+      const suppressionReason = await findRecipientSuppression(getCampaignActiveCtx(), lead.email, lead.phone);
+      if (suppressionReason) {
+        const now = new Date().toISOString();
+        if (lead.sendStatus === 'PENDING') lead.sendStatus = 'FAILED';
+        if (lead.emailSendStatus === 'PENDING') lead.emailSendStatus = 'FAILED';
+        if (lead.whatsappSendStatus === 'PENDING') lead.whatsappSendStatus = 'FAILED';
+        lead.lastError = 'Recipient suppressed: ' + suppressionReason;
+        lead.updatedAt = now;
+        campaignLeadsMap.set(lead.campaignLeadId, lead);
+        if (isFirebaseConfigured && db) await safeSetDoc(tenantRepo(getCampaignActiveCtx()).campaignLeadDoc(lead.campaignLeadId), lead, { merge: true });
+        continue;
+      }
 
     const recipientIdentity = needsEmail ? String(lead.email || '').toLowerCase() : (lead.phoneLast10 || String(lead.phone || '').replace(/[^\d]/g, '').slice(-10));
     const runHistoryKey = `${campaignId}_${currentRunId}_${recipientIdentity}`;
@@ -3593,84 +3683,64 @@ export async function handleIncomingCampaignLeadReply(params: {
   channel?: 'EMAIL' | 'WHATSAPP';
 }): Promise<{ isCampaignLead: boolean; campaignLead?: CampaignLead; campaignId?: string; campaignName?: string; demoDetected?: boolean }> {
   await initCampaignStore();
-
+  const activeCtx = getCampaignActiveCtx();
+  const repo = tenantRepo(activeCtx);
   const cleanFromEmail = params.fromEmail ? extractCleanEmail(params.fromEmail) : '';
   const rawPhoneDigits = params.fromPhone ? params.fromPhone.replace(/[^\d]/g, '') : '';
   const cleanPhoneDigits = rawPhoneDigits.length >= 7 ? rawPhoneDigits.slice(-10) : '';
+  if (!cleanFromEmail && !cleanPhoneDigits) return { isCampaignLead: false };
 
-  if (!cleanFromEmail && !cleanPhoneDigits) {
-    return { isCampaignLead: false };
-  }
-
-  // Look up ONLY the leads with this sender's email / phone (was: read every campaign lead of the
-  // workspace on every inbound message). Lead emails are stored trimmed + lowercased at creation, the
-  // same normalisation extractCleanEmail() applies, so an equality query matches. Phones are matched on
-  // `phoneLast10`, written at creation (run scripts/backfill-campaign-lead-phone.ts once for older leads).
   const candidates = new Map<string, CampaignLead>();
   if (isFirebaseConfigured && db) {
     const lookups: Promise<any>[] = [];
-    if (cleanFromEmail) {
-      lookups.push(getDocs(query(tenantRepo(getCampaignActiveCtx()).campaignLeads(), where('email', '==', cleanFromEmail))));
-    }
+    if (cleanFromEmail) lookups.push(getDocs(query(repo.campaignLeads(), where('email', '==', cleanFromEmail))));
     if (cleanPhoneDigits) {
-      // Also match leads saved with a shorter (7-9 digit) number than the inbound one.
-      const suffixes = Array.from(new Set([10, 9, 8, 7].map((n) => rawPhoneDigits.slice(-n)).filter((x) => x.length >= 7)));
-      lookups.push(getDocs(query(tenantRepo(getCampaignActiveCtx()).campaignLeads(), where('phoneLast10', 'in', suffixes))));
+      const suffixes = Array.from(new Set([10, 9, 8, 7].map((n) => rawPhoneDigits.slice(-n)).filter((value) => value.length >= 7)));
+      lookups.push(getDocs(query(repo.campaignLeads(), where('phoneLast10', 'in', suffixes))));
     }
-    const snaps = await Promise.all(lookups.map((p) => p.catch((e: any) => {
-      console.warn('[handleIncomingCampaignLeadReply] DB search notice:', e);
+    const snapshots = await Promise.all(lookups.map((p) => p.catch((error: any) => {
+      console.warn('[handleIncomingCampaignLeadReply] DB search notice:', error);
       return null;
     })));
-    for (const snap of snaps) {
-      snap?.forEach((d: any) => {
-        const l = d.data() as CampaignLead;
-        if (l && l.campaignLeadId) {
-          campaignLeadsMap.set(l.campaignLeadId, l);
-          candidates.set(l.campaignLeadId, l);
-        }
-      });
-    }
+    snapshots.forEach((snapshot) => snapshot?.forEach((doc: any) => {
+      const lead = doc.data() as CampaignLead;
+      if (lead?.campaignLeadId) {
+        campaignLeadsMap.set(lead.campaignLeadId, lead);
+        candidates.set(lead.campaignLeadId, lead);
+      }
+    }));
   } else {
-    for (const l of campaignLeadsMap.values()) candidates.set(l.campaignLeadId, l);
+    for (const lead of campaignLeadsMap.values()) candidates.set(lead.campaignLeadId, lead);
   }
 
-  // Confirm each candidate (same matching rules as before)
   const matchedLeads: CampaignLead[] = [];
-  for (const l of candidates.values()) {
-    let isMatch = false;
-    if (cleanFromEmail) {
-      const lEmail = extractCleanEmail(l.email);
-      if (lEmail && lEmail === cleanFromEmail) {
-        isMatch = true;
-      }
+  for (const lead of candidates.values()) {
+    let matches = false;
+    if (cleanFromEmail && extractCleanEmail(lead.email) === cleanFromEmail) matches = true;
+    if (!matches && cleanPhoneDigits && lead.phone) {
+      const leadDigits = lead.phone.replace(/[^\d]/g, '');
+      if (leadDigits && (leadDigits.endsWith(cleanPhoneDigits) || cleanPhoneDigits.endsWith(leadDigits.slice(-10)))) matches = true;
     }
-    if (!isMatch && cleanPhoneDigits && l.phone) {
-      const lPhoneDigits = l.phone.replace(/[^\d]/g, '');
-      if (lPhoneDigits && (lPhoneDigits.endsWith(cleanPhoneDigits) || cleanPhoneDigits.endsWith(lPhoneDigits.slice(-10)))) {
-        isMatch = true;
-      }
-    }
-    if (isMatch) {
-      matchedLeads.push(l);
-    }
+    if (matches) matchedLeads.push(lead);
   }
-
-  if (matchedLeads.length === 0) {
-    return { isCampaignLead: false };
-  }
+  if (!matchedLeads.length) return { isCampaignLead: false };
 
   const now = new Date().toISOString();
-  const text = stripQuotedEmailHistory(params.body || '').toLowerCase();
-  const hasDemoIntent = /book a demo|schedule a demo|demo tomorrow|book the demo|yes.*demo|interested in a demo|platform walkthrough|live demo/i.test(text);
-  const hasConfirmedBooking = /calendar.*confirmed|appointment.*scheduled|booked for|demo scheduled|meeting invite accepted/i.test(text);
-
+  const cleanedBody = stripQuotedEmailHistory(params.body || '').toLowerCase();
+  const hasDemoIntent = /book a demo|schedule a demo|demo tomorrow|book the demo|yes.*demo|interested in a demo|platform walkthrough|live demo/i.test(cleanedBody);
+  const hasConfirmedBooking = /calendar.*confirmed|appointment.*scheduled|booked for|demo scheduled|meeting invite accepted/i.test(cleanedBody);
+  const replyIntent = classifyCampaignReplyIntent(params.body || '', hasDemoIntent);
+  const requestedStage = replyIntent === 'POSITIVE' ? 'LEAD' : replyIntent === 'NEGATIVE' ? 'SUPPRESSED' : 'NURTURE';
   const affectedCampaignIds = new Set<string>();
   let primaryCampaignName = 'Outbound Campaign';
 
   for (const matchedLead of matchedLeads) {
+    const previousLifecycleStage = String(matchedLead.lifecycleStage || 'MARKETING').toUpperCase();
     matchedLead.replyStatus = 'REPLIED';
+    matchedLead.replyIntent = replyIntent;
     matchedLead.engaged = true;
     matchedLead.repliedAt = matchedLead.repliedAt || now;
+    matchedLead.updatedAt = now;
     if (params.channel === 'WHATSAPP' && matchedLead.whatsappSendStatus && matchedLead.whatsappSendStatus !== 'NOT_REQUIRED') {
       matchedLead.whatsappReplied = true;
       matchedLead.whatsappRepliedAt = matchedLead.whatsappRepliedAt || now;
@@ -3680,10 +3750,8 @@ export async function handleIncomingCampaignLeadReply(params: {
       matchedLead.emailRepliedAt = matchedLead.emailRepliedAt || now;
       matchedLead.emailRepliedWithoutTrackedOpen = matchedLead.trackingEnabledAtSend === true && matchedLead.opened !== true;
     }
-    matchedLead.updatedAt = now;
     if (params.gmailMessageId) matchedLead.gmailMessageId = params.gmailMessageId;
     if (params.gmailThreadId) matchedLead.gmailThreadId = params.gmailThreadId;
-
     if (hasDemoIntent) {
       matchedLead.demoIntent = true;
       if (hasConfirmedBooking) {
@@ -3693,34 +3761,55 @@ export async function handleIncomingCampaignLeadReply(params: {
       }
     }
 
-    campaignLeadsMap.set(matchedLead.campaignLeadId, matchedLead);
+    const campaign = campaignsMap.get(matchedLead.campaignId);
+    if (campaign?.name) primaryCampaignName = campaign.name;
     affectedCampaignIds.add(matchedLead.campaignId);
 
-    const cObj = campaignsMap.get(matchedLead.campaignId);
-    if (cObj?.name) {
-      primaryCampaignName = cObj.name;
+    const emailIdentity = extractCleanEmail(matchedLead.email);
+    const phoneDigits = String(matchedLead.phone || '').replace(/[^\d]/g, '');
+    const contactId = emailIdentity
+      ? 'contact-' + emailIdentity.replace(/[^a-z0-9]/gi, '_')
+      : 'contact-phone-' + phoneDigits.slice(-15);
+    const crmLeadId = matchedLead.leadId || ('lead-' + (emailIdentity || phoneDigits).replace(/[^a-z0-9]/gi, '_'));
+    let effectiveStage: 'LEAD' | 'CUSTOMER' | 'SUPPRESSED' | 'NURTURE' = requestedStage;
+    let existingLeadData: Record<string, any> = {};
+
+    if (replyIntent === 'POSITIVE' && isFirebaseConfigured && db) {
+      const existing = await getDoc(repo.leadDoc(crmLeadId));
+      if (existing.exists()) existingLeadData = existing.data() as Record<string, any>;
+      const currentStage = String(existingLeadData.lifecycleStage || '').toUpperCase();
+      if (String(existingLeadData.status || '').toUpperCase() === 'CLOSED_WON' || currentStage === 'CUSTOMER') effectiveStage = 'CUSTOMER';
     }
+
+    matchedLead.lifecycleStage = effectiveStage;
+    matchedLead.lifecycleMovedAt = now;
+    if (replyIntent === 'POSITIVE') matchedLead.leadId = crmLeadId;
 
     if (isFirebaseConfigured && db) {
       try {
-        const campaignLeadRef = tenantRepo(getCampaignActiveCtx()).campaignLeadDoc(matchedLead.campaignLeadId);
+        const campaignLeadRef = repo.campaignLeadDoc(matchedLead.campaignLeadId);
         await runTransaction(async (tx: any) => {
           const latestSnap = await tx.get(campaignLeadRef);
           if (!latestSnap.exists) return;
-          const latestLead = latestSnap.data() as CampaignLead;
-          const repliedWithoutTrackedOpen = latestLead.trackingEnabledAtSend === true && latestLead.opened !== true;
+          const latest = latestSnap.data() as CampaignLead;
+          const repliedWithoutTrackedOpen = latest.trackingEnabledAtSend === true && latest.opened !== true;
           tx.update(campaignLeadRef, {
-            replyStatus: 'REPLIED', engaged: true,
-            repliedAt: latestLead.repliedAt || now,
+            replyStatus: 'REPLIED',
+            replyIntent,
+            lifecycleStage: effectiveStage,
+            lifecycleMovedAt: now,
+            ...(replyIntent === 'POSITIVE' ? { qualifiedAt: now, leadId: crmLeadId } : {}),
+            engaged: true,
+            repliedAt: latest.repliedAt || now,
             repliedWithoutTrackedOpen,
-            ...(params.channel === 'WHATSAPP' && latestLead.whatsappSendStatus && latestLead.whatsappSendStatus !== 'NOT_REQUIRED'
-              ? { whatsappReplied: true, whatsappRepliedAt: latestLead.whatsappRepliedAt || now }
+            ...(params.channel === 'WHATSAPP' && latest.whatsappSendStatus && latest.whatsappSendStatus !== 'NOT_REQUIRED'
+              ? { whatsappReplied: true, whatsappRepliedAt: latest.whatsappRepliedAt || now }
               : {}),
-            ...(params.channel === 'EMAIL' && latestLead.emailSendStatus && latestLead.emailSendStatus !== 'NOT_REQUIRED'
+            ...(params.channel === 'EMAIL' && latest.emailSendStatus && latest.emailSendStatus !== 'NOT_REQUIRED'
               ? {
                   emailReplied: true,
-                  emailRepliedAt: latestLead.emailRepliedAt || now,
-                  emailRepliedWithoutTrackedOpen: latestLead.trackingEnabledAtSend === true && latestLead.opened !== true,
+                  emailRepliedAt: latest.emailRepliedAt || now,
+                  emailRepliedWithoutTrackedOpen: latest.trackingEnabledAtSend === true && latest.opened !== true,
                 }
               : {}),
             ...(params.gmailMessageId ? { gmailMessageId: params.gmailMessageId } : {}),
@@ -3728,61 +3817,103 @@ export async function handleIncomingCampaignLeadReply(params: {
             updatedAt: now,
           });
           matchedLead.repliedWithoutTrackedOpen = repliedWithoutTrackedOpen;
-          if (params.channel === 'EMAIL' && latestLead.emailSendStatus && latestLead.emailSendStatus !== 'NOT_REQUIRED') {
-            matchedLead.emailReplied = true;
-            matchedLead.emailRepliedAt = latestLead.emailRepliedAt || now;
-            matchedLead.emailRepliedWithoutTrackedOpen = latestLead.trackingEnabledAtSend === true && latestLead.opened !== true;
-          }
-          matchedLead.repliedAt = latestLead.repliedAt || now;
-          matchedLead.opened = latestLead.opened;
         });
-        const contactId = `contact-${matchedLead.email.replace(/[^a-z0-9]/gi, '_')}`;
-        await safeSetDoc(tenantRepo(getCampaignActiveCtx()).contactDoc(contactId), {
-          contactId,
-          firstName: matchedLead.firstName || matchedLead.name.split(' ')[0],
-          lastName: matchedLead.lastName || matchedLead.name.split(' ').slice(1).join(' '),
-          email: matchedLead.email,
-          phone: matchedLead.phone || '',
-          companyName: matchedLead.companyName,
-          jobTitle: matchedLead.designation || 'Director / Owner',
-          createdAt: now,
-          updatedAt: now,
-          lastActivityAt: now,
-        }, { merge: true });
 
-        if (matchedLead.leadId) {
-          await safeSetDoc(tenantRepo(getCampaignActiveCtx()).leadDoc(matchedLead.leadId), {
-            leadId: matchedLead.leadId,
+        await transitionMarketingEntries(activeCtx, {
+          stage: effectiveStage,
+          email: matchedLead.email,
+          phone: matchedLead.phone,
+          sourceDatabaseId: matchedLead.sourceDatabaseId,
+          sourceDatabaseEntryId: matchedLead.sourceDatabaseEntryId,
+          leadId: replyIntent === 'POSITIVE' ? crmLeadId : undefined,
+          campaignId: matchedLead.campaignId,
+          campaignName: primaryCampaignName,
+          reason: replyIntent === 'POSITIVE'
+            ? 'Positive campaign response qualified the contact for sales.'
+            : replyIntent === 'NEGATIVE'
+              ? 'Contact declined or requested no further marketing.'
+              : 'Reply received; contact remains in nurture until intent is clear.',
+          at: now,
+        });
+
+        if (replyIntent === 'POSITIVE' && effectiveStage === 'LEAD') {
+          await safeSetDoc(repo.contactDoc(contactId), {
             contactId,
-            source: 'EMAIL',
+            firstName: matchedLead.firstName || matchedLead.name.split(' ')[0],
+            lastName: matchedLead.lastName || matchedLead.name.split(' ').slice(1).join(' '),
+            email: matchedLead.email,
+            phone: matchedLead.phone || '',
+            companyName: matchedLead.companyName,
+            jobTitle: matchedLead.designation || 'Director / Owner',
+            createdAt: now,
+            updatedAt: now,
+            lastActivityAt: now,
+          }, { merge: true });
+
+          const currentStatus = String(existingLeadData.status || '').toUpperCase();
+          const nextStatus = !currentStatus || currentStatus === 'CLOSED_LOST' ? 'ENGAGED' : currentStatus;
+          const previousHistory = Array.isArray(existingLeadData.lifecycleHistory) ? existingLeadData.lifecycleHistory : [];
+          const eventKey = 'MARKETING_TO_LEAD:' + crmLeadId;
+          const lifecycleHistory = previousHistory.some((event: any) => String(event?.eventKey || '') === eventKey)
+            ? previousHistory.slice(-50)
+            : [...previousHistory.slice(-49), {
+                eventKey,
+                from: previousLifecycleStage,
+                to: 'LEAD',
+                at: now,
+                reason: 'Positive campaign response qualified the contact for sales.',
+                leadId: crmLeadId,
+                campaignId: matchedLead.campaignId,
+                campaignName: primaryCampaignName,
+              }];
+
+          await safeSetDoc(repo.leadDoc(crmLeadId), {
+            ...existingLeadData,
+            leadId: crmLeadId,
+            contactId,
+            source: params.channel === 'WHATSAPP' ? 'WHATSAPP' : 'EMAIL',
             leadType: 'OUTBOUND',
             campaignId: matchedLead.campaignId,
             campaignName: primaryCampaignName,
             campaignLeadId: matchedLead.campaignLeadId,
+            sourceDatabaseId: matchedLead.sourceDatabaseId,
+            sourceDatabaseEntryId: matchedLead.sourceDatabaseEntryId,
             replyStatus: 'REPLIED',
-            repliedAt: now,
-            status: matchedLead.demoStatus === 'BOOKED' ? 'DEMO_BOOKED' : 'ENGAGED',
+            replyIntent: 'POSITIVE',
+            lifecycleStage: 'LEAD',
+            lifecycleMovedAt: now,
+            lifecycleHistory,
+            repliedAt: matchedLead.repliedAt,
+            status: matchedLead.demoStatus === 'BOOKED' ? 'DEMO_BOOKED' : nextStatus,
             demoStatus: matchedLead.demoStatus,
             updatedAt: now,
           }, { merge: true });
         }
-      } catch (e) {
-        console.warn('Error syncing lead reply to Firestore:', e);
+      } catch (error) {
+        console.warn('[Campaign Lifecycle] Could not apply reply transition:', error);
       }
     }
+
+    if (replyIntent === 'NEGATIVE') {
+      const explicitOptOut = hasExplicitOptOut(params.body || '');
+      await suppressRecipientAcrossCampaigns(activeCtx, {
+        email: matchedLead.email,
+        phone: matchedLead.phone,
+        reason: explicitOptOut ? 'Explicit marketing opt-out' : 'Recipient declined further marketing',
+        explicitOptOut,
+        at: now,
+      }).catch((error) => console.warn('[Campaign Lifecycle] Could not suppress recipient:', error));
+    }
+    campaignLeadsMap.set(matchedLead.campaignLeadId, matchedLead);
   }
 
-  // Recalculate metrics for all affected campaigns so cards and lead counts update instantly
-  for (const cId of affectedCampaignIds) {
-    await recalculateAndPersistCampaignMetrics(cId);
-  }
-
+  for (const campaignId of affectedCampaignIds) await recalculateAndPersistCampaignMetrics(campaignId);
   return {
     isCampaignLead: true,
     campaignLead: matchedLeads[0],
     campaignId: matchedLeads[0]?.campaignId,
     campaignName: primaryCampaignName,
-    demoDetected: matchedLeads.some((l) => l.demoStatus === 'BOOKED'),
+    demoDetected: matchedLeads.some((lead) => lead.demoStatus === 'BOOKED'),
   };
 }
 
