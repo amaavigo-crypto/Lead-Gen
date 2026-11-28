@@ -289,18 +289,23 @@ export const SocialStudioView: React.FC<Props> = ({ tenantId, tenantName, curren
     let active = true;
     const run = async () => {
       const params = new URLSearchParams(window.location.search);
-      const returnedFromConnect = params.get('social_connected') === '1';
+      const oauthState = params.get('social_oauth') || '';
+      const oauthProvider = params.get('provider') || '';
+      const returnedFromConnect = params.get('social_connected') === '1' || oauthState === 'connected' || oauthState === 'error';
       if (returnedFromConnect) {
-        setNotice('Checking your social account connection…');
+        if (oauthState === 'error') setError((providerName(oauthProvider || 'social account')) + ' authorization could not be completed. Check the provider app permissions, redirect URI and server credentials, then reconnect.');
+        else setNotice('Checking ' + providerName(oauthProvider || 'social account') + ' connection…');
         params.delete('social_connected');
+        params.delete('social_oauth');
+        params.delete('provider');
         params.delete('added');
         params.delete('msg');
         const query = params.toString();
         window.history.replaceState(window.history.state, '', window.location.pathname + (query ? '?' + query : '') + window.location.hash);
       }
       await loadCore(false);
-      if (active && returnedFromConnect) {
-        setNotice('Connection check complete. Review Connected Accounts for the verified channel status.');
+      if (active && returnedFromConnect && oauthState !== 'error') {
+        setNotice(providerName(oauthProvider || 'Social account') + ' connection check complete. Review Connected Accounts for the verified channel status.');
       }
     };
     void run();
