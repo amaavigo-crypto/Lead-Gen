@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { db, doc, getDoc, setDoc, deleteDoc } from './adminFirestore.js';
 import { tenantRepo } from './tenantRepo.js';
 import { encryptSecret } from './cryptoUtils.js';
+import { handleNativeSocialStudioContentApi } from './nativeSocialStudioContent.js';
 import type { TenantContext } from '../types/tenant.js';
 import {
   getInstagramStatus,
@@ -68,16 +69,16 @@ function providerCredentials(provider: Exclude<Provider, 'instagram'>): { client
   const [idName, secretName] = env[provider];
   const clientId = String(process.env[idName] || '').trim();
   const clientSecret = String(process.env[secretName] || '').trim();
-  if (!clientId || !clientSecret) throw new Error(provider.toUpperCase() + ' OAuth credentials are not configured on the server.');
+  if (!clientId || (!clientSecret && provider !== 'x')) throw new Error(provider.toUpperCase() + ' OAuth credentials are not configured on the server.');
   return { clientId, clientSecret };
 }
 
 function scopes(provider: Exclude<Provider, 'instagram'>): string[] {
   const configured: Record<Exclude<Provider, 'instagram'>, string> = {
-    facebook: process.env.META_FACEBOOK_SCOPES || 'pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_engagement',
-    youtube: process.env.YOUTUBE_SCOPES || 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly',
+    facebook: process.env.META_FACEBOOK_SCOPES || 'pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_engagement,read_insights,instagram_basic',
+    youtube: process.env.YOUTUBE_SCOPES || 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly',
     x: process.env.X_SCOPES || 'tweet.read tweet.write users.read offline.access media.write',
-    linkedin: process.env.LINKEDIN_SCOPES || 'openid profile w_member_social w_organization_social',
+    linkedin: process.env.LINKEDIN_SCOPES || 'openid profile w_member_social',
     reddit: process.env.REDDIT_SCOPES || 'identity submit read',
   };
   return configured[provider].split(/[,\s]+/).map((scope) => scope.trim()).filter(Boolean);
@@ -241,17 +242,21 @@ async function exchangeAuthorizationCode(provider: Exclude<Provider, 'instagram'
 
 async function loadAccountIdentity(provider: Exclude<Provider, 'instagram'>, accessToken: string): Promise<Record<string, any>> {
   if (provider === 'facebook') {
-    const url = new URL('https://graph.facebook.com/' + GRAPH_VERSION + '/me');
-    url.searchParams.set('fields', 'id,name,accounts.limit(100){id,name,access_token,tasks,instagram_business_account}');
-    url.searchParams.set('access_token', accessToken);
-    const data = await responseJson(await fetch(url));
-    const pages = Array.isArray(data.accounts?.data) ? data.accounts.data : [];
+    const profileUrl = new URL('https://graph.facebook.com/' + GRAPH_VERSION + '/me');
+    profileUrl.searchParams.set('fields', 'id,name');
+    profileUrl.searchParams.set('access_token', accessToken);
+    const data = await responseJson(await fetch(profileUrl));
+    const pagesUrl = new URL('https://graph.facebook.com/' + GRAPH_VERSION + '/me/accounts');
+    pagesUrl.searchParams.set('fields', 'id,name,access_token,tasks,instagram_business_account');
+    pagesUrl.searchParams.set('limit', '100');
+    pagesUrl.searchParams.set('access_token', accessToken);
+    const pageData = await responseJson(await fetch(pagesUrl));
+    const pages = Array.isArray(pageData.data) ? pageData.data : [];
     return {
       accountId: String(data.id),
       displayName: String(data.name || 'Facebook user'),
       pages: pages.map((page: any) => ({
-        id: String(page.id),
-        name: String(page.name || ''),
+        id: String(page.id), name: String(page.name || ''),
         tasks: Array.isArray(page.tasks) ? page.tasks : [],
         instagramBusinessAccountId: page.instagram_business_account?.id ? String(page.instagram_business_account.id) : null,
       })),
@@ -280,7 +285,25 @@ async function loadAccountIdentity(provider: Exclude<Provider, 'instagram'>, acc
     const data = await responseJson(await fetch('https://api.linkedin.com/v2/userinfo', {
       headers: { Authorization: 'Bearer ' + accessToken },
     }));
-    return { accountId: String(data.sub || ''), displayName: String(data.name || data.given_name || 'LinkedIn member'), username: String(data.email || ''), avatar: String(data.picture || '') };
+    let organizations: Array<{id:string;name:string;role?:string}> = [];
+    // Organization discovery is best-effort. LinkedIn only returns this when the app has
+    // the Community Management organization-admin permission and the member has Page access.
+    try {
+      const aclUrl = new URL('https://api.linkedin.com/rest/organizationalEntityAcls');
+      aclUrl.searchParams.set('q', 'roleAssignee');
+      aclUrl.searchParams.set('state', 'APPROVED');
+      const acl = await responseJson(await fetch(aclUrl, {
+        headers: { Authorization: 'Bearer ' + accessToken, 'LinkedIn-Version': process.env.LINKEDIN_VERSION || '202611', 'X-Restli-Protocol-Version': '2.0.0' },
+      }));
+      organizations = (acl.elements || []).map((entry: any) => ({
+        id: String(entry.organizationalTarget || '').replace(/^urn:li:organization:/, ''),
+        name: String(entry.organizationalTarget || '').replace(/^urn:li:organization:/, ''),
+        role: String(entry.role || ''),
+      })).filter((entry: any) => entry.id);
+    } catch {
+      // Basic OAuth and member publishing remain available without organization access.
+    }
+    return { accountId: String(data.sub || ''), displayName: String(data.name || data.given_name || 'LinkedIn member'), username: String(data.email || ''), avatar: String(data.picture || ''), organizations };
   }
   const data = await responseJson(await fetch('https://oauth.reddit.com/api/v1/me', {
     headers: { Authorization: 'Bearer ' + accessToken, 'User-Agent': 'AmaavigoSocialStudio/1.0' },
@@ -365,6 +388,8 @@ export async function handleNativeSocialOAuthCallback(req: any, res: any, url: s
 }
 
 export async function handleNativeSocialStudioApi(req: any, res: any, ctx: TenantContext, url: string): Promise<boolean> {
+  if (await handleNativeSocialStudioContentApi(req, res, ctx, url)) return true;
+
   if (url === '/api/social-studio/status' && req.method === 'GET') {
     json(res, 200, {
       success: true,
