@@ -110,8 +110,12 @@ async function publishInstagram(ctx:TenantContext,text:string,m:Media[],settings
 }
 async function publishFacebook(ctx:TenantContext,ch:Channel,text:string,m:Media[]){
  const t=await token(ctx,'facebook',ch.id),pageToken=String(t.bundle.identity?.pageTokens?.[ch.id]||t.access),page=ch.accountId;
- if(m.length){const b=bytes(m[0]);if(b){const form=new FormData();form.append('message',text);form.append('source',new Blob([b.buffer as any],{type:b.type}),b.name);const p=await requestJson('https://graph.facebook.com/'+META+'/'+page+'/photos?access_token='+encodeURIComponent(pageToken),{method:'POST',body:form});return{id:String(p.post_id||p.id),url:'https://www.facebook.com/'+String(p.post_id||p.id)};}
- const p=await requestJson('https://graph.facebook.com/'+META+'/'+page+'/photos',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({url:publicUrl(m[0]),caption:text,access_token:pageToken}).toString()});return{id:String(p.post_id||p.id),url:'https://www.facebook.com/'+String(p.post_id||p.id)};}
+ if(m.length){const b=bytes(m[0]),video=String(m[0].mimeType||'').startsWith('video/');
+  if(video){let p:any;if(b){const form=new FormData();form.append('description',text);form.append('source',new Blob([b.buffer as any],{type:b.type}),b.name);p=await requestJson('https://graph.facebook.com/'+META+'/'+page+'/videos?access_token='+encodeURIComponent(pageToken),{method:'POST',body:form});}
+   else p=await requestJson('https://graph.facebook.com/'+META+'/'+page+'/videos',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({file_url:publicUrl(m[0]),description:text,access_token:pageToken}).toString()});
+   const id=String(p.id||'');return{id,url:id?'https://www.facebook.com/watch/?v='+id:''};}
+  if(b){const form=new FormData();form.append('message',text);form.append('source',new Blob([b.buffer as any],{type:b.type}),b.name);const p=await requestJson('https://graph.facebook.com/'+META+'/'+page+'/photos?access_token='+encodeURIComponent(pageToken),{method:'POST',body:form});return{id:String(p.post_id||p.id),url:'https://www.facebook.com/'+String(p.post_id||p.id)};}
+  const p=await requestJson('https://graph.facebook.com/'+META+'/'+page+'/photos',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({url:publicUrl(m[0]),caption:text,access_token:pageToken}).toString()});return{id:String(p.post_id||p.id),url:'https://www.facebook.com/'+String(p.post_id||p.id)};}
  const p=await requestJson('https://graph.facebook.com/'+META+'/'+page+'/feed',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({message:text,access_token:pageToken}).toString()});return{id:String(p.id),url:'https://www.facebook.com/'+String(p.id)};
 }
 async function publishYouTube(ctx:TenantContext,text:string,m:Media[],settings:any){
@@ -126,11 +130,38 @@ async function publishYouTube(ctx:TenantContext,text:string,m:Media[],settings:a
  if(!up.ok)throw new Error(errText(result,'YouTube video upload failed'));
  const id=String(result.id||'');return{id,url:'https://www.youtube.com/watch?v='+id};
 }
+async function uploadXMedia(accessToken:string,asset:Media):Promise<string>{
+ const b=bytes(asset);if(!b)throw new Error('X media publishing needs uploaded image/video bytes in the Social Studio media library.');
+ const endpoint='https://api.x.com/2/media/upload',video=b.type.startsWith('video/'),category=video?'tweet_video':b.type==='image/gif'?'tweet_gif':'tweet_image';
+ const initUrl=new URL(endpoint);initUrl.searchParams.set('command','INIT');initUrl.searchParams.set('media_type',b.type);initUrl.searchParams.set('total_bytes',String(b.buffer.length));initUrl.searchParams.set('media_category',category);
+ const headers={Authorization:'Bearer '+accessToken,'User-Agent':'AmaavigoSocialStudio/1.0'};
+ const init=await requestJson(initUrl,{method:'POST',headers});
+ const mediaId=String(init.data?.id||'');if(!mediaId)throw new Error('X did not return a media upload ID.');
+ const chunkSize=4*1024*1024;let segment=0;
+ for(let offset=0;offset<b.buffer.length;offset+=chunkSize){
+  const chunk=b.buffer.subarray(offset,Math.min(offset+chunkSize,b.buffer.length)),form=new FormData();
+  form.append('command','APPEND');form.append('media_id',mediaId);form.append('segment_index',String(segment++));
+  form.append('media',new Blob([chunk as any],{type:'application/octet-stream'}),'chunk');
+  const response=await fetch(endpoint,{method:'POST',headers,body:form});
+  if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(errText(body,'X media chunk upload failed')+' (HTTP '+response.status+')');}
+  await response.arrayBuffer();
+ }
+ const finalizeUrl=new URL(endpoint);finalizeUrl.searchParams.set('command','FINALIZE');finalizeUrl.searchParams.set('media_id',mediaId);
+ const finalized=await requestJson(finalizeUrl,{method:'POST',headers});
+ let processing=finalized.data?.processing_info;
+ for(let attempt=0;processing&&processing.state!=='succeeded'&&attempt<8;attempt++){
+  if(processing.state==='failed')throw new Error('X could not process this media asset.');
+  const wait=Math.min(10,Math.max(1,Number(processing.check_after_secs||2)));
+  await new Promise(resolve=>setTimeout(resolve,wait*1000));
+  const statusUrl=new URL(endpoint);statusUrl.searchParams.set('command','STATUS');statusUrl.searchParams.set('media_id',mediaId);
+  const status=await requestJson(statusUrl,{headers});processing=status.data?.processing_info;
+ }
+ if(processing&&processing.state!=='succeeded')throw new Error('X media processing has not completed. Try publishing again in a moment.');
+ return mediaId;
+}
 async function publishX(ctx:TenantContext,text:string,m:Media[]){
  const t=await token(ctx,'x'),mediaIds:string[]=[];
- for(const asset of m.slice(0,4)){const b=bytes(asset);if(!b)throw new Error('X media posting requires uploaded image/video bytes in the Social Studio media library.');
- const f=new FormData();f.append('media',new Blob([b.buffer as any],{type:b.type}),b.name);f.append('media_category',b.type.startsWith('video/')?'tweet_video':'tweet_image');
- const up=await requestJson('https://api.x.com/2/media/upload',{method:'POST',headers:{Authorization:'Bearer '+t.access},body:f});if(up.data?.id)mediaIds.push(String(up.data.id));}
+ for(const asset of m.slice(0,4))mediaIds.push(await uploadXMedia(t.access,asset));
  const body:any={text};if(mediaIds.length)body.media={media_ids:mediaIds};
  const p=await requestJson('https://api.x.com/2/tweets',{method:'POST',headers:{Authorization:'Bearer '+t.access,'Content-Type':'application/json'},body:JSON.stringify(body)});
  const id=String(p.data?.id||'');return{id,url:id?'https://x.com/i/web/status/'+id:''};
@@ -142,9 +173,11 @@ async function publishLinkedIn(ctx:TenantContext,ch:Channel,text:string,m:Media[
  const init=await requestJson('https://api.linkedin.com/rest/images?action=initializeUpload',{method:'POST',headers:{Authorization:'Bearer '+t.access,'Content-Type':'application/json','LinkedIn-Version':LI_VERSION,'X-Restli-Protocol-Version':'2.0.0'},body:JSON.stringify({initializeUploadRequest:{owner:author}})});
  const u=init.value?.uploadUrl,urn=init.value?.image;if(!u||!urn)throw new Error('LinkedIn did not return an image upload URL.');
  const uploaded=await fetch(u,{method:'PUT',headers:{Authorization:'Bearer '+t.access,'Content-Type':b.type},body:b.buffer as any});if(!uploaded.ok)throw new Error('LinkedIn image upload failed (HTTP '+uploaded.status+').');
- body.content={media:{title:{text:m[0].name||'Image'},id:urn}};}
- const p=await requestJson('https://api.linkedin.com/rest/posts',{method:'POST',headers:{Authorization:'Bearer '+t.access,'Content-Type':'application/json','LinkedIn-Version':LI_VERSION,'X-Restli-Protocol-Version':'2.0.0'},body:JSON.stringify(body)});
- const id=String(p.id||'');return{id,url:id?'https://www.linkedin.com/feed/update/'+encodeURIComponent(id)+'/':''};
+ body.content={media:{id:urn,altText:String(m[0].name||'Image').slice(0,120)}};}
+ const response=await fetch('https://api.linkedin.com/rest/posts',{method:'POST',headers:{Authorization:'Bearer '+t.access,'Content-Type':'application/json','LinkedIn-Version':LI_VERSION,'X-Restli-Protocol-Version':'2.0.0'},body:JSON.stringify(body)});
+ const raw=await response.text();let posted:any={};try{posted=raw?JSON.parse(raw):{};}catch{}
+ if(!response.ok)throw new Error(errText(posted,'LinkedIn post creation failed')+' (HTTP '+response.status+')');
+ const id=String(response.headers.get('x-restli-id')||posted.id||'');return{id,url:id?'https://www.linkedin.com/feed/update/'+encodeURIComponent(id)+'/':''};
 }
 async function publishReddit(ctx:TenantContext,text:string,m:Media[],settings:any){
  if(!REDDIT_APPROVED)throw new Error('Reddit publishing is disabled until Amaavigo receives Reddit commercial Data API approval.');
