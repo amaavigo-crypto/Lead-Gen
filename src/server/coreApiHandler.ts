@@ -365,13 +365,31 @@ export async function handleCoreApi(req: any, res: any): Promise<boolean> {
     isPlatformAdmin = Boolean(c.isPlatformAdmin);
   }
 
-  const activeTenantCtx: TenantContext = {
+  let activeTenantCtx: TenantContext = {
     tenantId: resolvedTenantId,
     uid: userUid,
     email: userEmail,
     role: userRole,
     isPlatformAdmin,
   };
+  // Resolve per-user module permissions from the server-owned user record.
+  // Never accept publishing permissions from request data or client headers.
+  if (!isPublicPath && url.startsWith('/api/social-studio/') && userRole !== 'admin' && !isPlatformAdmin) {
+    try {
+      const userSnap = await getDoc(globalUserDoc(userUid));
+      if (userSnap.exists()) {
+        const userRecord = userSnap.data() as any;
+        if (String(userRecord.tenantId || '') === resolvedTenantId && userRecord.active !== false) {
+          activeTenantCtx = {
+            ...activeTenantCtx,
+            allowedModules: Array.isArray(userRecord.allowedModules) ? userRecord.allowedModules.map((v: any) => String(v)) : [],
+          };
+        }
+      }
+    } catch (permissionError: any) {
+      console.warn('[Social Studio RBAC] Could not resolve tenant user permissions:', permissionError?.message || 'unknown error');
+    }
+  }
 
   // Native Social Studio OAuth callbacks are public, but tenant ownership is resolved
   // only from the single-use, server-stored OAuth state.
