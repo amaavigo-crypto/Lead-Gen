@@ -1,8 +1,9 @@
 import crypto from 'node:crypto';
 import OpenAI from 'openai';
-import { db, getDoc, getDocs, setDoc, deleteDoc } from './adminFirestore.js';
+import { getDoc, getDocs, setDoc, deleteDoc } from './adminFirestore.js';
 import { tenantRepo } from './tenantRepo.js';
-import { decryptSecret, encryptSecret } from './cryptoUtils.js';
+import { encryptSecret } from './cryptoUtils.js';
+import { getInstagramAccessToken } from './instagramIntegrationService.js';
 import { recordAiCompletionUsage } from './usageService.js';
 import type { TenantContext } from '../types/tenant.js';
 
@@ -25,15 +26,14 @@ async function requestJson(url:string|URL,init?:RequestInit):Promise<any>{
  if(!response.ok||body?.error) throw new Error(errText(body,'Provider request failed')+' (HTTP '+response.status+')');
  return body;
 }
-function decrypt(payload:any){return decryptSecret(payload as any);}
 async function token(ctx:TenantContext,provider:Provider,id?:string):Promise<{access:string;bundle:any;channel:Channel|null}>{
  const repo=tenantRepo(ctx);
  if(provider==='instagram'){
-  const s=await getDoc(repo.secretDoc('instagram_access_token'));
   const i=await getDoc(repo.integrationDoc('instagram'));
   const c=i.exists()?(i.data() as any).connection:null;
-  if(!s.exists()||c?.status!=='connected') throw new Error('Instagram is not connected to this workspace.');
-  return {access:decrypt(s.data()),bundle:{accessToken:decrypt(s.data())},channel:{id:'instagram',identifier:'instagram',name:c.username||'Instagram',accountId:String(c.accountId)}};
+  if(c?.status!=='connected') throw new Error('Instagram is not connected to this workspace.');
+  const access=await getInstagramAccessToken(ctx);
+  return {access,bundle:{accessToken:access},channel:{id:'instagram',identifier:'instagram',name:c.username||'Instagram',accountId:String(c.accountId)}};
  }
  const s=await getDoc(repo.secretDoc('social_studio_'+provider+'_oauth'));
  const i=await getDoc(repo.integrationDoc('social_studio_'+provider));
@@ -78,7 +78,7 @@ async function channels(ctx:TenantContext):Promise<Channel[]>{
  if(ic?.status==='connected')out.push({id:'instagram',identifier:'instagram',name:ic.username||'Instagram',accountId:String(ic.accountId)});
  for(const p of ['facebook','youtube','x','linkedin','reddit'] as Provider[]){
   const s=await getDoc(repo.integrationDoc('social_studio_'+p)).catch(()=>null);if(!s?.exists())continue;const v=s.data() as any;if(v.status!=='connected')continue;
-  if(p==='facebook'&&(v.pages||[]).length){for(const x of v.pages)out.push({id:String(x.id),identifier:p,name:String(x.name||'Facebook Page'),accountId:String(x.id),tasks:x.tasks||[]});}
+  if(p==='facebook'){for(const x of v.pages||[])out.push({id:String(x.id),identifier:p,name:String(x.name||'Facebook Page'),accountId:String(x.id),tasks:x.tasks||[]});}
   else if(p==='linkedin'){out.push({id:String(v.accountId),identifier:p,name:String(v.displayName||'LinkedIn member'),accountId:String(v.accountId)});for(const x of v.organizations||[])out.push({id:String(x.id),identifier:p,name:String(x.name||'LinkedIn Page'),accountId:String(v.accountId),organizationId:String(x.id)});}
   else out.push({id:String(v.accountId||p),identifier:p,name:String(v.displayName||p),accountId:String(v.accountId||''),username:String(v.username||''),picture:String(v.avatar||'')});
  }
@@ -110,7 +110,7 @@ async function publishInstagram(ctx:TenantContext,text:string,m:Media[],settings
 }
 async function publishFacebook(ctx:TenantContext,ch:Channel,text:string,m:Media[]){
  const t=await token(ctx,'facebook',ch.id),pageToken=String(t.bundle.identity?.pageTokens?.[ch.id]||t.access),page=ch.accountId;
- if(m.length){const b=bytes(m[0]);if(b){const form=new FormData();form.append('message',text);form.append('source',new Blob([b.buffer],{type:b.type}),b.name);const p=await requestJson('https://graph.facebook.com/'+META+'/'+page+'/photos?access_token='+encodeURIComponent(pageToken),{method:'POST',body:form});return{id:String(p.post_id||p.id),url:'https://www.facebook.com/'+String(p.post_id||p.id)};}
+ if(m.length){const b=bytes(m[0]);if(b){const form=new FormData();form.append('message',text);form.append('source',new Blob([b.buffer as any],{type:b.type}),b.name);const p=await requestJson('https://graph.facebook.com/'+META+'/'+page+'/photos?access_token='+encodeURIComponent(pageToken),{method:'POST',body:form});return{id:String(p.post_id||p.id),url:'https://www.facebook.com/'+String(p.post_id||p.id)};}
  const p=await requestJson('https://graph.facebook.com/'+META+'/'+page+'/photos',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({url:publicUrl(m[0]),caption:text,access_token:pageToken}).toString()});return{id:String(p.post_id||p.id),url:'https://www.facebook.com/'+String(p.post_id||p.id)};}
  const p=await requestJson('https://graph.facebook.com/'+META+'/'+page+'/feed',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({message:text,access_token:pageToken}).toString()});return{id:String(p.id),url:'https://www.facebook.com/'+String(p.id)};
 }
@@ -129,7 +129,7 @@ async function publishYouTube(ctx:TenantContext,text:string,m:Media[],settings:a
 async function publishX(ctx:TenantContext,text:string,m:Media[]){
  const t=await token(ctx,'x'),mediaIds:string[]=[];
  for(const asset of m.slice(0,4)){const b=bytes(asset);if(!b)throw new Error('X media posting requires uploaded image/video bytes in the Social Studio media library.');
- const f=new FormData();f.append('media',new Blob([b.buffer],{type:b.type}),b.name);f.append('media_category',b.type.startsWith('video/')?'tweet_video':'tweet_image');
+ const f=new FormData();f.append('media',new Blob([b.buffer as any],{type:b.type}),b.name);f.append('media_category',b.type.startsWith('video/')?'tweet_video':'tweet_image');
  const up=await requestJson('https://api.x.com/2/media/upload',{method:'POST',headers:{Authorization:'Bearer '+t.access},body:f});if(up.data?.id)mediaIds.push(String(up.data.id));}
  const body:any={text};if(mediaIds.length)body.media={media_ids:mediaIds};
  const p=await requestJson('https://api.x.com/2/tweets',{method:'POST',headers:{Authorization:'Bearer '+t.access,'Content-Type':'application/json'},body:JSON.stringify(body)});
