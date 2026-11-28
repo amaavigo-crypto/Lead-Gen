@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
+import OpenAI from 'openai';
 import { db, getDoc, getDocs, setDoc, deleteDoc } from './adminFirestore.js';
 import { tenantRepo } from './tenantRepo.js';
 import { decryptSecret, encryptSecret } from './cryptoUtils.js';
+import { recordAiCompletionUsage } from './usageService.js';
 import type { TenantContext } from '../types/tenant.js';
 
 type Provider = 'instagram'|'facebook'|'youtube'|'x'|'linkedin'|'reddit';
@@ -238,6 +240,28 @@ async function analyzeCompetitor(ctx:TenantContext,c:any){
  return{platform:p,handle:h,dataType:'Not available through the currently authorized API',limitations:[notes[p]||'This provider does not expose competitor analytics through this account authorization.']};
 }
 export async function handleNativeSocialStudioContentApi(req:any,res:any,ctx:TenantContext,url:string):Promise<boolean>{
+ if(url==='/api/social-studio/status'&&req.method==='GET'){const connected=await channels(ctx);send(res,200,{success:true,provisioned:true,provider:'native',connectedChannels:connected.length,capabilities:{publishing:true,scheduling:true,analytics:true,competitorTracking:true}});return true;}
+ if(url==='/api/social-studio/ai/caption'&&req.method==='POST'){
+  try{
+   const apiKey=String(process.env.OPENAI_API_KEY||'').trim();if(!apiKey)throw new Error('The platform AI provider is not configured. Set OPENAI_API_KEY on the server.');
+   const body=req.body||{},topic=String(body.topic||'').trim();if(!topic)throw new Error('Enter a topic or campaign brief first.');
+   const tone=String(body.tone||'professional and engaging').slice(0,100),audience=String(body.audience||'customers and community').slice(0,250),goal=String(body.goal||'build awareness and encourage engagement').slice(0,250);
+   const platforms=Array.isArray(body.platforms)?body.platforms.map((x:any)=>String(x||'').slice(0,40)).slice(0,6):[];
+   const model=String(process.env.SOCIAL_STUDIO_AI_MODEL||'gpt-4o-mini');
+   const client=new OpenAI({apiKey});
+   const completion=await client.chat.completions.create({
+    model,temperature:0.7,max_tokens:650,
+    messages:[
+     {role:'system',content:'You are the social media copywriter inside Amaavigo Social Studio. Write one ready-to-review social caption. Never invent prices, guarantees, statistics, testimonials, product details, event dates, links, or factual claims. Use only the brief supplied. Adapt naturally to the selected platforms, use readable line breaks, and include a small number of relevant hashtags only when appropriate. Return only the caption, without an explanation or quotation marks.'},
+     {role:'user',content:'Brief: '+topic+'\nTone: '+tone+'\nAudience: '+audience+'\nGoal: '+goal+'\nPlatforms: '+(platforms.join(', ')||'general social media')+'\nWrite the caption.'}
+    ]
+   });
+   await recordAiCompletionUsage(ctx.tenantId,completion,model,'openai','social_studio_caption');
+   const caption=String(completion.choices?.[0]?.message?.content||'').trim();if(!caption)throw new Error('AI did not return a caption.');
+   send(res,200,{success:true,caption}); 
+  }catch(e:any){send(res,400,{success:false,error:e?.message||'Could not generate a caption.'});}
+  return true;
+ }
  if(url==='/api/social-studio/posts'&&req.method==='GET'){const d=await getDocs(tenantRepo(ctx).collection('social_studio_posts')),q=params(req),a=Date.parse(q.get('startDate')||''),b=Date.parse(q.get('endDate')||''),posts=d.docs.map(x=>({id:x.id,...x.data() as any})).filter((p:any)=>{const t=Date.parse(String(p.publishDate||p.createdAt||''));return(!Number.isFinite(a)||t>=a)&&(!Number.isFinite(b)||t<b);}).sort((x:any,y:any)=>Date.parse(String(y.publishDate||y.createdAt||''))-Date.parse(String(x.publishDate||x.createdAt||'')));send(res,200,{success:true,posts});return true;}
  if(url==='/api/social-studio/posts'&&req.method==='POST'){await submitPost(req,res,ctx);return true;}
  const del=url.match(/^\/api\/social-studio\/posts\/([A-Za-z0-9_-]+)$/);if(del&&req.method==='DELETE'){const ref=tenantRepo(ctx).doc('social_studio_posts',del[1]),s=await getDoc(ref);if(!s.exists())send(res,404,{success:false,error:'Post was not found.'});else if(['published','partial'].includes((s.data() as any).state))send(res,409,{success:false,error:'Published posts remain in Social Studio history.'});else{await deleteDoc(ref);send(res,200,{success:true});}return true;}
