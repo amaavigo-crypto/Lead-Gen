@@ -1196,13 +1196,23 @@ export const SocialStudioView: React.FC<Props> = ({ tenantId, tenantName, curren
                 </div>
               </div>
               {analytics ? (
-                <AnalyticsSummary analytics={analytics} />
+                <>
+                  <AnalyticsSummary analytics={analytics} />
+                  {Array.isArray(analytics.limitations) && analytics.limitations.length > 0 && (
+                    <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50/60 p-3">
+                      <p className="text-xs font-semibold text-amber-900">Provider data notes</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] leading-5 text-amber-900/80">
+                        {analytics.limitations.map((note: string, index: number) => <li key={index}>{note}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <EmptyState title="Choose a channel to view analytics" description="Load the latest metrics available for the selected connected social account." />
                 </div>
               )}
-              <p className="mt-3 text-[11px] leading-5 text-slate-400">Analytics availability and refresh frequency depend on each social platform and the permissions granted to the connected account.</p>
+              <p className="mt-3 text-[11px] leading-5 text-slate-400">Analytics availability and refresh frequency depend on each social platform and the permissions granted to the connected account. The numbers shown are the provider-reported metrics for the selected channel.</p>
             </section>
           )}
 
