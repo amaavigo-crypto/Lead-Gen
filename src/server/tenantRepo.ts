@@ -68,6 +68,10 @@ export function tenantRepo(ctx: TenantContext) {
     leadDatabaseImports: () => collection(db, `${tenantDocPath}/lead_database_imports`),
     leadDatabaseImportDoc: (id: string) => doc(db, `${tenantDocPath}/lead_database_imports`, id),
 
+    // Consumer profiles link customer records to tenant contacts and Won CRM leads.
+    consumerProfiles: () => collection(db, `${tenantDocPath}/consumer_profiles`),
+    consumerProfileDoc: (id: string) => doc(db, `${tenantDocPath}/consumer_profiles`, id),
+
     // Dedicated tenant-scoped Business Card Reader collections.
     businessCardContacts: () => collection(db, `${tenantDocPath}/business_card_contacts`),
     businessCardContactDoc: (id: string) => doc(db, `${tenantDocPath}/business_card_contacts`, id),

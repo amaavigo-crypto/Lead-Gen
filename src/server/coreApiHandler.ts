@@ -85,6 +85,7 @@ import {
   previewLeadDatabaseRows,
   updateLeadDatabase,
 } from './leadDatabaseService.js';
+import { importConsumerRows, listConsumerProfiles, promoteWonLeadToConsumer, upsertConsumerProfile } from './consumerDatabaseService.js';
 import { CHANNELS, isSupportedChannelMode, normalizeChannelMode, normalizeChannelModes } from '../shared/channelModes.js';
 import { getTenantChannelMode } from './channelModeService.js';
 import type { Channel } from '../types/index.js';
@@ -5127,6 +5128,79 @@ ${signature || defSig}`;
     } catch (err: any) {
       res.statusCode = 400;
       res.end(JSON.stringify({ error: err?.message || 'Could not delete database.' }));
+    }
+    return true;
+  }
+
+  // CRM-backed Database tabs use the same access boundary as the CRM module.
+  const canAccessSalesDatabase = async (): Promise<boolean> => {
+    if (activeTenantCtx.isPlatformAdmin || activeTenantCtx.role === 'admin') return true;
+    try {
+      const userSnapshot = await getDoc(globalUserDoc(activeTenantCtx.uid));
+      const userData: any = userSnapshot.exists() ? userSnapshot.data() : {};
+      return userData?.accessLevel === 'ALL' ||
+        userData?.role === 'admin' ||
+        (Array.isArray(userData?.allowedModules) && userData.allowedModules.includes('crm'));
+    } catch {
+      return false;
+    }
+  };
+
+  // Consumer Database: customer profiles are tenant-scoped and updated through this API only.
+  if (url === '/api/consumer-database' && req.method === 'GET') {
+    if (!(await canAccessSalesDatabase())) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ error: 'CRM access is required to use this database.' }));
+      return true;
+    }
+    try {
+      const params = new URL(rawUrl || '/', 'http://localhost').searchParams;
+      const profiles = await listConsumerProfiles(activeTenantCtx, params.get('q') || '');
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, profiles }));
+    } catch (err: any) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: err?.message || 'Could not load customers.' }));
+    }
+    return true;
+  }
+
+  if (url === '/api/consumer-database' && req.method === 'POST') {
+    if (!(await canAccessSalesDatabase())) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ error: 'CRM access is required to use this database.' }));
+      return true;
+    }
+    try {
+      if (Array.isArray(body?.rows)) {
+        const result = await importConsumerRows(activeTenantCtx, body.rows);
+        res.statusCode = 200;
+        res.end(JSON.stringify({ success: true, ...result }));
+      } else {
+        const result = await upsertConsumerProfile(activeTenantCtx, body?.customer || body || {});
+        res.statusCode = result.created ? 201 : 200;
+        res.end(JSON.stringify({ success: true, ...result }));
+      }
+    } catch (err: any) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: err?.message || 'Could not save customer profile.' }));
+    }
+    return true;
+  }
+
+  if (url === '/api/consumer-database/promote' && req.method === 'POST') {
+    if (!(await canAccessSalesDatabase())) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ error: 'CRM access is required to use this database.' }));
+      return true;
+    }
+    try {
+      const profile = await promoteWonLeadToConsumer(activeTenantCtx, String(body?.leadId || ''));
+      res.statusCode = 200;
+      res.end(JSON.stringify({ success: true, profile }));
+    } catch (err: any) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: err?.message || 'Could not promote this Won lead.' }));
     }
     return true;
   }

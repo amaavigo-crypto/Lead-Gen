@@ -259,7 +259,7 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
         if (selectedDatabase && workspaceTab === 'imports') await loadImports(selectedDatabase.databaseId);
         if (selectedDatabase && workspaceTab === 'usage') await loadUsage(selectedDatabase.databaseId);
       }
-      setFeedback('Lead database is up to date.');
+      setFeedback('Marketing database is up to date.');
     } catch (err: any) { setError(err?.message || 'Refresh failed.'); }
     finally { setIsRefreshing(false); }
   };
@@ -279,7 +279,7 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
       });
       setCreateOpen(false); setNewName(''); setNewDescription('');
       await loadDatabases(); openWorkspace(data.database);
-      setFeedback('Database created. Import your first lead file when ready.');
+      setFeedback('Marketing database created. Import your first contact file when ready.');
     } catch (err: any) { setError(err?.message || 'Could not create the database.'); }
     finally { setIsCreating(false); }
   };
@@ -434,7 +434,7 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
   const latestImportCount = databases.filter((database) => database.updatedAt && Date.now() - new Date(database.updatedAt).getTime() < 7 * 86400000).length;
   const totalLeads = databases.reduce((sum, database) => sum + Number(database.totalLeads || 0), 0);
   const emailReady = databases.reduce((sum, database) => sum + Number(database.emailEligibleCount || 0), 0);
-  const pageTitle = activeSection === 'business-cards' ? 'Business Card Reader' : selectedDatabase && activeSection === 'databases' ? selectedDatabase.name : activeSection === 'all-leads' ? 'All leads' : 'Lead Database';
+  const pageTitle = activeSection === 'business-cards' ? 'Business Card Reader' : selectedDatabase && activeSection === 'databases' ? selectedDatabase.name : activeSection === 'all-leads' ? 'All leads' : 'Marketing Database';
 
   const searchBar = (
     <div className="lead-db-search">
@@ -448,7 +448,7 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
     <ModuleShell
       moduleId="database"
       icon={DatabaseIcon}
-      title="Lead Database"
+      title="Marketing Database"
       subtitle="Organise reusable lead lists, validate imports and select clean audiences for campaigns."
       actions={<>
         {selectedDatabase && activeSection === 'databases' && <button className="lead-db-icon-button" onClick={() => { setSelectedDatabase(null); setSearch(''); setWorkspaceTab('leads'); }} title="Back to databases"><ArrowLeft size={17} /></button>}
@@ -456,17 +456,17 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
           {activeSection !== 'business-cards' && <button className="lead-db-button lead-db-button--secondary" onClick={refresh} disabled={isRefreshing}>{isRefreshing ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />} Refresh</button>}
           {selectedDatabase && activeSection === 'databases' ? <>
             <button className="lead-db-button lead-db-button--secondary" onClick={() => downloadAllLeads(selectedDatabase.databaseId, search)}><Download size={16} /> Export</button>
-            <button className="lead-db-button lead-db-button--primary" onClick={() => openImport(selectedDatabase)}><Upload size={16} /> Import leads</button>
+            <button className="lead-db-button lead-db-button--primary" onClick={() => openImport(selectedDatabase)}><Upload size={16} /> Import contacts</button>
           </> : activeSection === 'databases' ? <>
             <button className="lead-db-button lead-db-button--secondary" onClick={() => { setActiveSection('business-cards'); setAutoOpenBusinessCardScanner(true); }}><ScanLine size={16} /> Scan business card</button>
             <button className="lead-db-button lead-db-button--primary" onClick={() => setCreateOpen(true)}><Plus size={17} /> Create database</button>
           </> : activeSection === 'all-leads' ?
-            <button className="lead-db-button lead-db-button--secondary" onClick={() => downloadAllLeads(undefined, search)}><Download size={16} /> Export leads</button> : null}
+            <button className="lead-db-button lead-db-button--secondary" onClick={() => downloadAllLeads(undefined, search)}><Download size={16} /> Export contacts</button> : null}
 
       </>}
       eyebrow="Workspace / Data management"
       heading={pageTitle}
-      copy={activeSection === 'business-cards' ? 'Scan physical business cards, review AI-extracted details and save contacts to your workspace.' : selectedDatabase && activeSection === 'databases' ? (selectedDatabase.description || 'Reusable lead collection for your campaign workflows.') : activeSection === 'all-leads' ? 'A searchable view of every saved lead across your workspace databases.' : 'Organise reusable lead lists, validate imports and select clean audiences for campaigns.'}
+      copy={activeSection === 'business-cards' ? 'Scan physical business cards, review AI-extracted details and save contacts to your workspace.' : selectedDatabase && activeSection === 'databases' ? (selectedDatabase.description || 'Reusable marketing audience for your campaign workflows.') : activeSection === 'all-leads' ? 'A searchable view of every saved lead across your workspace databases.' : 'Organise reusable contact lists, validate imports and select clean audiences for campaigns.'}
     >
     <div className="lead-database-shell mp-inner space-y-6">
       {error && <div className="lead-db-alert lead-db-alert--error"><AlertCircle size={17} /><span>{error}</span><button onClick={() => setError(null)}><X size={15} /></button></div>}
@@ -496,8 +496,8 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
             <div className="lead-db-search lead-db-search--compact"><Search size={16} /><input placeholder="Search databases" onChange={(event) => setDatabaseSearch(event.target.value)} value={databaseSearch} /></div>
           </div>
           {databases.length === 0 ? <div className="lead-db-empty">
-            <div className="lead-db-empty-icon"><DatabaseIcon size={25} /></div><h3>No lead databases yet</h3>
-            <p>Create a collection to keep lead lists organised and reuse them when launching campaigns.</p>
+            <div className="lead-db-empty-icon"><DatabaseIcon size={25} /></div><h3>No marketing databases yet</h3>
+            <p>Create a marketing database to organise contacts into reusable campaign audiences.</p>
             <button className="lead-db-button lead-db-button--primary" onClick={() => setCreateOpen(true)}><Plus size={16} /> Create your first database</button>
           </div> : <div className="overflow-x-auto">
             <table className="lead-db-table lead-db-database-table">
@@ -514,7 +514,7 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
                   <td>{formatDate(database.createdAt)}</td><td>{formatDate(database.updatedAt)}</td>
                   <td><div className="lead-db-row-actions">
                     <button onClick={() => openWorkspace(database)} title="Open database"><ArrowRight size={15} /></button>
-                    <button onClick={() => openImport(database)} title="Import leads"><Upload size={15} /></button>
+                    <button onClick={() => openImport(database)} title="Import contacts"><Upload size={15} /></button>
                     <button onClick={() => openEdit(database)} title="Edit database"><Pencil size={15} /></button>
                     {isAdmin && <button className="is-danger" onClick={() => handleDeleteDatabase(database)} title="Delete database"><Trash2 size={15} /></button>}
                   </div></td>
@@ -523,7 +523,7 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
             </table>
           </div>}
         </div>
-        <div className="lead-db-footnote"><ShieldCheck size={14} /> Lead databases are workspace-scoped and separate from your CRM contacts. Campaign recipients are snapshotted when a campaign is created.</div>
+        <div className="lead-db-footnote"><ShieldCheck size={14} /> Marketing databases are workspace-scoped contact audiences. Campaign recipients are snapshotted when a campaign is created.</div>
       </>}
 
       {activeSection === 'all-leads' && <>
@@ -627,11 +627,11 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
         </div>}
       </>}
 
-      {createOpen && <Modal title="Create a lead database" eyebrow="NEW COLLECTION" onClose={() => setCreateOpen(false)} brandHeader>
+      {createOpen && <Modal title="Create a marketing database" eyebrow="NEW COLLECTION" onClose={() => setCreateOpen(false)} brandHeader>
         <form className="lead-db-modal-form" onSubmit={handleCreateDatabase}>
           <label className="amaavigo-form-label">Database name<input className="amaavigo-form-field" autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="e.g. Mumbai travel agencies" maxLength={100} required /></label>
-          <label className="amaavigo-form-label">Description <span className="lead-db-optional">Optional</span><textarea className="amaavigo-form-textarea" rows={3} value={newDescription} onChange={(event) => setNewDescription(event.target.value)} placeholder="What type of leads does this collection contain?" maxLength={500} /></label>
-          <div className="lead-db-modal-note"><Info size={15} /> Databases are separate from CRM contacts. You can import leads after creating the collection.</div>
+          <label className="amaavigo-form-label">Description <span className="lead-db-optional">Optional</span><textarea className="amaavigo-form-textarea" rows={3} value={newDescription} onChange={(event) => setNewDescription(event.target.value)} placeholder="What audience does this database contain?" maxLength={500} /></label>
+          <div className="lead-db-modal-note"><Info size={15} /> Databases are separate from CRM contacts. You can import contacts after creating the collection.</div>
           <div className="lead-db-modal-actions"><button type="button" className="lead-db-button lead-db-button--secondary" onClick={() => setCreateOpen(false)}>Cancel</button><button type="submit" className="lead-db-button lead-db-button--primary" disabled={isCreating || !newName.trim()}>{isCreating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Create database</button></div>
         </form>
       </Modal>}
@@ -644,7 +644,7 @@ export const LeadDatabase: React.FC<Props> = ({ isAdmin = false, tenantId = '' }
         </form>
       </Modal>}
 
-      {importOpen && importTarget && <Modal title="Import leads" eyebrow={importTarget.name.toUpperCase()} onClose={closeImport} wide>
+      {importOpen && importTarget && <Modal title="Import contacts" eyebrow={importTarget.name.toUpperCase()} onClose={closeImport} wide>
         <div className="lead-db-wizard-steps">
           {['Upload file', 'Map columns', 'Review rows', 'Import report'].map((label, index) => <div className={'lead-db-wizard-step ' + (wizardStep === index + 1 ? 'is-active' : wizardStep > index + 1 ? 'is-done' : '')} key={label}><span>{wizardStep > index + 1 ? <Check size={13} /> : index + 1}</span><small>{label}</small></div>)}
         </div>

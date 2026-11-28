@@ -71,7 +71,7 @@ const AiTestingPlayground = lazyNamed(() => import('./components/AiTestingPlaygr
 const WorkspaceView = lazyNamed(() => import('./components/SettingsView'), 'WorkspaceView');
 const DemoSchedulingView = lazyNamed(() => import('./components/DemoSchedulingView'), 'DemoSchedulingView');
 const AutoFollowUpDashboard = lazyNamed(() => import('./components/AutoFollowUpDashboard'), 'AutoFollowUpDashboard');
-const LeadDatabase = lazyNamed(() => import('./components/LeadDatabase'), 'LeadDatabase');
+const DatabaseModule = lazyNamed(() => import('./components/DatabaseModule'), 'DatabaseModule');
 const PlatformConsole = lazyNamed(() => import('./components/PlatformConsole'), 'PlatformConsole');
 const MarketingWebsite = lazyNamed(() => import('./components/MarketingWebsite'), 'MarketingWebsite');
 const BillingView = lazyNamed(() => import('./components/BillingView'), 'BillingView');
@@ -2373,6 +2373,24 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
     setActiveTab('crm');
   };
 
+  // A CRM Won transition is the authority for creating/updating a Consumer Database profile.
+  const syncWonLeadToConsumer = (leadId: string) => {
+    void fetch('/api/consumer-database/promote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ leadId }),
+    }).then(async (response) => {
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.error || 'Could not sync the Won lead to the Consumer Database.');
+      recordAuditAction({
+        action: 'CRM_LEAD_CONVERTED_TO_CUSTOMER',
+        module: 'Database',
+        description: 'A CRM lead marked Won was linked to the Consumer Database.',
+        target: { type: 'Contact', id: result?.profile?.contactId || leadId },
+      });
+    }).catch((error) => console.error('[Consumer Database] Won lead promotion failed:', error));
+  };
+
   // Knowledge Document Save/Update with instant local state, Firestore persistence, and Backend RAG cache synchronization
   const handleSaveKnowledgeDoc = async (docItem: KnowledgeDocument) => {
     // 1. Instant local state update for zero latency
@@ -2898,9 +2916,15 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
                   });
                   if (isFirebaseConfigured && db) {
                     void setDoc(tDoc('leads', leadId), sanitizeDoc({ status: newStatus, updatedAt: nowIso, lastActivityAt: nowIso, ...demoFields }), { merge: true })
-                      .then(auditStatusChange)
+                      .then(() => {
+                        auditStatusChange();
+                        if (newStatus === 'CLOSED_WON') syncWonLeadToConsumer(leadId);
+                      })
                       .catch((err) => console.error('[Firestore] Failed updating lead status:', err));
-                  } else { auditStatusChange(); }
+                  } else {
+                    auditStatusChange();
+                    if (newStatus === 'CLOSED_WON') syncWonLeadToConsumer(leadId);
+                  }
                 }}
                 onScheduleAiFollowUp={handleScheduleAiAutoFollowUp}
                 onUpdateLead={(updatedLead) => {
@@ -2915,6 +2939,7 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
                   else if ((leadToSave.callLogs || []).length > (previousLead?.callLogs || []).length) { auditAction = 'CRM_CALL_LOG_RECORDED'; auditDescription = 'A telecalling outcome was recorded for the lead.'; }
                   else if (previousLead && previousLead.status !== leadToSave.status) { auditAction = 'CRM_LEAD_STATUS_UPDATED'; auditDescription = 'Lead status changed to ' + leadToSave.status + '.'; }
                   const auditLeadUpdate = () => recordAuditAction({ action: auditAction, module: 'CRM', description: auditDescription, target: { type: 'Lead', id: leadToSave.leadId } });
+                  const becameWon = leadToSave.status === 'CLOSED_WON' && previousLead?.status !== 'CLOSED_WON';
                   const scoringFields = ['budget', 'timeline', 'serviceInterest', 'requirements', 'notes', 'queryMessage', 'teamSize', 'country', 'city', 'website', 'productInterest'];
                   const scoringProfileChanged = Boolean(previousLead && scoringFields.some((field) => JSON.stringify((previousLead as any)[field]) !== JSON.stringify((leadToSave as any)[field])));
                   const queueProfileScore = () => {
@@ -2928,9 +2953,17 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
                   };
                   if (isFirebaseConfigured && db) {
                     void setDoc(tDoc('leads', leadToSave.leadId), sanitizeDoc(leadToSave), { merge: true })
-                      .then(() => { auditLeadUpdate(); queueProfileScore(); })
+                      .then(() => {
+                        auditLeadUpdate();
+                        queueProfileScore();
+                        if (becameWon) syncWonLeadToConsumer(leadToSave.leadId);
+                      })
                       .catch((err) => console.error('[Firestore] Failed updating lead:', err));
-                  } else { auditLeadUpdate(); queueProfileScore(); }
+                  } else {
+                    auditLeadUpdate();
+                    queueProfileScore();
+                    if (becameWon) syncWonLeadToConsumer(leadToSave.leadId);
+                  }
                 }}
                 onAddLead={(newLead, newContact) => {
                   setLeads((prev) => [newLead, ...prev]);
@@ -3035,7 +3068,33 @@ const [contacts, setContacts] = useState<Contact[]>(() => isFirebaseConfigured ?
               />
             )}
 
-            {activeTab === 'database' && <LeadDatabase isAdmin={currentUser.role === 'ADMIN'} tenantId={currentTenantId} />}
+            {activeTab === 'database' && (
+              <DatabaseModule
+                isAdmin={currentUser.role === 'ADMIN'}
+                canAccessSalesData={currentUser.accessLevel === 'ALL' || currentUser.role === 'ADMIN' || (currentUser.allowedModules || []).includes('crm')}
+                tenantId={currentTenantId}
+                leads={leads}
+                contacts={contacts}
+                onOpenLead={handleViewLeadInCrm}
+                onRequestAddLead={() => { setOpenCrmAddLead(true); setActiveTab('crm'); }}
+                onCreateLead={async (newLead, newContact) => {
+                  if (isFirebaseConfigured && db) {
+                    await Promise.all([
+                      setDoc(tDoc('leads', newLead.leadId), sanitizeDoc(newLead), { merge: true }),
+                      setDoc(tDoc('contacts', newContact.contactId), sanitizeDoc(newContact), { merge: true }),
+                    ]);
+                  }
+                  setLeads((previous) => [newLead, ...previous]);
+                  setContacts((previous) => [newContact, ...previous]);
+                  recordAuditAction({ action: 'CRM_LEAD_CREATED', module: 'CRM', description: 'A new lead and linked contact were imported into the Lead Database.', target: { type: 'Lead', id: newLead.leadId } });
+                  if (isFirebaseConfigured && db) {
+                    void fetch('/api/crm/lead-scoring/queue/' + encodeURIComponent(newLead.leadId), {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trigger: 'NEW_LEAD' }),
+                    }).catch((error) => console.warn('[CRM] Initial AI lead scoring notice:', error));
+                  }
+                }}
+              />
+            )}
             {activeTab === 'campaign-reports' && <CampaignReports tenantId={currentTenantId} />}
             {activeTab === 'qr-studio' && <QRStudioView tenantId={currentTenantId} />}
             {activeTab === 'social-studio' && <SocialStudioView tenantId={currentTenantId} tenantName={currentTenant?.name} currentUser={currentUser} onBackToLeadGen={() => setActiveTab('dashboard')} />}
